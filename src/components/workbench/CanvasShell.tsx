@@ -158,11 +158,12 @@ export function CanvasShell({
         <Button size="icon" variant="ghost" className="h-7 w-7" onClick={fitView} title="Fit to view (Ctrl/Cmd+0)">
           <LocateFixed className="size-3.5" />
         </Button>
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setFs((v) => !v)}
+        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={toggleFs}
           title={fs ? "Exit fullscreen (Esc)" : "Fullscreen"}>
           {fs ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
         </Button>
       </div>
+
 
       {toolbar && (
         <div className="absolute top-3 left-3 z-30 flex gap-1" data-no-pan>{toolbar}</div>
