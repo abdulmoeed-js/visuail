@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CanvasShell, useCanvas } from "./CanvasShell";
 import { InlineEdit } from "./InlineEdit";
+import { RefineControl } from "./RefineControl";
+import { applyProposal, type Proposal } from "@/lib/refine";
+
 
 /**
  * Deterministic top-to-bottom flowchart with a single vertical spine.
