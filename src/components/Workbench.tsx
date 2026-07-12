@@ -16,6 +16,7 @@ import { EditableList } from "./workbench/EditableList";
 import { ProcessCanvas } from "./workbench/ProcessCanvas";
 import { BMCCanvas } from "./workbench/BMCCanvas";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
+import { DriftNotifier } from "./workbench/DriftNotifier";
 import { SignupWallModal } from "./SignupWallModal";
 import { applyProposal, type Proposal } from "@/lib/refine";
 
@@ -365,8 +366,14 @@ function ArtifactView(props: {
             </div>
             <Progress value={avgPct} className="h-1.5 mt-1" />
           </div>
+          <DriftNotifier
+            drifted={drifted}
+            driftedNames={driftedNames(model, drifted)}
+            artifactTitle={model.title}
+          />
         </div>
       </div>
+
 
       {/* Drift banner */}
       {drifted && (
@@ -535,4 +542,15 @@ function ItemGroup({ title, items, onAdd, onDelete, onEdit }: {
       <EditableList items={items} onAdd={onAdd} onDelete={onDelete} onEdit={onEdit} compact />
     </div>
   );
+}
+
+function driftedNames(model: ArtifactModel, drifted: boolean): string[] {
+  if (!drifted) return [];
+  if (model.kind === "process") {
+    return [
+      ...model.steps.filter((s) => s.drift).map((s) => s.text),
+      ...model.decisions.filter((d) => d.drift).map((d) => `Decision: ${d.text}`),
+    ];
+  }
+  return model.blocks.filter((b) => b.blockDrift).map((b) => b.title);
 }
