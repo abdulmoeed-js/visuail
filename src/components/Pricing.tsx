@@ -125,9 +125,10 @@ export function Footer() {
           Visuail · a semantic artifact engine for discovery-driven work
         </div>
         <div className="flex items-center gap-4">
-          <a className="hover:text-foreground" href="#product">Product</a>
+          <a className="hover:text-foreground" href="#workbench">Workbench</a>
           <a className="hover:text-foreground" href="#why-not-miro">Why not Miro</a>
           <a className="hover:text-foreground" href="#pricing">Pricing</a>
+
           <span>© 2026</span>
         </div>
       </div>
