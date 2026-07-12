@@ -67,8 +67,20 @@ export function CanvasShell({
   useEffect(() => {
     const onFsChange = () => setFs(document.fullscreenElement === rootRef.current);
     document.addEventListener("fullscreenchange", onFsChange);
-    return () => document.removeEventListener("fullscreenchange", onFsChange);
-  }, []);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "0" || e.code === "Digit0")) {
+        e.preventDefault(); fitView();
+      }
+      if (e.key === "Escape" && fs && !document.fullscreenElement) setFs(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      window.removeEventListener("keydown", onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fs, contentWidth, contentHeight]);
+
 
 
   // Non-passive wheel listener — needed so ctrl/pinch-zoom can call preventDefault
