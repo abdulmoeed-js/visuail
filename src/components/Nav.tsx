@@ -37,10 +37,11 @@ export function Nav() {
           </span>
         </Link>
         <nav className="hidden md:flex items-center gap-1 text-sm">
-          <button onClick={() => scrollTo("product")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Product</button>
+          <button onClick={() => scrollTo("workbench")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Workbench</button>
           <button onClick={() => scrollTo("why-not-miro")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Why not Miro</button>
           <button onClick={() => scrollTo("pricing")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Pricing</button>
         </nav>
+
         <div className="flex items-center gap-2">
           <button
             onClick={() => setDark((d) => !d)}

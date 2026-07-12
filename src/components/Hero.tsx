@@ -11,17 +11,17 @@ export function Hero() {
       <div className="relative mx-auto max-w-[1400px] px-4 pt-16 pb-20 md:pt-24 md:pb-28">
         <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_460px] items-center">
           <div>
-            <div className="inline-flex items-center gap-1.5 rounded-full border bg-card/70 backdrop-blur px-2.5 py-1 text-[11px] font-mono-tight text-muted-foreground mb-5">
+            <div className="inline-flex items-center gap-1.5 rounded-full border bg-card/70 backdrop-blur px-2.5 py-1 text-[11px] font-mono-tight text-muted-foreground mb-6">
               <span className="h-1.5 w-1.5 rounded-full bg-confident animate-pulse" />
               For business analysts &amp; PMs at services firms
             </div>
-            <h1 className="font-display text-[44px] leading-[1.02] md:text-[68px] md:leading-[0.98] tracking-tight text-balance">
+            <h1 className="font-display text-[44px] leading-[1.02] md:text-[72px] md:leading-[0.98] tracking-tight text-balance">
               Diagrams that <span className="italic text-primary">know when they're stale.</span>
             </h1>
-            <p className="mt-5 text-lg text-muted-foreground max-w-xl">
-              Miro is where you think. <span className="text-foreground font-medium">Visuail is where the thinking becomes an artifact</span> that survives contact with delivery — typed, confidence-scored, and honest about what it doesn't know.
+            <p className="mt-6 text-lg md:text-xl text-muted-foreground max-w-xl leading-relaxed">
+              Miro is where you think. <span className="text-foreground font-medium">Visuail is where the thinking becomes an artifact</span> that survives contact with delivery — typed, confidence-scored, and honest enough to flag itself when the source drifts.
             </p>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
+            <div className="mt-8 flex flex-wrap items-center gap-4">
               <button
                 onClick={scroll}
                 className="group inline-flex h-11 items-center gap-2 rounded-md bg-primary px-5 text-primary-foreground font-medium hover:bg-primary/90 transition"
@@ -32,19 +32,7 @@ export function Hero() {
                 No signup. No wall before value.
               </span>
             </div>
-            <div className="mt-8 flex flex-wrap gap-2">
-              {[
-                "Typed, not shapes",
-                "Confidence-scored, never guessed",
-                "Flags when source drifts",
-                "Refuses when unsure",
-              ].map((c) => (
-                <span key={c}
-                  className="rounded-full border bg-card px-3 py-1 text-xs font-medium text-foreground/80">
-                  {c}
-                </span>
-              ))}
-            </div>
+
           </div>
 
           <HeroCard />
