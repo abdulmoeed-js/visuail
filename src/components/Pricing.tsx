@@ -58,56 +58,50 @@ export function Pricing() {
   const [action, setAction] = useState("Sign up");
   return (
     <section id="pricing" className="border-t">
-      <div className="mx-auto max-w-[1200px] px-4 py-16 md:py-24">
-        <div className="max-w-2xl mb-10">
+      <div className="mx-auto max-w-[1200px] px-4 py-24 md:py-32">
+        <div className="max-w-2xl mb-16">
           <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">Pricing</div>
-          <h2 className="font-display text-3xl md:text-4xl mt-1">Priced for people who bill by the hour.</h2>
-          <p className="text-muted-foreground mt-2">
-            Traceability and drift detection are Team-tier and up — never in a free plan. That's the moat, and we don't give it away.
+          <h2 className="font-display text-4xl md:text-5xl mt-2 leading-[1.05]">Priced for people who bill by the hour.</h2>
+          <p className="text-muted-foreground mt-4 text-lg">
+            Traceability and drift detection live in Team and up — never in a free plan. That's the moat.
           </p>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-px bg-border md:grid-cols-3 border rounded-lg overflow-hidden">
           {tiers.map((t) => (
             <div
               key={t.name}
               className={cn(
-                "relative rounded-2xl border bg-card p-6 flex flex-col",
-                t.highlight && "border-primary ring-2 ring-primary/20 shadow-lg md:-translate-y-2",
+                "relative bg-card p-8 flex flex-col",
+                t.highlight && "bg-card ring-1 ring-inset ring-primary/40",
               )}
             >
               {t.highlight && (
-                <span className="absolute -top-3 left-6 rounded-full bg-primary text-primary-foreground text-[10px] font-mono-tight uppercase tracking-widest px-2.5 py-1">
-                  Recommended · moat features live here
+                <span className="text-[10px] font-mono-tight uppercase tracking-widest text-primary mb-3">
+                  Recommended
                 </span>
               )}
               <div>
-                <h3 className="font-display text-xl">{t.name}</h3>
-                <div className="mt-3 flex items-baseline gap-1">
-                  <span className="font-display text-4xl">{t.price}</span>
+                <h3 className="font-display text-2xl">{t.name}</h3>
+                <div className="mt-4 flex items-baseline gap-1.5">
+                  <span className="font-display text-5xl tracking-tight">{t.price}</span>
                   <span className="text-sm text-muted-foreground">/ {t.period}</span>
                 </div>
-                <p className="mt-2 text-sm text-muted-foreground">{t.tagline}</p>
+                <p className="mt-3 text-sm text-muted-foreground leading-relaxed">{t.tagline}</p>
               </div>
-              <ul className="mt-5 space-y-2 flex-1">
+              <ul className="mt-8 space-y-2.5 flex-1 text-sm">
                 {t.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm">
-                    <span className={cn(
-                      "mt-0.5 flex h-4 w-4 items-center justify-center rounded-full",
-                      t.highlight ? "bg-primary text-primary-foreground" : "bg-confident/15 text-confident",
-                    )}>
-                      <Check className="size-3" />
-                    </span>
-                    <span>{f}</span>
+                  <li key={f} className="text-foreground/80 leading-relaxed">
+                    {f}
                   </li>
                 ))}
               </ul>
               <button
                 onClick={() => { setAction(t.cta); setOpen(true); }}
                 className={cn(
-                  "mt-6 h-11 rounded-md font-medium transition",
+                  "mt-8 h-11 rounded-md font-medium text-sm transition",
                   t.highlight
                     ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                    : "border bg-card hover:bg-muted",
+                    : "border bg-transparent hover:bg-muted",
                 )}
               >
                 {t.cta}
@@ -118,6 +112,7 @@ export function Pricing() {
       </div>
       <SignupWallModal open={open} onOpenChange={setOpen} action={action} />
     </section>
+
   );
 }
 
