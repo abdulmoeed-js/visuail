@@ -31,6 +31,7 @@ export function CanvasShell({
   minZoom = 0.2, maxZoom = 3,
   fullscreenLabel = "Fullscreen canvas",
 }: Props) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 40, y: 40 });
@@ -45,17 +46,42 @@ export function CanvasShell({
     setPan({ x: Math.max(20, (width - contentWidth * z) / 2), y: 30 });
   };
 
+  // Native browser Fullscreen API — with CSS fallback for browsers/contexts
+  // that reject requestFullscreen (iframes without the allow attribute, etc.).
+  const toggleFs = async () => {
+    const el = rootRef.current;
+    if (!el) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (el.requestFullscreen) {
+        await el.requestFullscreen();
+      } else {
+        setFs((v) => !v);
+      }
+    } catch {
+      setFs((v) => !v);
+    }
+  };
+
   useEffect(() => {
+    const onFsChange = () => setFs(document.fullscreenElement === rootRef.current);
+    document.addEventListener("fullscreenchange", onFsChange);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && fs) { setFs(false); }
       if ((e.metaKey || e.ctrlKey) && (e.key === "0" || e.code === "Digit0")) {
         e.preventDefault(); fitView();
       }
+      if (e.key === "Escape" && fs && !document.fullscreenElement) setFs(false);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      window.removeEventListener("keydown", onKey);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fs, contentWidth, contentHeight]);
+
+
 
   // Non-passive wheel listener — needed so ctrl/pinch-zoom can call preventDefault
   // (React's synthetic onWheel is passive by default and would let the browser
@@ -102,6 +128,7 @@ export function CanvasShell({
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "relative h-full w-full overflow-hidden rounded-lg border",
         gridClassName,
@@ -110,6 +137,7 @@ export function CanvasShell({
       role={fs ? "dialog" : undefined}
       aria-label={fs ? fullscreenLabel : undefined}
     >
+
       {/* Zoom toolbar */}
       <div className="absolute top-3 right-3 z-30 flex gap-1 rounded-md border bg-card/95 backdrop-blur p-1 shadow-sm" data-no-pan>
         <Button size="icon" variant="ghost" className="h-7 w-7"
@@ -130,11 +158,12 @@ export function CanvasShell({
         <Button size="icon" variant="ghost" className="h-7 w-7" onClick={fitView} title="Fit to view (Ctrl/Cmd+0)">
           <LocateFixed className="size-3.5" />
         </Button>
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setFs((v) => !v)}
+        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={toggleFs}
           title={fs ? "Exit fullscreen (Esc)" : "Fullscreen"}>
           {fs ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
         </Button>
       </div>
+
 
       {toolbar && (
         <div className="absolute top-3 left-3 z-30 flex gap-1" data-no-pan>{toolbar}</div>
@@ -148,7 +177,7 @@ export function CanvasShell({
           <Button
             size="icon" variant="outline"
             className="absolute top-3 right-[220px] z-30 h-8 w-8 bg-card/95 backdrop-blur"
-            onClick={() => setFs(false)}
+            onClick={toggleFs}
             title="Close fullscreen"
             data-no-pan
           >

@@ -324,6 +324,8 @@ function ArtifactView(props: {
   const avgPct = Math.round(st.avg * 100);
   const avgTone = avgPct >= 85 ? "text-confident" : avgPct >= 70 ? "text-unresolved" : "text-drift";
   const drift = drifted ? driftSummary(model) : { count: 0, label: "" };
+  const [tab, setTab] = useState("artifact");
+
 
   return (
     <div className="flex-1 flex flex-col">
@@ -368,9 +370,13 @@ function ArtifactView(props: {
         </div>
       )}
 
-      {/* Tabs */}
-      <Tabs defaultValue="artifact" className="flex-1 flex flex-col">
+      {/* Tabs (controlled — Radix uncontrolled state can be reset by external
+          rerenders, e.g. when canvas edits mutate the model, causing tabs to
+          appear "stuck" on the default value). */}
+      <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col">
         <div className="border-b px-4">
+
+
           <TabsList className="bg-transparent p-0 h-11 gap-1">
             <TabsTrigger value="artifact" className="data-[state=active]:bg-muted rounded-md">
               {model.kind === "process" ? "Process map" : "Canvas"}
@@ -386,6 +392,8 @@ function ArtifactView(props: {
             </TabsTrigger>
           </TabsList>
         </div>
+
+
 
         <TabsContent value="artifact" className="flex-1 p-4 mt-0">
           {model.kind === "process" ? (
