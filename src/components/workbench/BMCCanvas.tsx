@@ -23,20 +23,20 @@ export function BMCCanvas({ model, onAdd, onDelete }: Props) {
         }}
       >
         <Block b={by("partnerships")} onAdd={onAdd} onDelete={onDelete} className="row-span-2" />
-        <div className="grid grid-rows-2 gap-2">
+        <div className="row-span-2 grid grid-rows-2 gap-2 min-h-0">
           <Block b={by("activities")}  onAdd={onAdd} onDelete={onDelete} />
           <Block b={by("resources")}   onAdd={onAdd} onDelete={onDelete} />
         </div>
         <Block b={by("value")} onAdd={onAdd} onDelete={onDelete} className="row-span-2" emphasis />
-        <div className="grid grid-rows-2 gap-2">
+        <div className="row-span-2 grid grid-rows-2 gap-2 min-h-0">
           <Block b={by("relationships")} onAdd={onAdd} onDelete={onDelete} />
           <Block b={by("channels")}      onAdd={onAdd} onDelete={onDelete} />
         </div>
         <Block b={by("segments")} onAdd={onAdd} onDelete={onDelete} className="row-span-2" />
 
         {/* Bottom row */}
-        <Block b={by("costs")}   onAdd={onAdd} onDelete={onDelete} className="col-span-2 md:col-span-2" style={{ gridColumn: "span 2" }} />
-        <Block b={by("revenue")} onAdd={onAdd} onDelete={onDelete} className="col-span-3" style={{ gridColumn: "span 3" }} />
+        <Block b={by("costs")}   onAdd={onAdd} onDelete={onDelete} style={{ gridColumn: "span 2" }} />
+        <Block b={by("revenue")} onAdd={onAdd} onDelete={onDelete} style={{ gridColumn: "span 3" }} />
       </div>
     </div>
   );

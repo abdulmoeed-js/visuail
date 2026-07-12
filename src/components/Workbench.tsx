@@ -358,18 +358,19 @@ function ArtifactView(props: {
         </div>
 
         <TabsContent value="artifact" className="flex-1 p-4 mt-0">
-          <div className="h-[620px]">
-            {model.kind === "process" ? (
+          {model.kind === "process" ? (
+            <div className="h-[620px]">
               <ProcessCanvas
                 model={model}
                 onAddStep={props.onAddStep}
                 onDeleteStep={props.onDeleteAny}
               />
-            ) : (
-              <BMCCanvas model={model} onAdd={props.onAddBMC} onDelete={(_, id) => props.onDeleteAny(id)} />
-            )}
-          </div>
+            </div>
+          ) : (
+            <BMCCanvas model={model} onAdd={props.onAddBMC} onDelete={(_, id) => props.onDeleteAny(id)} />
+          )}
         </TabsContent>
+
 
         <TabsContent value="items" className="p-4 mt-0 space-y-4">
           {model.kind === "process" ? (
