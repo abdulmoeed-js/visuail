@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, type ReactNode } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -327,7 +327,7 @@ function ArtifactView(props: {
   const drift = drifted ? driftSummary(model) : { count: 0, label: "" };
   const [tab, setTab] = useState<ArtifactTab>("artifact");
 
-  const tabs: { value: ArtifactTab; label: React.ReactNode }[] = [
+  const tabs: { value: ArtifactTab; label: ReactNode }[] = [
     { value: "artifact", label: model.kind === "process" ? "Process map" : "Canvas" },
     { value: "items", label: <><LayoutList className="size-3.5" /> Items</> },
     { value: "downstream1", label: model.kind === "process" ? "BRD" : "Summary brief" },
