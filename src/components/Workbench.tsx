@@ -91,6 +91,34 @@ export function Workbench() {
     return { ...m, blocks: m.blocks.map((b) => ({ ...b, items: b.items.filter((i) => i.id !== id) })) };
   });
 
+  // In-place edit of any item: patches the IR item by id so every derived view
+  // (Typed IR list, BRD, backlog, brief, questions) updates from the same source.
+  // Text edits also promote the item to user-verified: confidence 1, drift off.
+  const onUpdateItem = (id: string, patch: Partial<BaseItem> & Record<string, unknown>) =>
+    mutate((m) => {
+      const apply = <T extends BaseItem>(i: T): T => {
+        if (i.id !== id) return i;
+        const merged = { ...i, ...patch } as T;
+        if (Object.prototype.hasOwnProperty.call(patch, "text")) {
+          (merged as BaseItem).userAdded = true;
+          (merged as BaseItem).confidence = 1;
+          (merged as BaseItem).drift = false;
+        }
+        return merged;
+      };
+      if (m.kind === "process") {
+        return {
+          ...m,
+          actors: m.actors.map(apply),
+          steps: m.steps.map(apply),
+          decisions: m.decisions.map(apply),
+          exceptions: m.exceptions.map(apply),
+          systems: m.systems.map(apply),
+        };
+      }
+      return { ...m, blocks: m.blocks.map((b) => ({ ...b, items: b.items.map(apply) })) };
+    });
+
   const newUserItem = (prefix: string, text: string): BaseItem => ({
     id: nextId(prefix), text, confidence: 1, userAdded: true,
   });
