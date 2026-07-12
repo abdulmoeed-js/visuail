@@ -560,13 +560,14 @@ function DecisionNode({
 // ---- Exception ----
 
 function ExceptionNode({
-  node, e, onDelete, onUpdate, onDrag, onResize,
+  node, e, model, onDelete, onUpdate, onDrag, onResize, onRefine,
 }: {
-  node: RightNode; e: Exception;
+  node: RightNode; e: Exception; model: ProcessModel;
   onDelete: () => void;
   onUpdate: (patch: Partial<Exception>) => void;
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
+  onRefine: (p: Proposal) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   return (
@@ -586,11 +587,13 @@ function ExceptionNode({
         </div>
         <div className="flex items-center gap-1">
           <ConfidenceBadge item={e} />
+          <RefineControl node={{ id: e.id, kind: "exception", text: e.text }} model={model} onApply={onRefine} />
           <button onClick={onDelete} data-no-pan
             className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
+
       </div>
       <div className="text-[11px] leading-snug break-words">
         <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline />
