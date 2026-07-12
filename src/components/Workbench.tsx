@@ -17,6 +17,7 @@ import { ProcessCanvas } from "./workbench/ProcessCanvas";
 import { BMCCanvas } from "./workbench/BMCCanvas";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
 import { SignupWallModal } from "./SignupWallModal";
+import { applyProposal, type Proposal } from "@/lib/refine";
 
 type State =
   | { status: "empty" }
@@ -123,6 +124,13 @@ export function Workbench() {
   const newUserItem = (prefix: string, text: string): BaseItem => ({
     id: nextId(prefix), text, confidence: 1, userAdded: true,
   });
+
+  // AI-assisted refinement: applies a Proposal (produced by RefineControl's
+  // mocked deterministic transform) to the ProcessModel. Goes through the same
+  // setState as manual edits, so Typed IR / BRD / Backlog re-derive automatically.
+  const onApplyRefinement = (p: Proposal) =>
+    mutate((m) => (m.kind === "process" ? applyProposal(p, m) : m));
+
 
   return (
     <section id="workbench" className="mx-auto max-w-[1400px] px-4 pb-24">
@@ -237,6 +245,7 @@ export function Workbench() {
                 ? { ...m, blocks: m.blocks.map((b) => b.id === bid ? { ...b, items: [...b.items, newUserItem(bid.slice(0,2).toUpperCase(), text)] } : b) } : m)}
               onDeleteAny={onDeleteAny}
               onUpdateItem={onUpdateItem}
+              onApplyRefinement={onApplyRefinement}
             />
           )}
         </div>
@@ -320,6 +329,7 @@ function ArtifactView(props: {
   onAddBMC: (b: BMCBlock["id"], t: string) => void;
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
+  onApplyRefinement: (p: Proposal) => void;
 }) {
   const { model, drifted, stats: st } = props;
   const avgPct = Math.round(st.avg * 100);
@@ -413,6 +423,7 @@ function ArtifactView(props: {
                     onAddStep={props.onAddStep}
                     onDeleteAny={props.onDeleteAny}
                     onUpdateItem={props.onUpdateItem}
+                    onApplyRefinement={props.onApplyRefinement}
                   />
                 ) : (
                   <BMCCanvas

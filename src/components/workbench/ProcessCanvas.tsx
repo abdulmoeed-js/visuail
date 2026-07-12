@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CanvasShell, useCanvas } from "./CanvasShell";
 import { InlineEdit } from "./InlineEdit";
+import { RefineControl } from "./RefineControl";
+import { applyProposal, type Proposal } from "@/lib/refine";
+
 
 /**
  * Deterministic top-to-bottom flowchart with a single vertical spine.
@@ -167,9 +170,10 @@ interface Props {
   onAddStep: (text: string) => void;
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<Step & Decision & Exception>) => void;
+  onApplyRefinement?: (p: Proposal) => void;
 }
 
-export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem }: Props) {
+export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onApplyRefinement }: Props) {
   const [overrides, setOverrides] = useState<Overrides>({});
   const { spine, right, routes, width, height } = useMemo(
     () => layout(model, overrides),
@@ -180,6 +184,17 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem }: P
 
   const patchOverride = (id: string, o: NodeOverride) =>
     setOverrides((cur) => ({ ...cur, [id]: { ...cur[id], ...o } }));
+
+  const handleRefine = (p: Proposal) => {
+    if (onApplyRefinement) onApplyRefinement(p);
+    else {
+      // fallback: apply locally-only (would desync downstream views; parent should provide handler)
+      // eslint-disable-next-line no-console
+      console.warn("ProcessCanvas: onApplyRefinement not provided; refinement dropped");
+      applyProposal(p, model);
+    }
+  };
+
 
   return (
     <CanvasShell
@@ -275,34 +290,39 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem }: P
               key={s.id}
               node={n}
               step={s}
+              model={model}
               actors={model.actors}
               systems={model.systems}
               onDelete={() => onDeleteAny(s.id)}
               onUpdate={(patch) => onUpdateItem(s.id, patch)}
               onDrag={(delta) => patchOverride(s.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
               onResize={(w, h) => patchOverride(s.id, { w, h })}
+              onRefine={handleRefine}
             />
           );
         }
         const d = n.ref;
         return (
           <DecisionNode
-            key={d.id} node={n} d={d}
+            key={d.id} node={n} d={d} model={model}
             onDelete={() => onDeleteAny(d.id)}
             onUpdate={(patch) => onUpdateItem(d.id, patch)}
             onDrag={(delta) => patchOverride(d.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
             onResize={(w, h) => patchOverride(d.id, { w, h })}
+            onRefine={handleRefine}
           />
         );
       })}
       {right.map((n) => (
         <ExceptionNode
-          key={n.ref.id} node={n} e={n.ref}
+          key={n.ref.id} node={n} e={n.ref} model={model}
           onDelete={() => onDeleteAny(n.ref.id)}
           onUpdate={(patch) => onUpdateItem(n.ref.id, patch)}
           onDrag={(delta) => patchOverride(n.ref.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
           onResize={(w, h) => patchOverride(n.ref.id, { w, h })}
+          onRefine={handleRefine}
         />
+
       ))}
     </CanvasShell>
   );
@@ -395,14 +415,15 @@ function DragHandle({ handlers }: { handlers: ReturnType<typeof useNodeDrag> }) 
 // ---- Step ----
 
 function StepNode({
-  node, step, actors, systems, onDelete, onUpdate, onDrag, onResize,
+  node, step, actors, systems, model, onDelete, onUpdate, onDrag, onResize, onRefine,
 }: {
-  node: SpineNode; step: Step;
+  node: SpineNode; step: Step; model: ProcessModel;
   actors: { id: string; text: string }[]; systems: { id: string; text: string }[];
   onDelete: () => void;
   onUpdate: (patch: Partial<Step>) => void;
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
+  onRefine: (p: Proposal) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   return (
@@ -424,12 +445,14 @@ function StepNode({
         </div>
         <div className="flex items-center gap-1">
           <ConfidenceBadge item={step} />
+          <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
           <button onClick={onDelete} data-no-pan
             className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
       </div>
+
       <div className="text-xs leading-snug font-medium break-words">
         <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} multiline />
       </div>
@@ -481,13 +504,14 @@ function MetaSelect({
 // ---- Decision ----
 
 function DecisionNode({
-  node, d, onDelete, onUpdate, onDrag, onResize,
+  node, d, model, onDelete, onUpdate, onDrag, onResize, onRefine,
 }: {
-  node: SpineNode; d: Decision;
+  node: SpineNode; d: Decision; model: ProcessModel;
   onDelete: () => void;
   onUpdate: (patch: Partial<Decision>) => void;
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
+  onRefine: (p: Proposal) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   const left = node.cx - node.w / 2;
@@ -513,11 +537,13 @@ function DecisionNode({
           <DragHandle handlers={drag} />
           <IdChip id={d.id} tone="primary" />
           <ConfidenceBadge item={d} />
+          <RefineControl node={{ id: d.id, kind: "decision", text: d.text }} model={model} onApply={onRefine} />
           <button onClick={onDelete} data-no-pan
             className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition">
             <X className="size-3" />
           </button>
         </div>
+
         <div className="text-[11px] font-medium leading-tight">
           <InlineEdit value={d.text} onChange={(v) => onUpdate({ text: v })} multiline />
         </div>
@@ -534,13 +560,14 @@ function DecisionNode({
 // ---- Exception ----
 
 function ExceptionNode({
-  node, e, onDelete, onUpdate, onDrag, onResize,
+  node, e, model, onDelete, onUpdate, onDrag, onResize, onRefine,
 }: {
-  node: RightNode; e: Exception;
+  node: RightNode; e: Exception; model: ProcessModel;
   onDelete: () => void;
   onUpdate: (patch: Partial<Exception>) => void;
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
+  onRefine: (p: Proposal) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   return (
@@ -560,11 +587,13 @@ function ExceptionNode({
         </div>
         <div className="flex items-center gap-1">
           <ConfidenceBadge item={e} />
+          <RefineControl node={{ id: e.id, kind: "exception", text: e.text }} model={model} onApply={onRefine} />
           <button onClick={onDelete} data-no-pan
             className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
+
       </div>
       <div className="text-[11px] leading-snug break-words">
         <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline />
