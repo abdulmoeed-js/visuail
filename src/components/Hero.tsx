@@ -54,6 +54,9 @@ export function Hero() {
               >
                 Try it on a real transcript <ArrowRight className="size-4 group-hover:translate-x-0.5 transition" />
               </button>
+              <span className="text-xs text-muted-foreground font-mono-tight">
+                No signup. No wall before value.
+              </span>
             </div>
 
           </div>
