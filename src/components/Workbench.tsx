@@ -329,6 +329,7 @@ function ArtifactView(props: {
   onAddBMC: (b: BMCBlock["id"], t: string) => void;
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
+  onApplyRefinement: (p: Proposal) => void;
 }) {
   const { model, drifted, stats: st } = props;
   const avgPct = Math.round(st.avg * 100);
