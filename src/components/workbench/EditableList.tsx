@@ -4,12 +4,14 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfidenceBadge, IdChip } from "./atoms";
+import { InlineEdit } from "./InlineEdit";
 import type { BaseItem } from "@/data/samples";
 
 interface Props {
   items: BaseItem[];
   onAdd: (text: string) => void;
   onDelete: (id: string) => void;
+  onEdit?: (id: string, text: string) => void;
   idPrefix?: string;
   placeholder?: string;
   compact?: boolean;
@@ -17,7 +19,8 @@ interface Props {
 }
 
 export function EditableList({
-  items, onAdd, onDelete, placeholder = "Add item…", compact, showIds = true,
+  items, onAdd, onDelete, onEdit,
+  placeholder = "Add item…", compact, showIds = true,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -42,9 +45,13 @@ export function EditableList({
           )}
         >
           {showIds && <IdChip id={item.id} />}
-          <div className="flex-1 leading-snug">
-            <span className="text-foreground">{item.text}</span>
-            {item.snippet && (
+          <div className="flex-1 leading-snug min-w-0">
+            {onEdit ? (
+              <InlineEdit value={item.text} onChange={(v) => onEdit(item.id, v)} className="text-foreground" multiline />
+            ) : (
+              <span className="text-foreground break-words">{item.text}</span>
+            )}
+            {item.snippet && !item.userAdded && (
               <div className="mt-1 flex gap-1.5 text-[11px] italic text-muted-foreground">
                 <span className="text-unresolved">“</span>
                 <span>{item.snippet}</span>
