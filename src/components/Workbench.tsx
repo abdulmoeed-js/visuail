@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import {
   Sparkles, RotateCcw, AlertOctagon, Share2, FileDown,
@@ -24,6 +23,8 @@ type State =
   | { status: "extracting" }
   | { status: "refused"; reason: string }
   | { status: "ready"; model: ArtifactModel; drifted: boolean };
+
+type ArtifactTab = "artifact" | "items" | "downstream1" | "downstream2";
 
 let uid = 1000;
 const nextId = (prefix: string) => `${prefix}-U${++uid}`;
@@ -324,7 +325,14 @@ function ArtifactView(props: {
   const avgPct = Math.round(st.avg * 100);
   const avgTone = avgPct >= 85 ? "text-confident" : avgPct >= 70 ? "text-unresolved" : "text-drift";
   const drift = drifted ? driftSummary(model) : { count: 0, label: "" };
-  const [tab, setTab] = useState("artifact");
+  const [tab, setTab] = useState<ArtifactTab>("artifact");
+
+  const tabs: { value: ArtifactTab; label: React.ReactNode }[] = [
+    { value: "artifact", label: model.kind === "process" ? "Process map" : "Canvas" },
+    { value: "items", label: <><LayoutList className="size-3.5" /> Items</> },
+    { value: "downstream1", label: model.kind === "process" ? "BRD" : "Summary brief" },
+    { value: "downstream2", label: model.kind === "process" ? "Traced backlog" : "Open questions" },
+  ];
 
 
   return (
@@ -370,88 +378,95 @@ function ArtifactView(props: {
         </div>
       )}
 
-      {/* Tabs (controlled — Radix uncontrolled state can be reset by external
-          rerenders, e.g. when canvas edits mutate the model, causing tabs to
-          appear "stuck" on the default value). */}
-      <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col">
-        <div className="border-b px-4">
-
-
-          <TabsList className="bg-transparent p-0 h-11 gap-1">
-            <TabsTrigger value="artifact" className="data-[state=active]:bg-muted rounded-md">
-              {model.kind === "process" ? "Process map" : "Canvas"}
-            </TabsTrigger>
-            <TabsTrigger value="items" className="data-[state=active]:bg-muted rounded-md">
-              <LayoutList className="size-3.5" /> Items
-            </TabsTrigger>
-            <TabsTrigger value="downstream1" className="data-[state=active]:bg-muted rounded-md">
-              {model.kind === "process" ? "BRD" : "Summary brief"}
-            </TabsTrigger>
-            <TabsTrigger value="downstream2" className="data-[state=active]:bg-muted rounded-md">
-              {model.kind === "process" ? "Traced backlog" : "Open questions"}
-            </TabsTrigger>
-          </TabsList>
+      <div className="flex-1 flex min-h-0 flex-col isolate">
+        <div className="relative z-40 border-b bg-card px-4" data-no-pan>
+          <div role="tablist" aria-label="Artifact views" className="flex h-11 items-center gap-1">
+            {tabs.map((item) => {
+              const active = tab === item.value;
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  data-state={active ? "active" : "inactive"}
+                  className={cn(
+                    "inline-flex h-7 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    active && "bg-muted text-foreground shadow-sm",
+                  )}
+                  onClick={() => setTab(item.value)}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-
-
-        <TabsContent value="artifact" className="flex-1 p-4 mt-0">
-          {model.kind === "process" ? (
-            <div className="h-[640px]">
-              <ProcessCanvas
-                model={model}
-                onAddStep={props.onAddStep}
-                onDeleteAny={props.onDeleteAny}
-                onUpdateItem={props.onUpdateItem}
-              />
-            </div>
-          ) : (
-            <div className="h-[640px]">
-              <BMCCanvas
-                model={model}
-                onAdd={props.onAddBMC}
-                onDelete={(_, id) => props.onDeleteAny(id)}
-                onUpdate={props.onUpdateItem}
-              />
-            </div>
-          )}
-        </TabsContent>
-
-
-        <TabsContent value="items" className="p-4 mt-0 space-y-4">
-          {model.kind === "process" ? (
-            <div className="grid gap-4 md:grid-cols-2">
-              <ItemGroup title="Actors" items={model.actors} onAdd={props.onAddActor} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
-              <ItemGroup title="Systems" items={model.systems} onAdd={props.onAddSystem} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
-              <ItemGroup title="Steps" items={model.steps} onAdd={props.onAddStep} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
-              <ItemGroup title="Decisions" items={model.decisions} onAdd={props.onAddDecision} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
-              <ItemGroup title="Exceptions" items={model.exceptions} onAdd={props.onAddException} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
-            </div>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-3">
-              {model.blocks.map((b) => (
-                <div key={b.id} className="rounded-lg border bg-card p-3">
-                  <h4 className="text-sm font-semibold mb-2">{b.title}</h4>
-                  <EditableList
-                    items={b.items}
-                    onAdd={(t) => props.onAddBMC(b.id, t)}
-                    onDelete={(id) => props.onDeleteAny(id)}
-                    onEdit={(id, t) => props.onUpdateItem(id, { text: t })}
-                    compact showIds={false}
+        <div className="relative z-0 flex-1 min-h-0 overflow-hidden">
+          {tab === "artifact" && (
+            <div className="h-full p-4">
+              <div className="h-[640px]">
+                {model.kind === "process" ? (
+                  <ProcessCanvas
+                    model={model}
+                    onAddStep={props.onAddStep}
+                    onDeleteAny={props.onDeleteAny}
+                    onUpdateItem={props.onUpdateItem}
                   />
-                </div>
-              ))}
+                ) : (
+                  <BMCCanvas
+                    model={model}
+                    onAdd={props.onAddBMC}
+                    onDelete={(_, id) => props.onDeleteAny(id)}
+                    onUpdate={props.onUpdateItem}
+                  />
+                )}
+              </div>
             </div>
           )}
-        </TabsContent>
 
-        <TabsContent value="downstream1" className="p-4 mt-0">
-          {model.kind === "process" ? <BRDTab m={model} /> : <BriefTab m={model} />}
-        </TabsContent>
-        <TabsContent value="downstream2" className="p-4 mt-0">
-          {model.kind === "process" ? <BacklogTab m={model} /> : <QuestionsTab m={model} />}
-        </TabsContent>
-      </Tabs>
+          {tab === "items" && (
+            <div className="p-4 space-y-4">
+              {model.kind === "process" ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <ItemGroup title="Actors" items={model.actors} onAdd={props.onAddActor} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+                  <ItemGroup title="Systems" items={model.systems} onAdd={props.onAddSystem} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+                  <ItemGroup title="Steps" items={model.steps} onAdd={props.onAddStep} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+                  <ItemGroup title="Decisions" items={model.decisions} onAdd={props.onAddDecision} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+                  <ItemGroup title="Exceptions" items={model.exceptions} onAdd={props.onAddException} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+                </div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-3">
+                  {model.blocks.map((b) => (
+                    <div key={b.id} className="rounded-lg border bg-card p-3">
+                      <h4 className="text-sm font-semibold mb-2">{b.title}</h4>
+                      <EditableList
+                        items={b.items}
+                        onAdd={(t) => props.onAddBMC(b.id, t)}
+                        onDelete={(id) => props.onDeleteAny(id)}
+                        onEdit={(id, t) => props.onUpdateItem(id, { text: t })}
+                        compact showIds={false}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "downstream1" && (
+            <div className="p-4">
+              {model.kind === "process" ? <BRDTab m={model} /> : <BriefTab m={model} />}
+            </div>
+          )}
+          {tab === "downstream2" && (
+            <div className="p-4">
+              {model.kind === "process" ? <BacklogTab m={model} /> : <QuestionsTab m={model} />}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Publish action bar */}
       <div className="border-t bg-muted/40 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
