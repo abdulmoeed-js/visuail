@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Maximize2, Minimize2, ZoomIn, ZoomOut, LocateFixed, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -46,29 +47,35 @@ export function CanvasShell({
     setPan({ x: Math.max(20, (width - contentWidth * z) / 2), y: 30 });
   };
 
-  // Native browser Fullscreen API — with CSS fallback for browsers/contexts
-  // that reject requestFullscreen (iframes without the allow attribute, etc.).
+  // Try native Fullscreen API first; fall back to a CSS-portal fullscreen when
+  // the browser rejects it (common inside iframes without allow="fullscreen",
+  // like the Lovable preview).
+  const [cssFs, setCssFs] = useState(false);
   const toggleFs = async () => {
     const el = rootRef.current;
     if (!el) return;
-    const isNativeFullscreen = document.fullscreenElement === el;
-    try {
-      if (isNativeFullscreen) {
-        setFs(false);
-        await document.exitFullscreen();
-      } else if (el.requestFullscreen) {
-        setFs(true);
-        await el.requestFullscreen();
-      } else {
-        setFs((v) => !v);
-      }
-    } catch {
-      setFs((v) => !v);
+    if (document.fullscreenElement === el) {
+      try { await document.exitFullscreen(); } catch { /* noop */ }
+      setFs(false);
+      return;
     }
+    if (cssFs) { setCssFs(false); setFs(false); return; }
+    if (el.requestFullscreen) {
+      try {
+        await el.requestFullscreen();
+        setFs(true);
+        return;
+      } catch { /* fall through to CSS fallback */ }
+    }
+    setCssFs(true);
+    setFs(true);
   };
 
   useEffect(() => {
-    const onFsChange = () => setFs(document.fullscreenElement === rootRef.current);
+    const onFsChange = () => {
+      const native = document.fullscreenElement === rootRef.current;
+      setFs(native || cssFs);
+    };
     document.addEventListener("fullscreenchange", onFsChange);
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "0" || e.code === "Digit0")) {
@@ -79,6 +86,7 @@ export function CanvasShell({
         if (document.fullscreenElement) {
           document.exitFullscreen().catch(() => undefined);
         }
+        setCssFs(false);
         setFs(false);
       }
     };
@@ -88,7 +96,7 @@ export function CanvasShell({
       window.removeEventListener("keydown", onKey);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fs, contentWidth, contentHeight]);
+  }, [fs, cssFs, contentWidth, contentHeight]);
 
 
 
@@ -139,7 +147,7 @@ export function CanvasShell({
   };
   const stopPan = () => { dragRef.current = null; };
 
-  return (
+  const shell = (
     <div
       ref={rootRef}
       className={cn(
@@ -239,6 +247,13 @@ export function CanvasShell({
       )}
     </div>
   );
+
+  // When we're in CSS-fallback fullscreen (native rejected, e.g. iframe without
+  // allow="fullscreen"), portal into <body> so no ancestor overflow/transform clips us.
+  if (cssFs && typeof document !== "undefined") {
+    return createPortal(shell, document.body);
+  }
+  return shell;
 }
 
 function Minimap({
