@@ -46,7 +46,8 @@ export function InlineEdit({
       onClick: stop,
       onPointerDown: stop,
       onKeyDown: (e: React.KeyboardEvent) => {
-        if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
+        // Enter commits (Shift+Enter or Ctrl/Meta+Enter inserts a newline in multiline).
+        if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) { e.preventDefault(); commit(); }
         else if (e.key === "Escape") { e.preventDefault(); cancel(); }
       },
       className: cn(
