@@ -368,41 +368,27 @@ function ArtifactView(props: {
         </div>
       )}
 
-      <TabsControlled model={model} {...props} />
-    </div>
-  );
-}
+      {/* Tabs (controlled — Radix uncontrolled state can be reset by external
+          rerenders, e.g. when canvas edits mutate the model, causing tabs to
+          appear "stuck" on the default value). */}
+      <Tabs value={props.tab} onValueChange={props.setTab} className="flex-1 flex flex-col">
+        <div className="border-b px-4">
+          <TabsList className="bg-transparent p-0 h-11 gap-1">
+            <TabsTrigger value="artifact" className="data-[state=active]:bg-muted rounded-md">
+              {model.kind === "process" ? "Process map" : "Canvas"}
+            </TabsTrigger>
+            <TabsTrigger value="items" className="data-[state=active]:bg-muted rounded-md">
+              <LayoutList className="size-3.5" /> Items
+            </TabsTrigger>
+            <TabsTrigger value="downstream1" className="data-[state=active]:bg-muted rounded-md">
+              {model.kind === "process" ? "BRD" : "Summary brief"}
+            </TabsTrigger>
+            <TabsTrigger value="downstream2" className="data-[state=active]:bg-muted rounded-md">
+              {model.kind === "process" ? "Traced backlog" : "Open questions"}
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
-function TabsControlled({ model, ...props }: {
-  model: ArtifactModel;
-  onAddActor: (t: string) => void;
-  onAddStep: (t: string) => void;
-  onAddDecision: (t: string) => void;
-  onAddException: (t: string) => void;
-  onAddSystem: (t: string) => void;
-  onAddBMC: (b: BMCBlock["id"], t: string) => void;
-  onDeleteAny: (id: string) => void;
-  onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
-}) {
-  const [tab, setTab] = useState("artifact");
-  return (
-    <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col">
-      <div className="border-b px-4">
-        <TabsList className="bg-transparent p-0 h-11 gap-1">
-          <TabsTrigger value="artifact" className="data-[state=active]:bg-muted rounded-md">
-            {model.kind === "process" ? "Process map" : "Canvas"}
-          </TabsTrigger>
-          <TabsTrigger value="items" className="data-[state=active]:bg-muted rounded-md">
-            <LayoutList className="size-3.5" /> Items
-          </TabsTrigger>
-          <TabsTrigger value="downstream1" className="data-[state=active]:bg-muted rounded-md">
-            {model.kind === "process" ? "BRD" : "Summary brief"}
-          </TabsTrigger>
-          <TabsTrigger value="downstream2" className="data-[state=active]:bg-muted rounded-md">
-            {model.kind === "process" ? "Traced backlog" : "Open questions"}
-          </TabsTrigger>
-        </TabsList>
-      </div>
 
 
         <TabsContent value="artifact" className="flex-1 p-4 mt-0">
