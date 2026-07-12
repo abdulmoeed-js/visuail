@@ -486,9 +486,11 @@ function MetricBlock({ label, value, tone }: { label: string; value: string; ton
   );
 }
 
-function ItemGroup({ title, items, onAdd, onDelete }: {
+function ItemGroup({ title, items, onAdd, onDelete, onEdit }: {
   title: string; items: BaseItem[];
-  onAdd: (t: string) => void; onDelete: (id: string) => void;
+  onAdd: (t: string) => void;
+  onDelete: (id: string) => void;
+  onEdit?: (id: string, t: string) => void;
 }) {
   return (
     <div className="rounded-lg border bg-card p-3">
@@ -496,7 +498,7 @@ function ItemGroup({ title, items, onAdd, onDelete }: {
         <h4 className="text-sm font-semibold">{title}</h4>
         <span className="text-[10px] font-mono-tight text-muted-foreground">{items.length}</span>
       </div>
-      <EditableList items={items} onAdd={onAdd} onDelete={onDelete} compact />
+      <EditableList items={items} onAdd={onAdd} onDelete={onDelete} onEdit={onEdit} compact />
     </div>
   );
 }
