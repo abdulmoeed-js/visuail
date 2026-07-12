@@ -15,7 +15,7 @@ function LandingPage() {
       <Nav />
       <main>
         <Hero />
-        <ProductStrip />
+        
         <Workbench />
         <WhyNotMiro />
         <Pricing />
