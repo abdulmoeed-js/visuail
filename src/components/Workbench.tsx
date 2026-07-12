@@ -17,6 +17,7 @@ import { ProcessCanvas } from "./workbench/ProcessCanvas";
 import { BMCCanvas } from "./workbench/BMCCanvas";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
 import { DriftNotifier } from "./workbench/DriftNotifier";
+import { TemplateGallery } from "./workbench/TemplateGallery";
 import { SignupWallModal } from "./SignupWallModal";
 import { applyProposal, type Proposal } from "@/lib/refine";
 
@@ -145,7 +146,9 @@ export function Workbench() {
             Paste a transcript or pick a sample. Get a typed artifact, generated docs, and a drift flag when the source moves.
           </p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <TemplateGallery onPick={loadSample} />
+          <span className="mx-1 h-4 w-px bg-border" aria-hidden />
           {SAMPLES.map((sm) => (
             <button
               key={sm.id}
