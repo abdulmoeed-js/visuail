@@ -413,11 +413,11 @@ function ArtifactView(props: {
         <TabsContent value="items" className="p-4 mt-0 space-y-4">
           {model.kind === "process" ? (
             <div className="grid gap-4 md:grid-cols-2">
-              <ItemGroup title="Actors" items={model.actors} onAdd={props.onAddActor} onDelete={props.onDeleteAny} />
-              <ItemGroup title="Systems" items={model.systems} onAdd={props.onAddSystem} onDelete={props.onDeleteAny} />
-              <ItemGroup title="Steps" items={model.steps} onAdd={props.onAddStep} onDelete={props.onDeleteAny} />
-              <ItemGroup title="Decisions" items={model.decisions} onAdd={props.onAddDecision} onDelete={props.onDeleteAny} />
-              <ItemGroup title="Exceptions" items={model.exceptions} onAdd={props.onAddException} onDelete={props.onDeleteAny} />
+              <ItemGroup title="Actors" items={model.actors} onAdd={props.onAddActor} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+              <ItemGroup title="Systems" items={model.systems} onAdd={props.onAddSystem} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+              <ItemGroup title="Steps" items={model.steps} onAdd={props.onAddStep} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+              <ItemGroup title="Decisions" items={model.decisions} onAdd={props.onAddDecision} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+              <ItemGroup title="Exceptions" items={model.exceptions} onAdd={props.onAddException} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-3">
@@ -428,6 +428,7 @@ function ArtifactView(props: {
                     items={b.items}
                     onAdd={(t) => props.onAddBMC(b.id, t)}
                     onDelete={(id) => props.onDeleteAny(id)}
+                    onEdit={(id, t) => props.onUpdateItem(id, { text: t })}
                     compact showIds={false}
                   />
                 </div>
