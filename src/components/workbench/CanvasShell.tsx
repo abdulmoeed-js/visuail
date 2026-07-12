@@ -31,6 +31,7 @@ export function CanvasShell({
   minZoom = 0.2, maxZoom = 3,
   fullscreenLabel = "Fullscreen canvas",
 }: Props) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 40, y: 40 });
@@ -45,17 +46,30 @@ export function CanvasShell({
     setPan({ x: Math.max(20, (width - contentWidth * z) / 2), y: 30 });
   };
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && fs) { setFs(false); }
-      if ((e.metaKey || e.ctrlKey) && (e.key === "0" || e.code === "Digit0")) {
-        e.preventDefault(); fitView();
+  // Native browser Fullscreen API — with CSS fallback for browsers/contexts
+  // that reject requestFullscreen (iframes without the allow attribute, etc.).
+  const toggleFs = async () => {
+    const el = rootRef.current;
+    if (!el) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (el.requestFullscreen) {
+        await el.requestFullscreen();
+      } else {
+        setFs((v) => !v);
       }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fs, contentWidth, contentHeight]);
+    } catch {
+      setFs((v) => !v);
+    }
+  };
+
+  useEffect(() => {
+    const onFsChange = () => setFs(document.fullscreenElement === rootRef.current);
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
 
   // Non-passive wheel listener — needed so ctrl/pinch-zoom can call preventDefault
   // (React's synthetic onWheel is passive by default and would let the browser
