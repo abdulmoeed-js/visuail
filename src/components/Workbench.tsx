@@ -16,6 +16,7 @@ import { EditableList } from "./workbench/EditableList";
 import { ProcessCanvas } from "./workbench/ProcessCanvas";
 import { BMCCanvas } from "./workbench/BMCCanvas";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
+import { DriftNotifier } from "./workbench/DriftNotifier";
 import { SignupWallModal } from "./SignupWallModal";
 import { applyProposal, type Proposal } from "@/lib/refine";
 
