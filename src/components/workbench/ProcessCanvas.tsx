@@ -504,13 +504,14 @@ function MetaSelect({
 // ---- Decision ----
 
 function DecisionNode({
-  node, d, onDelete, onUpdate, onDrag, onResize,
+  node, d, model, onDelete, onUpdate, onDrag, onResize, onRefine,
 }: {
-  node: SpineNode; d: Decision;
+  node: SpineNode; d: Decision; model: ProcessModel;
   onDelete: () => void;
   onUpdate: (patch: Partial<Decision>) => void;
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
+  onRefine: (p: Proposal) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   const left = node.cx - node.w / 2;
@@ -536,11 +537,13 @@ function DecisionNode({
           <DragHandle handlers={drag} />
           <IdChip id={d.id} tone="primary" />
           <ConfidenceBadge item={d} />
+          <RefineControl node={{ id: d.id, kind: "decision", text: d.text }} model={model} onApply={onRefine} />
           <button onClick={onDelete} data-no-pan
             className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition">
             <X className="size-3" />
           </button>
         </div>
+
         <div className="text-[11px] font-medium leading-tight">
           <InlineEdit value={d.text} onChange={(v) => onUpdate({ text: v })} multiline />
         </div>
