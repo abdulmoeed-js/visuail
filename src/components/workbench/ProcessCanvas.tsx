@@ -290,34 +290,39 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
               key={s.id}
               node={n}
               step={s}
+              model={model}
               actors={model.actors}
               systems={model.systems}
               onDelete={() => onDeleteAny(s.id)}
               onUpdate={(patch) => onUpdateItem(s.id, patch)}
               onDrag={(delta) => patchOverride(s.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
               onResize={(w, h) => patchOverride(s.id, { w, h })}
+              onRefine={handleRefine}
             />
           );
         }
         const d = n.ref;
         return (
           <DecisionNode
-            key={d.id} node={n} d={d}
+            key={d.id} node={n} d={d} model={model}
             onDelete={() => onDeleteAny(d.id)}
             onUpdate={(patch) => onUpdateItem(d.id, patch)}
             onDrag={(delta) => patchOverride(d.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
             onResize={(w, h) => patchOverride(d.id, { w, h })}
+            onRefine={handleRefine}
           />
         );
       })}
       {right.map((n) => (
         <ExceptionNode
-          key={n.ref.id} node={n} e={n.ref}
+          key={n.ref.id} node={n} e={n.ref} model={model}
           onDelete={() => onDeleteAny(n.ref.id)}
           onUpdate={(patch) => onUpdateItem(n.ref.id, patch)}
           onDrag={(delta) => patchOverride(n.ref.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
           onResize={(w, h) => patchOverride(n.ref.id, { w, h })}
+          onRefine={handleRefine}
         />
+
       ))}
     </CanvasShell>
   );
