@@ -372,6 +372,8 @@ function ArtifactView(props: {
           rerenders, e.g. when canvas edits mutate the model, causing tabs to
           appear "stuck" on the default value). */}
       <Tabs value={props.tab} onValueChange={props.setTab} className="flex-1 flex flex-col">
+        <div className="border-b px-4">
+
 
           <TabsList className="bg-transparent p-0 h-11 gap-1">
             <TabsTrigger value="artifact" className="data-[state=active]:bg-muted rounded-md">
