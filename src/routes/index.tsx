@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Nav } from "@/components/Nav";
 import { Hero } from "@/components/Hero";
-import { ProductStrip, WhyNotMiro } from "@/components/Marketing";
+import { WhyNotMiro } from "@/components/Marketing";
 import { Workbench } from "@/components/Workbench";
 import { Pricing, Footer } from "@/components/Pricing";
 
