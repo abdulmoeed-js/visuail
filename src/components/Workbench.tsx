@@ -318,6 +318,7 @@ function ArtifactView(props: {
   onAddSystem: (t: string) => void;
   onAddBMC: (b: BMCBlock["id"], t: string) => void;
   onDeleteAny: (id: string) => void;
+  onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
 }) {
   const { model, drifted, stats: st } = props;
   const avgPct = Math.round(st.avg * 100);
@@ -388,15 +389,23 @@ function ArtifactView(props: {
 
         <TabsContent value="artifact" className="flex-1 p-4 mt-0">
           {model.kind === "process" ? (
-            <div className="h-[620px]">
+            <div className="h-[640px]">
               <ProcessCanvas
                 model={model}
                 onAddStep={props.onAddStep}
-                onDeleteStep={props.onDeleteAny}
+                onDeleteAny={props.onDeleteAny}
+                onUpdateItem={props.onUpdateItem}
               />
             </div>
           ) : (
-            <BMCCanvas model={model} onAdd={props.onAddBMC} onDelete={(_, id) => props.onDeleteAny(id)} />
+            <div className="h-[640px]">
+              <BMCCanvas
+                model={model}
+                onAdd={props.onAddBMC}
+                onDelete={(_, id) => props.onDeleteAny(id)}
+                onUpdate={props.onUpdateItem}
+              />
+            </div>
           )}
         </TabsContent>
 
