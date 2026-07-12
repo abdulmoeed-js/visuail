@@ -125,6 +125,13 @@ export function Workbench() {
     id: nextId(prefix), text, confidence: 1, userAdded: true,
   });
 
+  // AI-assisted refinement: applies a Proposal (produced by RefineControl's
+  // mocked deterministic transform) to the ProcessModel. Goes through the same
+  // setState as manual edits, so Typed IR / BRD / Backlog re-derive automatically.
+  const onApplyRefinement = (p: Proposal) =>
+    mutate((m) => (m.kind === "process" ? applyProposal(p, m) : m));
+
+
   return (
     <section id="workbench" className="mx-auto max-w-[1400px] px-4 pb-24">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
