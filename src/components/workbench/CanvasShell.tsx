@@ -147,7 +147,7 @@ export function CanvasShell({
   };
   const stopPan = () => { dragRef.current = null; };
 
-  return (
+  const shell = (
     <div
       ref={rootRef}
       className={cn(
@@ -247,6 +247,13 @@ export function CanvasShell({
       )}
     </div>
   );
+
+  // When we're in CSS-fallback fullscreen (native rejected, e.g. iframe without
+  // allow="fullscreen"), portal into <body> so no ancestor overflow/transform clips us.
+  if (cssFs && typeof document !== "undefined") {
+    return createPortal(shell, document.body);
+  }
+  return shell;
 }
 
 function Minimap({
