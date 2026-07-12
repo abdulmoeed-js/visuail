@@ -415,14 +415,15 @@ function DragHandle({ handlers }: { handlers: ReturnType<typeof useNodeDrag> }) 
 // ---- Step ----
 
 function StepNode({
-  node, step, actors, systems, onDelete, onUpdate, onDrag, onResize,
+  node, step, actors, systems, model, onDelete, onUpdate, onDrag, onResize, onRefine,
 }: {
-  node: SpineNode; step: Step;
+  node: SpineNode; step: Step; model: ProcessModel;
   actors: { id: string; text: string }[]; systems: { id: string; text: string }[];
   onDelete: () => void;
   onUpdate: (patch: Partial<Step>) => void;
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
+  onRefine: (p: Proposal) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   return (
@@ -444,12 +445,14 @@ function StepNode({
         </div>
         <div className="flex items-center gap-1">
           <ConfidenceBadge item={step} />
+          <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
           <button onClick={onDelete} data-no-pan
             className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
       </div>
+
       <div className="text-xs leading-snug font-medium break-words">
         <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} multiline />
       </div>
