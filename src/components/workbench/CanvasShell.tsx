@@ -57,24 +57,31 @@ export function CanvasShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fs, contentWidth, contentHeight]);
 
-  const onWheel = (e: React.WheelEvent) => {
-    const vp = viewportRef.current?.getBoundingClientRect();
-    if (!vp) return;
-    if (e.ctrlKey || e.metaKey) {
-      // zoom around cursor
-      const px = e.clientX - vp.left, py = e.clientY - vp.top;
-      const factor = Math.exp(-e.deltaY * 0.0018);
-      const nz = Math.min(maxZoom, Math.max(minZoom, zoom * factor));
-      const k = nz / zoom;
-      setPan({ x: px - (px - pan.x) * k, y: py - (py - pan.y) * k });
-      setZoom(nz);
-      // Note: preventDefault on wheel needs { passive: false }; React attaches passive by default.
-      // Trackpad pinch usually sets ctrlKey and browser respects wheel without our preventDefault.
-    } else {
-      // pan with wheel/trackpad
-      setPan({ x: pan.x - e.deltaX, y: pan.y - e.deltaY });
-    }
-  };
+  // Non-passive wheel listener — needed so ctrl/pinch-zoom can call preventDefault
+  // (React's synthetic onWheel is passive by default and would let the browser
+  // page-zoom instead of zooming our canvas).
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const vp = el.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const px = e.clientX - vp.left, py = e.clientY - vp.top;
+        const factor = Math.exp(-e.deltaY * 0.0018);
+        setZoom((z) => {
+          const nz = Math.min(maxZoom, Math.max(minZoom, z * factor));
+          setPan((p) => ({ x: px - (px - p.x) * (nz / z), y: py - (py - p.y) * (nz / z) }));
+          return nz;
+        });
+      } else {
+        e.preventDefault();
+        setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [minZoom, maxZoom]);
 
   const dragRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
   const onPointerDown = (e: React.PointerEvent) => {
