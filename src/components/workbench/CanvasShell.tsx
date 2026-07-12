@@ -177,7 +177,7 @@ export function CanvasShell({
           <Button
             size="icon" variant="outline"
             className="absolute top-3 right-[220px] z-30 h-8 w-8 bg-card/95 backdrop-blur"
-            onClick={() => setFs(false)}
+            onClick={toggleFs}
             title="Close fullscreen"
             data-no-pan
           >
