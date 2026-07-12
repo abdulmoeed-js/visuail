@@ -6,7 +6,7 @@ const TONES = {
   },
   unresolved: {
     dot: "bg-unresolved",
-    accent: "text-[color:var(--unresolved-foreground)]",
+    accent: "text-unresolved dark:brightness-125",
     label: "traced",
   },
   drift: {
