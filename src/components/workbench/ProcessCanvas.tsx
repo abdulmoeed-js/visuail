@@ -7,53 +7,168 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 /**
- * Deterministic top-to-bottom flowchart layout.
- * Steps are laid out in vertical order; decisions branch to the right (yes)
- * and left (no) with exceptions attached as side notes.
+ * Deterministic top-to-bottom flowchart layout with a single vertical spine.
+ *
+ * - All steps AND decisions sit centered on CENTER_X (shared spine).
+ * - Main flow uses straight vertical connectors between consecutive spine nodes,
+ *   entering/exiting through the vertical center of each node's edge (top corner
+ *   of a diamond, top edge of a rectangle).
+ * - Decision "yes" branch is the down-spine connector (labeled beside it).
+ * - Decision "no" branch and exception side-notes route through a right-hand
+ *   corridor as orthogonal (right-angle) elbows. Each right-side route gets its
+ *   own vertical lane so routes never overlap regardless of graph shape.
+ * - Every arrowhead lands precisely on an edge midpoint.
+ *
+ * This layout is fully data-driven — it holds for arbitrary step/decision/
+ * exception counts.
  */
 
-const NODE_W = 220;
-const NODE_H = 78;
-const V_GAP = 120;
-const CENTER_X = 340;
+const CENTER_X = 300;
+const STEP_W = 240;
+const STEP_H = 80;
+const DEC_W = 240;
+const DEC_H = 108;
+const SLOT_H = 152; // vertical stride between spine slots (leaves room for arrow + label)
+const TOP_PAD = 40;
+const RIGHT_CORRIDOR_X = CENTER_X + STEP_W / 2 + 80;
+const LANE_GAP = 28;
+const RIGHT_NODE_W = 210;
+const RIGHT_NODE_H = 78;
 
-interface Positioned {
-  x: number; y: number; w: number; h: number;
-  kind: "step" | "decision" | "exception";
-  ref: Step | Decision | Exception;
+type SpineNode =
+  | { kind: "step"; ref: Step; cx: number; cy: number; w: number; h: number }
+  | { kind: "decision"; ref: Decision; cx: number; cy: number; w: number; h: number };
+
+type RightNode = { kind: "exception"; ref: Exception; cx: number; cy: number; w: number; h: number };
+
+interface Route {
+  id: string;
+  kind: "no-branch" | "exception";
+  laneX: number;
+  from: { x: number; y: number };
+  to: { x: number; y: number; side: "left" | "right" | "top" };
+  label?: string;
 }
 
-function layout(model: ProcessModel): { nodes: Positioned[]; width: number; height: number } {
-  const nodes: Positioned[] = [];
-  let y = 40;
+interface Layout {
+  spine: SpineNode[];
+  right: RightNode[];
+  routes: Route[];
+  spineOrder: string[]; // ids in spine order, for main connectors
+  width: number;
+  height: number;
+}
+
+function layout(model: ProcessModel): Layout {
+  // 1. Build spine order: for each step, push it, then any decision after it.
+  const spine: SpineNode[] = [];
+  const spineOrder: string[] = [];
+  const spineIndexById = new Map<string, number>();
+
   model.steps.forEach((s) => {
-    nodes.push({
-      x: CENTER_X - NODE_W / 2, y, w: NODE_W, h: NODE_H,
-      kind: "step", ref: s,
-    });
-    // any decision that follows this step
+    const idx = spine.length;
+    const cy = TOP_PAD + idx * SLOT_H + STEP_H / 2;
+    spine.push({ kind: "step", ref: s, cx: CENTER_X, cy, w: STEP_W, h: STEP_H });
+    spineOrder.push(s.id);
+    spineIndexById.set(s.id, idx);
+
     const dec = model.decisions.find((d) => d.afterStepId === s.id);
     if (dec) {
-      y += V_GAP;
-      nodes.push({
-        x: CENTER_X - 110, y, w: 220, h: 90, kind: "decision", ref: dec,
-      });
+      const didx = spine.length;
+      const dcy = TOP_PAD + didx * SLOT_H + DEC_H / 2;
+      spine.push({ kind: "decision", ref: dec, cx: CENTER_X, cy: dcy, w: DEC_W, h: DEC_H });
+      spineOrder.push(dec.id);
+      spineIndexById.set(dec.id, didx);
     }
-    // any exception attached to this step
-    const exc = model.exceptions.find((e) => e.relatedStepId === s.id);
-    if (exc) {
-      const parent = nodes[nodes.length - 1];
-      nodes.push({
-        x: parent.x + parent.w + 60,
-        y: parent.y + 6,
-        w: 200, h: 74, kind: "exception", ref: exc,
-      });
-    }
-    y += V_GAP;
   });
-  const height = y + 20;
-  const width = CENTER_X + 320;
-  return { nodes, width, height };
+
+  // 2. Place exceptions in the right corridor at their related step's y (or first free row).
+  const right: RightNode[] = [];
+  const usedRightSlots = new Set<number>();
+  model.exceptions.forEach((e) => {
+    let anchorIdx = e.relatedStepId ? spineIndexById.get(e.relatedStepId) : undefined;
+    if (anchorIdx === undefined) anchorIdx = 0;
+    // find first free slot at/below the anchor
+    let slot = anchorIdx;
+    while (usedRightSlots.has(slot)) slot++;
+    usedRightSlots.add(slot);
+    const cy = TOP_PAD + slot * SLOT_H + RIGHT_NODE_H / 2;
+    // exception x — placed further right to leave room for lanes
+    const cx = RIGHT_CORRIDOR_X + 120 + RIGHT_NODE_W / 2;
+    right.push({ kind: "exception", ref: e, cx, cy, w: RIGHT_NODE_W, h: RIGHT_NODE_H });
+  });
+
+  // 3. Build right-side routes:
+  //    - one for each decision's "no" branch (target may be a spine node OR an exception)
+  //    - one for each exception connector (from related step)
+  const routes: Route[] = [];
+  let laneCounter = 0;
+  const nextLaneX = () => RIGHT_CORRIDOR_X + laneCounter++ * LANE_GAP;
+
+  // exception routes first (from related step's right edge → exception's left edge)
+  right.forEach((ex) => {
+    const rel = ex.ref.relatedStepId;
+    const relIdx = rel ? spineIndexById.get(rel) : undefined;
+    const src = relIdx !== undefined ? spine[relIdx] : spine[0];
+    routes.push({
+      id: `route-ex-${ex.ref.id}`,
+      kind: "exception",
+      laneX: nextLaneX(),
+      from: { x: src.cx + src.w / 2, y: src.cy },
+      to: { x: ex.cx - ex.w / 2, y: ex.cy, side: "left" },
+      label: ex.ref.id,
+    });
+  });
+
+  // decision "no" branches
+  spine.forEach((n) => {
+    if (n.kind !== "decision") return;
+    const d = n.ref;
+    // resolve target: exception in right lane, or spine node
+    const exRight = right.find((r) => r.ref.id === d.no);
+    if (exRight) {
+      routes.push({
+        id: `route-no-${d.id}`,
+        kind: "no-branch",
+        laneX: nextLaneX(),
+        from: { x: n.cx + n.w / 2, y: n.cy }, // right corner of diamond
+        to: { x: exRight.cx - exRight.w / 2, y: exRight.cy, side: "left" },
+        label: `no → ${d.no}`,
+      });
+      return;
+    }
+    const tgtIdx = spineIndexById.get(d.no);
+    if (tgtIdx !== undefined) {
+      const tgt = spine[tgtIdx];
+      routes.push({
+        id: `route-no-${d.id}`,
+        kind: "no-branch",
+        laneX: nextLaneX(),
+        from: { x: n.cx + n.w / 2, y: n.cy },
+        // land on right edge of target so the down-spine arrow into it stays clean
+        to: { x: tgt.cx + tgt.w / 2, y: tgt.cy, side: "right" },
+        label: `no → ${d.no}`,
+      });
+    }
+  });
+
+  const height = TOP_PAD + spine.length * SLOT_H + 40;
+  const rightMost = right.reduce((m, r) => Math.max(m, r.cx + r.w / 2), CENTER_X + STEP_W / 2);
+  const laneMost = RIGHT_CORRIDOR_X + Math.max(0, laneCounter - 1) * LANE_GAP + 40;
+  const width = Math.max(rightMost, laneMost) + 40;
+
+  return { spine, right, routes, spineOrder, width, height };
+}
+
+// Compute the y at which a spine node's TOP edge sits (for arrows landing on it).
+function topEdge(n: SpineNode): { x: number; y: number } {
+  if (n.kind === "step") return { x: n.cx, y: n.cy - n.h / 2 };
+  // diamond: top corner
+  return { x: n.cx, y: n.cy - n.h / 2 };
+}
+function bottomEdge(n: SpineNode): { x: number; y: number } {
+  if (n.kind === "step") return { x: n.cx, y: n.cy + n.h / 2 };
+  return { x: n.cx, y: n.cy + n.h / 2 };
 }
 
 interface Props {
@@ -63,7 +178,7 @@ interface Props {
 }
 
 export function ProcessCanvas({ model, onAddStep, onDeleteStep }: Props) {
-  const { nodes, width, height } = useMemo(() => layout(model), [model]);
+  const { spine, right, routes, width, height } = useMemo(() => layout(model), [model]);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState<{ x: number; y: number } | null>(null);
@@ -71,7 +186,7 @@ export function ProcessCanvas({ model, onAddStep, onDeleteStep }: Props) {
   const [draft, setDraft] = useState("");
 
   const actorOf = (id: string) => model.actors.find((a) => a.id === id)?.text ?? "";
-  const systemOf = (id?: string) => id ? model.systems.find((s) => s.id === id)?.text : undefined;
+  const systemOf = (id?: string) => (id ? model.systems.find((s) => s.id === id)?.text : undefined);
 
   return (
     <div className="relative w-full h-full overflow-hidden bp-grid rounded-lg border">
@@ -150,62 +265,106 @@ export function ProcessCanvas({ model, onAddStep, onDeleteStep }: Props) {
           className="origin-top-left transition-transform"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, width, height }}
         >
-          <svg
-            width={width} height={height}
-            className="absolute inset-0 pointer-events-none"
-          >
-            {/* connectors */}
-            {model.steps.map((s, i) => {
-              const from = nodes.find((n) => n.kind === "step" && (n.ref as Step).id === s.id)!;
-              const next = nodes[nodes.indexOf(from) + 1];
-              if (!next || next.kind === "exception") return null;
-              const x1 = from.x + from.w / 2;
-              const y1 = from.y + from.h;
-              const x2 = next.x + next.w / 2;
-              const y2 = next.y;
+          <svg width={width} height={height} className="absolute inset-0 pointer-events-none">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />
+              </marker>
+              <marker id="arrow-dashed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="var(--color-unresolved)" />
+              </marker>
+            </defs>
+
+            {/* Main spine connectors (straight vertical between consecutive spine nodes) */}
+            {spine.slice(0, -1).map((n, i) => {
+              const next = spine[i + 1];
+              const from = bottomEdge(n);
+              const to = topEdge(next);
+              const yesLabel = n.kind === "decision" ? `yes → ${(n.ref as Decision).yes}` : null;
+              const midY = (from.y + to.y) / 2;
               return (
-                <line key={`c-${i}`} x1={x1} y1={y1} x2={x2} y2={y2}
-                  stroke="var(--color-muted-foreground)" strokeWidth={1.2} strokeDasharray="0" markerEnd="url(#arrow)" />
-              );
-            })}
-            {/* decision branch labels */}
-            {model.decisions.map((d) => {
-              const dnode = nodes.find((n) => n.kind === "decision" && (n.ref as Decision).id === d.id);
-              if (!dnode) return null;
-              return (
-                <g key={`dl-${d.id}`}>
-                  <text x={dnode.x + dnode.w + 8} y={dnode.y + dnode.h + 4}
-                    fill="var(--color-confident)" fontSize="10" fontFamily="var(--font-mono)">yes → {d.yes}</text>
-                  <text x={dnode.x - 6} y={dnode.y + dnode.h + 4} textAnchor="end"
-                    fill="var(--color-unresolved-foreground)" fontSize="10" fontFamily="var(--font-mono)">no → {d.no}</text>
+                <g key={`spine-${i}`}>
+                  <line
+                    x1={from.x} y1={from.y} x2={to.x} y2={to.y}
+                    stroke="var(--color-muted-foreground)" strokeWidth={1.3}
+                    markerEnd="url(#arrow)"
+                  />
+                  {yesLabel && (
+                    <text
+                      x={from.x + 10} y={midY + 3}
+                      fill="var(--color-confident)"
+                      fontSize="11" fontFamily="var(--font-mono)"
+                    >
+                      {yesLabel}
+                    </text>
+                  )}
                 </g>
               );
             })}
-            <defs>
-              <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />
-              </marker>
-            </defs>
+
+            {/* Right-corridor orthogonal routes (elbow: source → lane → target) */}
+            {routes.map((r) => {
+              const isException = r.kind === "exception";
+              const stroke = isException ? "var(--color-unresolved)" : "var(--color-unresolved-foreground)";
+              const dash = isException ? "4 3" : undefined;
+              const marker = isException ? "url(#arrow-dashed)" : "url(#arrow)";
+              // 3-segment elbow: horizontal from source out to laneX, vertical to target y, horizontal into target
+              const path = `M ${r.from.x} ${r.from.y} H ${r.laneX} V ${r.to.y} H ${r.to.x}`;
+              // label placement: near vertical segment, offset slightly right of laneX
+              const labelY = (r.from.y + r.to.y) / 2;
+              return (
+                <g key={r.id}>
+                  <path
+                    d={path}
+                    fill="none"
+                    stroke={stroke}
+                    strokeWidth={1.3}
+                    strokeDasharray={dash}
+                    markerEnd={marker}
+                  />
+                  {r.label && (
+                    <text
+                      x={r.laneX + 6} y={labelY}
+                      fill={isException ? "var(--color-unresolved)" : "var(--color-unresolved-foreground)"}
+                      fontSize="10" fontFamily="var(--font-mono)"
+                    >
+                      {r.label}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
           </svg>
 
-          {nodes.map((n) => {
+          {spine.map((n) => {
             if (n.kind === "step") {
-              const s = n.ref as Step;
-              return <StepNode key={s.id} n={n} step={s} actor={actorOf(s.actorId)} system={systemOf(s.systemId)} onDelete={() => onDeleteStep(s.id)} />;
+              const s = n.ref;
+              return (
+                <StepNode
+                  key={s.id}
+                  cx={n.cx} cy={n.cy} w={n.w} h={n.h}
+                  step={s}
+                  actor={actorOf(s.actorId)}
+                  system={systemOf(s.systemId)}
+                  onDelete={() => onDeleteStep(s.id)}
+                />
+              );
             }
-            if (n.kind === "decision") {
-              return <DecisionNode key={(n.ref as Decision).id} n={n} d={n.ref as Decision} />;
-            }
-            return <ExceptionNode key={(n.ref as Exception).id} n={n} e={n.ref as Exception} />;
+            const d = n.ref;
+            return <DecisionNode key={d.id} cx={n.cx} cy={n.cy} w={n.w} h={n.h} d={d} />;
           })}
+          {right.map((n) => (
+            <ExceptionNode key={n.ref.id} cx={n.cx} cy={n.cy} w={n.w} h={n.h} e={n.ref} />
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-function StepNode({ n, step, actor, system, onDelete }:{
-  n: Positioned; step: Step; actor: string; system?: string; onDelete: () => void;
+function StepNode({ cx, cy, w, h, step, actor, system, onDelete }:{
+  cx: number; cy: number; w: number; h: number;
+  step: Step; actor: string; system?: string; onDelete: () => void;
 }) {
   return (
     <div
@@ -216,7 +375,7 @@ function StepNode({ n, step, actor, system, onDelete }:{
         !step.drift && step.confidence >= 0.7 && !step.userAdded && "border-primary/40",
         step.userAdded && "user-added !border-verified",
       )}
-      style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
+      style={{ left: cx - w / 2, top: cy - h / 2, width: w, height: h }}
     >
       <div className="flex items-center justify-between">
         <IdChip id={step.id} tone="primary" />
@@ -237,40 +396,38 @@ function StepNode({ n, step, actor, system, onDelete }:{
   );
 }
 
-function DecisionNode({ n, d }: { n: Positioned; d: Decision }) {
+function DecisionNode({ cx, cy, w, h, d }: { cx: number; cy: number; w: number; h: number; d: Decision }) {
+  // Diamond drawn as SVG polygon so we can label inside cleanly and its edges
+  // sit exactly on the (cx,cy) axes for connector alignment.
+  const left = cx - w / 2;
+  const top = cy - h / 2;
   return (
     <div
-      className={cn(
-        "absolute flex items-center justify-center animate-item-in",
-        d.drift && "animate-drift",
-      )}
-      style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
+      className={cn("absolute animate-item-in", d.drift && "animate-drift")}
+      style={{ left, top, width: w, height: h }}
     >
-      <div
-        className={cn(
-          "relative w-full h-full",
-        )}
-      >
-        <div
-          className={cn(
-            "absolute inset-4 rotate-45 border-2 rounded-md bg-card",
-            d.drift ? "border-drift bg-drift/5" : "border-primary/60",
-          )}
+      <svg width={w} height={h} className="absolute inset-0">
+        <polygon
+          points={`${w / 2},0 ${w},${h / 2} ${w / 2},${h} 0,${h / 2}`}
+          fill="var(--color-card)"
+          stroke={d.drift ? "var(--color-drift)" : "var(--color-primary)"}
+          strokeOpacity={d.drift ? 1 : 0.6}
+          strokeWidth={2}
         />
-        <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center gap-1">
-          <IdChip id={d.id} tone="primary" />
-          <div className="text-[11px] font-medium leading-tight">{d.text}</div>
-        </div>
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center px-10 text-center gap-1 pointer-events-none">
+        <IdChip id={d.id} tone="primary" />
+        <div className="text-[11px] font-medium leading-tight">{d.text}</div>
       </div>
     </div>
   );
 }
 
-function ExceptionNode({ n, e }: { n: Positioned; e: Exception }) {
+function ExceptionNode({ cx, cy, w, h, e }: { cx: number; cy: number; w: number; h: number; e: Exception }) {
   return (
     <div
       className="absolute rounded-md border border-dashed border-unresolved bg-unresolved/10 px-2 py-1.5 shadow-sm animate-item-in"
-      style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
+      style={{ left: cx - w / 2, top: cy - h / 2, width: w, height: h }}
     >
       <div className="flex items-center justify-between">
         <IdChip id={e.id} />
