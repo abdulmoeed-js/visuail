@@ -366,8 +366,14 @@ function ArtifactView(props: {
             </div>
             <Progress value={avgPct} className="h-1.5 mt-1" />
           </div>
+          <DriftNotifier
+            drifted={drifted}
+            driftedNames={driftedNames(model, drifted)}
+            artifactTitle={model.title}
+          />
         </div>
       </div>
+
 
       {/* Drift banner */}
       {drifted && (
