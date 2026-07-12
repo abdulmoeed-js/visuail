@@ -373,7 +373,7 @@ function ArtifactView(props: {
       {/* Tabs (controlled — Radix uncontrolled state can be reset by external
           rerenders, e.g. when canvas edits mutate the model, causing tabs to
           appear "stuck" on the default value). */}
-      <Tabs value={props.tab} onValueChange={props.setTab} className="flex-1 flex flex-col">
+      <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col">
         <div className="border-b px-4">
 
 
