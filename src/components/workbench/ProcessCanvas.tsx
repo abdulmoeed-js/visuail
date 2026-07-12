@@ -170,9 +170,10 @@ interface Props {
   onAddStep: (text: string) => void;
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<Step & Decision & Exception>) => void;
+  onApplyRefinement?: (p: Proposal) => void;
 }
 
-export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem }: Props) {
+export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onApplyRefinement }: Props) {
   const [overrides, setOverrides] = useState<Overrides>({});
   const { spine, right, routes, width, height } = useMemo(
     () => layout(model, overrides),
@@ -183,6 +184,17 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem }: P
 
   const patchOverride = (id: string, o: NodeOverride) =>
     setOverrides((cur) => ({ ...cur, [id]: { ...cur[id], ...o } }));
+
+  const handleRefine = (p: Proposal) => {
+    if (onApplyRefinement) onApplyRefinement(p);
+    else {
+      // fallback: apply locally-only (would desync downstream views; parent should provide handler)
+      // eslint-disable-next-line no-console
+      console.warn("ProcessCanvas: onApplyRefinement not provided; refinement dropped");
+      applyProposal(p, model);
+    }
+  };
+
 
   return (
     <CanvasShell
