@@ -324,6 +324,8 @@ function ArtifactView(props: {
   const avgPct = Math.round(st.avg * 100);
   const avgTone = avgPct >= 85 ? "text-confident" : avgPct >= 70 ? "text-unresolved" : "text-drift";
   const drift = drifted ? driftSummary(model) : { count: 0, label: "" };
+  const [tab, setTab] = useState("artifact");
+
 
   return (
     <div className="flex-1 flex flex-col">
