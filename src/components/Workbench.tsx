@@ -543,3 +543,14 @@ function ItemGroup({ title, items, onAdd, onDelete, onEdit }: {
     </div>
   );
 }
+
+function driftedNames(model: ArtifactModel, drifted: boolean): string[] {
+  if (!drifted) return [];
+  if (model.kind === "process") {
+    return [
+      ...model.steps.filter((s) => s.drift).map((s) => s.text),
+      ...model.decisions.filter((d) => d.drift).map((d) => `Decision: ${d.text}`),
+    ];
+  }
+  return model.blocks.filter((b) => b.blockDrift).map((b) => b.title);
+}
