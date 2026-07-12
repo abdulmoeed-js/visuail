@@ -100,11 +100,11 @@ export function Workbench() {
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">
-            The workbench · No signup required
+            The workbench · No signup
           </div>
           <h2 className="font-display text-3xl md:text-4xl mt-1">Try it on a real transcript.</h2>
           <p className="text-muted-foreground text-sm mt-1 max-w-xl">
-            Paste a discovery call transcript, or start from a sample. You'll get a typed artifact, generated docs, and the drift indicator that keeps them honest.
+            Paste a transcript or pick a sample. Get a typed artifact, generated docs, and a drift flag when the source moves.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">

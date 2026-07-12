@@ -8,6 +8,25 @@ export function Hero() {
     <section className="relative overflow-hidden">
       {/* subtle blueprint grid backdrop */}
       <div className="absolute inset-0 bp-grid opacity-40 pointer-events-none [mask-image:radial-gradient(ellipse_at_top,black,transparent_70%)]" />
+      {/* signature blueprint glow */}
+      <div
+        aria-hidden
+        className="absolute -top-32 left-1/2 -translate-x-1/2 h-[720px] w-[1100px] rounded-full pointer-events-none opacity-70 dark:opacity-90"
+        style={{
+          background:
+            "radial-gradient(closest-side, color-mix(in oklab, var(--primary) 35%, transparent), transparent 70%)",
+          filter: "blur(40px)",
+        }}
+      />
+      <div
+        aria-hidden
+        className="absolute top-40 right-[-10%] h-[420px] w-[420px] rounded-full pointer-events-none opacity-40 dark:opacity-60"
+        style={{
+          background:
+            "radial-gradient(closest-side, color-mix(in oklab, var(--verified) 45%, transparent), transparent 70%)",
+          filter: "blur(60px)",
+        }}
+      />
       <div className="relative mx-auto max-w-[1400px] px-4 pt-16 pb-20 md:pt-24 md:pb-28">
         <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_460px] items-center">
           <div>
@@ -19,18 +38,22 @@ export function Hero() {
               Diagrams that <span className="italic text-primary">know when they're stale.</span>
             </h1>
             <p className="mt-6 text-lg md:text-xl text-muted-foreground max-w-xl leading-relaxed">
-              Miro is where you think. <span className="text-foreground font-medium">Visuail is where the thinking becomes an artifact</span> that survives contact with delivery — typed, confidence-scored, and honest enough to flag itself when the source drifts.
+              Miro is where you think.{" "}
+              <span className="text-foreground font-medium">
+                Visuail is what survives contact with delivery.
+              </span>
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <button
                 onClick={scroll}
-                className="group inline-flex h-11 items-center gap-2 rounded-md bg-primary px-5 text-primary-foreground font-medium hover:bg-primary/90 transition"
+                className="group relative inline-flex h-11 items-center gap-2 rounded-md px-5 text-primary-foreground font-medium transition shadow-[0_8px_24px_-8px_color-mix(in_oklab,var(--primary)_60%,transparent)] hover:shadow-[0_12px_32px_-8px_color-mix(in_oklab,var(--primary)_70%,transparent)] hover:-translate-y-px"
+                style={{
+                  background:
+                    "linear-gradient(135deg, var(--primary), color-mix(in oklab, var(--primary) 70%, var(--verified)))",
+                }}
               >
                 Try it on a real transcript <ArrowRight className="size-4 group-hover:translate-x-0.5 transition" />
               </button>
-              <span className="text-xs text-muted-foreground font-mono-tight">
-                No signup. No wall before value.
-              </span>
             </div>
 
           </div>
