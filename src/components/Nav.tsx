@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { scrollToId } from "@/lib/scroll";
 
 export function Nav() {
   const [dark, setDark] = useState(false);
@@ -18,9 +19,7 @@ export function Nav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  const scrollTo = (id: string) => scrollToId(id);
 
   return (
     <header
