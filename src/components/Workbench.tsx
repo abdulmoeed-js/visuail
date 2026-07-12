@@ -17,6 +17,7 @@ import { ProcessCanvas } from "./workbench/ProcessCanvas";
 import { BMCCanvas } from "./workbench/BMCCanvas";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
 import { SignupWallModal } from "./SignupWallModal";
+import { applyProposal, type Proposal } from "@/lib/refine";
 
 type State =
   | { status: "empty" }
