@@ -51,10 +51,13 @@ export function CanvasShell({
   const toggleFs = async () => {
     const el = rootRef.current;
     if (!el) return;
+    const isNativeFullscreen = document.fullscreenElement === el;
     try {
-      if (document.fullscreenElement) {
+      if (isNativeFullscreen) {
+        setFs(false);
         await document.exitFullscreen();
       } else if (el.requestFullscreen) {
+        setFs(true);
         await el.requestFullscreen();
       } else {
         setFs((v) => !v);
@@ -71,7 +74,13 @@ export function CanvasShell({
       if ((e.metaKey || e.ctrlKey) && (e.key === "0" || e.code === "Digit0")) {
         e.preventDefault(); fitView();
       }
-      if (e.key === "Escape" && fs && !document.fullscreenElement) setFs(false);
+      if (e.key === "Escape" && fs) {
+        e.preventDefault();
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => undefined);
+        }
+        setFs(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => {
@@ -112,7 +121,11 @@ export function CanvasShell({
   const dragRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
   const onPointerDown = (e: React.PointerEvent) => {
     const t = e.target as HTMLElement;
-    if (t.closest("[data-node]") || t.closest("[data-no-pan]")) return;
+    if (
+      t.closest("[data-node]") ||
+      t.closest("[data-no-pan]") ||
+      t.closest("button, input, textarea, select, a, [role='tab']")
+    ) return;
     if (e.button !== 0) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     dragRef.current = { x: pan.x, y: pan.y, startX: e.clientX, startY: e.clientY };
@@ -130,10 +143,12 @@ export function CanvasShell({
     <div
       ref={rootRef}
       className={cn(
-        "relative h-full w-full overflow-hidden rounded-lg border",
+        "relative isolate overflow-hidden rounded-lg border",
+        !fs && "h-full w-full",
         gridClassName,
-        fs && "fixed inset-0 z-[70] rounded-none border-0 h-screen w-screen bg-background",
+        fs && "fixed inset-0 z-[9999] rounded-none border-0 bg-background",
       )}
+      style={fs ? { width: "100dvw", height: "100dvh" } : undefined}
       role={fs ? "dialog" : undefined}
       aria-label={fs ? fullscreenLabel : undefined}
     >
