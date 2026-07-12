@@ -423,6 +423,7 @@ function ArtifactView(props: {
                     onAddStep={props.onAddStep}
                     onDeleteAny={props.onDeleteAny}
                     onUpdateItem={props.onUpdateItem}
+                    onApplyRefinement={props.onApplyRefinement}
                   />
                 ) : (
                   <BMCCanvas
