@@ -235,6 +235,7 @@ export function Workbench() {
               onAddBMC={(bid, text) => mutate((m) => m.kind === "bmc"
                 ? { ...m, blocks: m.blocks.map((b) => b.id === bid ? { ...b, items: [...b.items, newUserItem(bid.slice(0,2).toUpperCase(), text)] } : b) } : m)}
               onDeleteAny={onDeleteAny}
+              onUpdateItem={onUpdateItem}
             />
           )}
         </div>
