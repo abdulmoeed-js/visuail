@@ -8,7 +8,7 @@ const tiers = [
     name: "Analyst",
     price: "$29",
     period: "seat/mo",
-    tagline: "For solo BAs and PMs shipping their first artifacts.",
+    tagline: "For solo BAs shipping their first artifacts.",
     features: [
       "Unlimited transcripts",
       "Process maps + Business Model Canvas",
@@ -23,7 +23,7 @@ const tiers = [
     name: "Team",
     price: "$45",
     period: "seat/mo",
-    tagline: "The moat — traceability, drift detection, and Jira/Confluence round-trip.",
+    tagline: "The moat: traceability, drift detection, Jira round-trip.",
     features: [
       "Everything in Analyst",
       "Traceability from story → source",
@@ -83,7 +83,7 @@ export function Pricing() {
               <div>
                 <h3 className="font-display text-2xl">{t.name}</h3>
                 <div className="mt-4 flex items-baseline gap-1.5">
-                  <span className="font-display text-5xl tracking-tight">{t.price}</span>
+                  <span className="font-display text-5xl tracking-tight text-primary">{t.price}</span>
                   <span className="text-sm text-muted-foreground">/ {t.period}</span>
                 </div>
                 <p className="mt-3 text-sm text-muted-foreground leading-relaxed">{t.tagline}</p>
@@ -100,9 +100,13 @@ export function Pricing() {
                 className={cn(
                   "mt-8 h-11 rounded-md font-medium text-sm transition",
                   t.highlight
-                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                    : "border bg-transparent hover:bg-muted",
+                    ? "text-primary-foreground shadow-[0_8px_24px_-8px_color-mix(in_oklab,var(--primary)_60%,transparent)] hover:shadow-[0_12px_32px_-8px_color-mix(in_oklab,var(--primary)_70%,transparent)] hover:-translate-y-px"
+                    : "border bg-transparent hover:bg-muted hover:border-primary/40",
                 )}
+                style={t.highlight ? {
+                  background:
+                    "linear-gradient(135deg, var(--primary), color-mix(in oklab, var(--primary) 70%, var(--verified)))",
+                } : undefined}
               >
                 {t.cta}
               </button>
@@ -122,7 +126,7 @@ export function Footer() {
       <div className="mx-auto max-w-[1400px] px-4 py-8 flex flex-wrap items-center justify-between gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 font-mono-tight">
           <span className="h-1.5 w-1.5 rounded-full bg-confident" />
-          Visuail · a semantic artifact engine for discovery-driven work
+          Visuail · typed artifacts for discovery work
         </div>
         <div className="flex items-center gap-4">
           <a className="hover:text-foreground" href="#workbench">Workbench</a>
