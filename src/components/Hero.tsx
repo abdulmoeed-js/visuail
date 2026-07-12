@@ -1,8 +1,9 @@
 import { ArrowRight, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { scrollToId } from "@/lib/scroll";
 
 export function Hero() {
-  const scroll = () => document.getElementById("workbench")?.scrollIntoView({ behavior: "smooth" });
+  const scroll = () => scrollToId("workbench");
   return (
     <section className="relative overflow-hidden">
       {/* subtle blueprint grid backdrop */}
