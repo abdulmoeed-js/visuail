@@ -128,6 +128,7 @@ export function CanvasShell({
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "relative h-full w-full overflow-hidden rounded-lg border",
         gridClassName,
@@ -136,6 +137,7 @@ export function CanvasShell({
       role={fs ? "dialog" : undefined}
       aria-label={fs ? fullscreenLabel : undefined}
     >
+
       {/* Zoom toolbar */}
       <div className="absolute top-3 right-3 z-30 flex gap-1 rounded-md border bg-card/95 backdrop-blur p-1 shadow-sm" data-no-pan>
         <Button size="icon" variant="ghost" className="h-7 w-7"
