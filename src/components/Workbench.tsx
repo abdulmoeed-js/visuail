@@ -91,6 +91,34 @@ export function Workbench() {
     return { ...m, blocks: m.blocks.map((b) => ({ ...b, items: b.items.filter((i) => i.id !== id) })) };
   });
 
+  // In-place edit of any item: patches the IR item by id so every derived view
+  // (Typed IR list, BRD, backlog, brief, questions) updates from the same source.
+  // Text edits also promote the item to user-verified: confidence 1, drift off.
+  const onUpdateItem = (id: string, patch: Partial<BaseItem> & Record<string, unknown>) =>
+    mutate((m) => {
+      const apply = <T extends BaseItem>(i: T): T => {
+        if (i.id !== id) return i;
+        const merged = { ...i, ...patch } as T;
+        if (Object.prototype.hasOwnProperty.call(patch, "text")) {
+          (merged as BaseItem).userAdded = true;
+          (merged as BaseItem).confidence = 1;
+          (merged as BaseItem).drift = false;
+        }
+        return merged;
+      };
+      if (m.kind === "process") {
+        return {
+          ...m,
+          actors: m.actors.map(apply),
+          steps: m.steps.map(apply),
+          decisions: m.decisions.map(apply),
+          exceptions: m.exceptions.map(apply),
+          systems: m.systems.map(apply),
+        };
+      }
+      return { ...m, blocks: m.blocks.map((b) => ({ ...b, items: b.items.map(apply) })) };
+    });
+
   const newUserItem = (prefix: string, text: string): BaseItem => ({
     id: nextId(prefix), text, confidence: 1, userAdded: true,
   });
@@ -207,6 +235,7 @@ export function Workbench() {
               onAddBMC={(bid, text) => mutate((m) => m.kind === "bmc"
                 ? { ...m, blocks: m.blocks.map((b) => b.id === bid ? { ...b, items: [...b.items, newUserItem(bid.slice(0,2).toUpperCase(), text)] } : b) } : m)}
               onDeleteAny={onDeleteAny}
+              onUpdateItem={onUpdateItem}
             />
           )}
         </div>
@@ -289,6 +318,7 @@ function ArtifactView(props: {
   onAddSystem: (t: string) => void;
   onAddBMC: (b: BMCBlock["id"], t: string) => void;
   onDeleteAny: (id: string) => void;
+  onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
 }) {
   const { model, drifted, stats: st } = props;
   const avgPct = Math.round(st.avg * 100);
@@ -359,15 +389,23 @@ function ArtifactView(props: {
 
         <TabsContent value="artifact" className="flex-1 p-4 mt-0">
           {model.kind === "process" ? (
-            <div className="h-[620px]">
+            <div className="h-[640px]">
               <ProcessCanvas
                 model={model}
                 onAddStep={props.onAddStep}
-                onDeleteStep={props.onDeleteAny}
+                onDeleteAny={props.onDeleteAny}
+                onUpdateItem={props.onUpdateItem}
               />
             </div>
           ) : (
-            <BMCCanvas model={model} onAdd={props.onAddBMC} onDelete={(_, id) => props.onDeleteAny(id)} />
+            <div className="h-[640px]">
+              <BMCCanvas
+                model={model}
+                onAdd={props.onAddBMC}
+                onDelete={(_, id) => props.onDeleteAny(id)}
+                onUpdate={props.onUpdateItem}
+              />
+            </div>
           )}
         </TabsContent>
 
@@ -375,11 +413,11 @@ function ArtifactView(props: {
         <TabsContent value="items" className="p-4 mt-0 space-y-4">
           {model.kind === "process" ? (
             <div className="grid gap-4 md:grid-cols-2">
-              <ItemGroup title="Actors" items={model.actors} onAdd={props.onAddActor} onDelete={props.onDeleteAny} />
-              <ItemGroup title="Systems" items={model.systems} onAdd={props.onAddSystem} onDelete={props.onDeleteAny} />
-              <ItemGroup title="Steps" items={model.steps} onAdd={props.onAddStep} onDelete={props.onDeleteAny} />
-              <ItemGroup title="Decisions" items={model.decisions} onAdd={props.onAddDecision} onDelete={props.onDeleteAny} />
-              <ItemGroup title="Exceptions" items={model.exceptions} onAdd={props.onAddException} onDelete={props.onDeleteAny} />
+              <ItemGroup title="Actors" items={model.actors} onAdd={props.onAddActor} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+              <ItemGroup title="Systems" items={model.systems} onAdd={props.onAddSystem} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+              <ItemGroup title="Steps" items={model.steps} onAdd={props.onAddStep} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+              <ItemGroup title="Decisions" items={model.decisions} onAdd={props.onAddDecision} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+              <ItemGroup title="Exceptions" items={model.exceptions} onAdd={props.onAddException} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-3">
@@ -390,6 +428,7 @@ function ArtifactView(props: {
                     items={b.items}
                     onAdd={(t) => props.onAddBMC(b.id, t)}
                     onDelete={(id) => props.onDeleteAny(id)}
+                    onEdit={(id, t) => props.onUpdateItem(id, { text: t })}
                     compact showIds={false}
                   />
                 </div>
@@ -447,9 +486,11 @@ function MetricBlock({ label, value, tone }: { label: string; value: string; ton
   );
 }
 
-function ItemGroup({ title, items, onAdd, onDelete }: {
+function ItemGroup({ title, items, onAdd, onDelete, onEdit }: {
   title: string; items: BaseItem[];
-  onAdd: (t: string) => void; onDelete: (id: string) => void;
+  onAdd: (t: string) => void;
+  onDelete: (id: string) => void;
+  onEdit?: (id: string, t: string) => void;
 }) {
   return (
     <div className="rounded-lg border bg-card p-3">
@@ -457,7 +498,7 @@ function ItemGroup({ title, items, onAdd, onDelete }: {
         <h4 className="text-sm font-semibold">{title}</h4>
         <span className="text-[10px] font-mono-tight text-muted-foreground">{items.length}</span>
       </div>
-      <EditableList items={items} onAdd={onAdd} onDelete={onDelete} compact />
+      <EditableList items={items} onAdd={onAdd} onDelete={onDelete} onEdit={onEdit} compact />
     </div>
   );
 }
