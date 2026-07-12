@@ -160,7 +160,6 @@ export function CanvasShell({
       <div
         ref={viewportRef}
         className="absolute inset-0 cursor-grab active:cursor-grabbing touch-none select-none"
-        onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={stopPan}
