@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ProcessModel, Step, Decision, Exception } from "@/data/samples";
 import { cn } from "@/lib/utils";
 import { ConfidenceBadge, IdChip } from "./atoms";
@@ -13,6 +13,9 @@ import { applyProposal, type Proposal } from "@/lib/refine";
 
 /**
  * Deterministic top-to-bottom flowchart with a single vertical spine.
+ * Nodes auto-size to fit their content — a ResizeObserver reports each node's
+ * natural height into `measured`, which the layout pass consumes so subsequent
+ * spine slots stack cumulatively and connectors reflow after sizing.
  * User overrides (drag / resize) patch node position and size — routes are
  * re-computed from the effective positions so connectors stay attached.
  * The underlying IR is untouched by layout overrides; text/branch/actor/system
@@ -21,21 +24,22 @@ import { applyProposal, type Proposal } from "@/lib/refine";
  */
 
 const CENTER_X = 320;
-const STEP_W = 240;
+const STEP_W = 260;
 const STEP_H = 84;
-const DEC_W = 240;
-const DEC_H = 112;
-const EX_W = 220;
+const DEC_W = 260;
+const DEC_H = 120;
+const EX_W = 240;
 const EX_H = 84;
-const SLOT_H = 156;
+const V_GAP = 56;
 const TOP_PAD = 40;
 const RIGHT_CORRIDOR_X = CENTER_X + STEP_W / 2 + 90;
 const LANE_GAP = 28;
 
-const MIN_W = 160, MIN_H = 70, MAX_W = 520, MAX_H = 320;
+const MIN_W = 160, MIN_H = 70, MAX_W = 520, MAX_H = 480;
 
 export type NodeOverride = { cx?: number; cy?: number; w?: number; h?: number };
 export type Overrides = Record<string, NodeOverride>;
+export type Measured = Record<string, { w: number; h: number }>;
 
 type SpineNode =
   | { kind: "step"; ref: Step; cx: number; cy: number; w: number; h: number }
@@ -59,48 +63,66 @@ interface Layout {
   height: number;
 }
 
-function applyOverride<T extends { cx: number; cy: number; w: number; h: number }>(n: T, o?: NodeOverride): T {
-  if (!o) return n;
+function effSize(
+  id: string,
+  defW: number,
+  defH: number,
+  overrides: Overrides,
+  measured: Measured,
+) {
+  const o = overrides[id];
+  const m = measured[id];
   return {
-    ...n,
-    cx: o.cx ?? n.cx,
-    cy: o.cy ?? n.cy,
-    w: o.w ?? n.w,
-    h: o.h ?? n.h,
+    w: o?.w ?? m?.w ?? defW,
+    h: o?.h ?? m?.h ?? defH,
   };
 }
 
-function layout(model: ProcessModel, overrides: Overrides): Layout {
+function layout(model: ProcessModel, overrides: Overrides, measured: Measured): Layout {
   const spine: SpineNode[] = [];
   const spineIndexById = new Map<string, number>();
 
-  model.steps.forEach((s) => {
-    const idx = spine.length;
-    const cy = TOP_PAD + idx * SLOT_H + STEP_H / 2;
-    spine.push(applyOverride({ kind: "step", ref: s, cx: CENTER_X, cy, w: STEP_W, h: STEP_H }, overrides[s.id]));
-    spineIndexById.set(s.id, idx);
+  let cursor = TOP_PAD;
 
+  const pushSpine = (
+    kind: "step" | "decision",
+    ref: Step | Decision,
+    defW: number,
+    defH: number,
+  ) => {
+    const id = ref.id;
+    const { w, h } = effSize(id, defW, defH, overrides, measured);
+    const naturalCy = cursor + h / 2;
+    const cx = overrides[id]?.cx ?? CENTER_X;
+    const cy = overrides[id]?.cy ?? naturalCy;
+    spine.push({ kind, ref: ref as never, cx, cy, w, h });
+    spineIndexById.set(id, spine.length - 1);
+    // Always advance cursor by natural placement so downstream nodes stack
+    // predictably even when a prior node was dragged.
+    cursor = naturalCy + h / 2 + V_GAP;
+  };
+
+  model.steps.forEach((s) => {
+    pushSpine("step", s, STEP_W, STEP_H);
     const dec = model.decisions.find((d) => d.afterStepId === s.id);
-    if (dec) {
-      const didx = spine.length;
-      const dcy = TOP_PAD + didx * SLOT_H + DEC_H / 2;
-      spine.push(applyOverride({ kind: "decision", ref: dec, cx: CENTER_X, cy: dcy, w: DEC_W, h: DEC_H }, overrides[dec.id]));
-      spineIndexById.set(dec.id, didx);
-    }
+    if (dec) pushSpine("decision", dec, DEC_W, DEC_H);
   });
 
-  // exceptions in right corridor
+  // exceptions in right corridor — anchor Y to related step's natural Y, then
+  // push down through occupied slots.
   const right: RightNode[] = [];
-  const usedRightSlots = new Set<number>();
+  const occupiedYs: number[] = [];
   model.exceptions.forEach((e) => {
-    let anchorIdx = e.relatedStepId ? spineIndexById.get(e.relatedStepId) : undefined;
-    if (anchorIdx === undefined) anchorIdx = 0;
-    let slot = anchorIdx;
-    while (usedRightSlots.has(slot)) slot++;
-    usedRightSlots.add(slot);
-    const cy = TOP_PAD + slot * SLOT_H + EX_H / 2;
-    const cx = RIGHT_CORRIDOR_X + 140 + EX_W / 2;
-    right.push(applyOverride({ kind: "exception", ref: e, cx, cy, w: EX_W, h: EX_H }, overrides[e.id]));
+    const { w, h } = effSize(e.id, EX_W, EX_H, overrides, measured);
+    const anchor = e.relatedStepId ? spine[spineIndexById.get(e.relatedStepId) ?? 0] : spine[0];
+    let cy = overrides[e.id]?.cy ?? anchor?.cy ?? TOP_PAD + h / 2;
+    if (overrides[e.id]?.cy === undefined) {
+      // Avoid vertical overlap with existing exceptions.
+      while (occupiedYs.some((y) => Math.abs(y - cy) < h + 20)) cy += h + 20;
+    }
+    occupiedYs.push(cy);
+    const cx = overrides[e.id]?.cx ?? RIGHT_CORRIDOR_X + 140 + w / 2;
+    right.push({ kind: "exception", ref: e, cx, cy, w, h });
   });
 
   // routes
@@ -175,9 +197,19 @@ interface Props {
 
 export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onApplyRefinement }: Props) {
   const [overrides, setOverrides] = useState<Overrides>({});
+  const [measured, setMeasured] = useState<Measured>({});
+
+  const reportMeasure = useCallback((id: string, w: number, h: number) => {
+    setMeasured((cur) => {
+      const prev = cur[id];
+      if (prev && Math.abs(prev.h - h) < 1 && Math.abs(prev.w - w) < 1) return cur;
+      return { ...cur, [id]: { w, h } };
+    });
+  }, []);
+
   const { spine, right, routes, width, height } = useMemo(
-    () => layout(model, overrides),
-    [model, overrides],
+    () => layout(model, overrides, measured),
+    [model, overrides, measured],
   );
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -188,7 +220,6 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
   const handleRefine = (p: Proposal) => {
     if (onApplyRefinement) onApplyRefinement(p);
     else {
-      // fallback: apply locally-only (would desync downstream views; parent should provide handler)
       // eslint-disable-next-line no-console
       console.warn("ProcessCanvas: onApplyRefinement not provided; refinement dropped");
       applyProposal(p, model);
@@ -246,7 +277,6 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
           const to = { x: next.cx, y: next.cy - next.h / 2 };
           const yesLabel = n.kind === "decision" ? `yes → ${(n.ref as Decision).yes}` : null;
           const midY = (from.y + to.y) / 2;
-          // If nodes are horizontally offset (from drag), route via elbow
           const path = Math.abs(from.x - to.x) < 4
             ? `M ${from.x} ${from.y} L ${to.x} ${to.y}`
             : `M ${from.x} ${from.y} V ${midY} H ${to.x} V ${to.y}`;
@@ -285,6 +315,7 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
       {spine.map((n) => {
         if (n.kind === "step") {
           const s = n.ref;
+          const hasHeightOverride = overrides[s.id]?.h !== undefined;
           return (
             <StepNode
               key={s.id}
@@ -293,6 +324,8 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
               model={model}
               actors={model.actors}
               systems={model.systems}
+              autoHeight={!hasHeightOverride}
+              onMeasure={(w, h) => reportMeasure(s.id, w, h)}
               onDelete={() => onDeleteAny(s.id)}
               onUpdate={(patch) => onUpdateItem(s.id, patch)}
               onDrag={(delta) => patchOverride(s.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
@@ -302,9 +335,12 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
           );
         }
         const d = n.ref;
+        const hasHeightOverride = overrides[d.id]?.h !== undefined;
         return (
           <DecisionNode
             key={d.id} node={n} d={d} model={model}
+            autoHeight={!hasHeightOverride}
+            onMeasure={(w, h) => reportMeasure(d.id, w, h)}
             onDelete={() => onDeleteAny(d.id)}
             onUpdate={(patch) => onUpdateItem(d.id, patch)}
             onDrag={(delta) => patchOverride(d.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
@@ -313,17 +349,21 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
           />
         );
       })}
-      {right.map((n) => (
-        <ExceptionNode
-          key={n.ref.id} node={n} e={n.ref} model={model}
-          onDelete={() => onDeleteAny(n.ref.id)}
-          onUpdate={(patch) => onUpdateItem(n.ref.id, patch)}
-          onDrag={(delta) => patchOverride(n.ref.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
-          onResize={(w, h) => patchOverride(n.ref.id, { w, h })}
-          onRefine={handleRefine}
-        />
-
-      ))}
+      {right.map((n) => {
+        const hasHeightOverride = overrides[n.ref.id]?.h !== undefined;
+        return (
+          <ExceptionNode
+            key={n.ref.id} node={n} e={n.ref} model={model}
+            autoHeight={!hasHeightOverride}
+            onMeasure={(w, h) => reportMeasure(n.ref.id, w, h)}
+            onDelete={() => onDeleteAny(n.ref.id)}
+            onUpdate={(patch) => onUpdateItem(n.ref.id, patch)}
+            onDrag={(delta) => patchOverride(n.ref.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
+            onResize={(w, h) => patchOverride(n.ref.id, { w, h })}
+            onRefine={handleRefine}
+          />
+        );
+      })}
     </CanvasShell>
   );
 }
@@ -367,6 +407,20 @@ function useNodeDrag(onDrag: (d: { dx: number; dy: number }) => void) {
       window.addEventListener("pointerup", up);
     },
   };
+}
+
+function useMeasure(onMeasure: (w: number, h: number) => void) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const report = () => onMeasure(el.offsetWidth, el.offsetHeight);
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onMeasure]);
+  return ref;
 }
 
 function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: number, h: number) => void }) {
@@ -415,10 +469,13 @@ function DragHandle({ handlers }: { handlers: ReturnType<typeof useNodeDrag> }) 
 // ---- Step ----
 
 function StepNode({
-  node, step, actors, systems, model, onDelete, onUpdate, onDrag, onResize, onRefine,
+  node, step, actors, systems, model, autoHeight, onMeasure,
+  onDelete, onUpdate, onDrag, onResize, onRefine,
 }: {
   node: SpineNode; step: Step; model: ProcessModel;
   actors: { id: string; text: string }[]; systems: { id: string; text: string }[];
+  autoHeight: boolean;
+  onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Step>) => void;
   onDrag: (d: { dx: number; dy: number }) => void;
@@ -426,17 +483,25 @@ function StepNode({
   onRefine: (p: Proposal) => void;
 }) {
   const drag = useNodeDrag(onDrag);
+  const ref = useMeasure(onMeasure);
   return (
     <div
+      ref={ref}
       data-node
       className={cn(
-        "group absolute rounded-lg border-2 bg-card px-3 py-2 shadow-sm flex flex-col gap-1 animate-item-in overflow-hidden",
+        "group absolute rounded-lg border-2 bg-card px-3 py-2 shadow-sm flex flex-col gap-1 animate-item-in",
         step.drift && "border-drift animate-drift bg-drift/5",
         step.confidence < 0.7 && !step.drift && "border-dashed border-unresolved bg-unresolved/5",
         !step.drift && step.confidence >= 0.7 && !step.userAdded && "border-primary/40",
         step.userAdded && "user-added !border-verified",
       )}
-      style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h }}
+      style={{
+        left: node.cx - node.w / 2,
+        top: node.cy - node.h / 2,
+        width: node.w,
+        minHeight: STEP_H,
+        ...(autoHeight ? {} : { height: node.h }),
+      }}
     >
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1 min-w-0">
@@ -504,9 +569,12 @@ function MetaSelect({
 // ---- Decision ----
 
 function DecisionNode({
-  node, d, model, onDelete, onUpdate, onDrag, onResize, onRefine,
+  node, d, model, autoHeight, onMeasure,
+  onDelete, onUpdate, onDrag, onResize, onRefine,
 }: {
   node: SpineNode; d: Decision; model: ProcessModel;
+  autoHeight: boolean;
+  onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Decision>) => void;
   onDrag: (d: { dx: number; dy: number }) => void;
@@ -514,26 +582,39 @@ function DecisionNode({
   onRefine: (p: Proposal) => void;
 }) {
   const drag = useNodeDrag(onDrag);
+  const ref = useMeasure(onMeasure);
   const left = node.cx - node.w / 2;
   const top = node.cy - node.h / 2;
   const w = node.w, h = node.h;
   return (
     <div
+      ref={ref}
       data-node
       className={cn("group absolute animate-item-in", d.drift && "animate-drift")}
-      style={{ left, top, width: w, height: h }}
+      style={{
+        left,
+        top,
+        width: w,
+        minHeight: DEC_H,
+        ...(autoHeight ? {} : { height: h }),
+      }}
     >
-      <svg width={w} height={h} className="absolute inset-0 pointer-events-none">
+      <svg
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        className="absolute inset-0 w-full h-full pointer-events-none"
+      >
         <polygon
-          points={`${w / 2},0 ${w},${h / 2} ${w / 2},${h} 0,${h / 2}`}
+          points="50,0 100,50 50,100 0,50"
           fill="var(--color-card)"
           stroke={d.drift ? "var(--color-drift)" : d.userAdded ? "var(--color-verified)" : "var(--color-primary)"}
           strokeOpacity={d.drift || d.userAdded ? 1 : 0.6}
           strokeWidth={2}
+          vectorEffect="non-scaling-stroke"
         />
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center gap-1">
-        <div className="flex items-center gap-1">
+      <div className="relative flex flex-col items-center justify-center px-10 py-4 text-center gap-1 min-h-full">
+        <div className="flex items-center gap-1 flex-wrap justify-center">
           <DragHandle handlers={drag} />
           <IdChip id={d.id} tone="primary" />
           <ConfidenceBadge item={d} />
@@ -544,10 +625,10 @@ function DecisionNode({
           </button>
         </div>
 
-        <div className="text-[11px] font-medium leading-tight">
+        <div className="text-[11px] font-medium leading-tight break-words">
           <InlineEdit value={d.text} onChange={(v) => onUpdate({ text: v })} multiline />
         </div>
-        <div className="flex gap-2 text-[9px] font-mono-tight text-muted-foreground">
+        <div className="flex gap-2 text-[9px] font-mono-tight text-muted-foreground flex-wrap justify-center">
           <span className="text-confident">yes→<InlineEdit value={d.yes} onChange={(v) => onUpdate({ yes: v })} /></span>
           <span className="text-drift">no→<InlineEdit value={d.no} onChange={(v) => onUpdate({ no: v })} /></span>
         </div>
@@ -560,9 +641,12 @@ function DecisionNode({
 // ---- Exception ----
 
 function ExceptionNode({
-  node, e, model, onDelete, onUpdate, onDrag, onResize, onRefine,
+  node, e, model, autoHeight, onMeasure,
+  onDelete, onUpdate, onDrag, onResize, onRefine,
 }: {
   node: RightNode; e: Exception; model: ProcessModel;
+  autoHeight: boolean;
+  onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Exception>) => void;
   onDrag: (d: { dx: number; dy: number }) => void;
@@ -570,14 +654,22 @@ function ExceptionNode({
   onRefine: (p: Proposal) => void;
 }) {
   const drag = useNodeDrag(onDrag);
+  const ref = useMeasure(onMeasure);
   return (
     <div
+      ref={ref}
       data-node
       className={cn(
-        "group absolute rounded-md border border-dashed bg-unresolved/5 border-unresolved/70 px-2.5 py-2 shadow-sm flex flex-col gap-1 animate-item-in overflow-hidden",
+        "group absolute rounded-md border border-dashed bg-unresolved/5 border-unresolved/70 px-2.5 py-2 shadow-sm flex flex-col gap-1 animate-item-in",
         e.userAdded && "user-added !border-verified border-solid",
       )}
-      style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h }}
+      style={{
+        left: node.cx - node.w / 2,
+        top: node.cy - node.h / 2,
+        width: node.w,
+        minHeight: EX_H,
+        ...(autoHeight ? {} : { height: node.h }),
+      }}
     >
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1 min-w-0">
@@ -602,3 +694,6 @@ function ExceptionNode({
     </div>
   );
 }
+
+// Silence unused-import warnings in some tsconfigs.
+export const _pc_unused = { useEffect };
