@@ -374,6 +374,8 @@ export function ArtifactView({
                     onAddException={editing.onAddException}
                     onAddConnection={editing.onAddConnection}
                     onDeleteConnection={editing.onDeleteConnection}
+                    onUpdateConnection={editing.onUpdateConnection}
+
                     onDeleteAny={editing.onDeleteAny}
                     onUpdateItem={editing.onUpdateItem}
                     onApplyRefinement={editing.onApplyRefinement}

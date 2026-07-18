@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ProcessModel, Step, Decision, Exception } from "@/data/samples";
+import type { ProcessModel, Step, Decision, Exception, Connection, CrowMarker } from "@/data/samples";
 import { cn } from "@/lib/utils";
 import { ConfidenceBadge, IdChip } from "./atoms";
 import {
   Plus, X, GripVertical, Square, Diamond, AlertTriangle, Wand2,
   PanelRightOpen, PanelRightClose, Circle, FileText, ChevronsRight,
   Layers, ArrowUpToLine, ArrowDownToLine, Zap, Rows3,
+  Table2, Boxes, GitBranch, MoreHorizontal,
+
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CanvasShell, useCanvas } from "./CanvasShell";
 import { InlineEdit } from "./InlineEdit";
 import { RefineControl } from "./RefineControl";
 import { applyProposal, type Proposal } from "@/lib/refine";
+
 
 /**
  * Deterministic top-to-bottom flowchart with a single vertical spine.
@@ -87,9 +91,14 @@ function defaultSizeFor(kind: "step" | "decision" | "exception", shape?: string)
     case "io": return { w: 260, h: 84 };
     case "offpage": return { w: 240, h: 88 };
     case "task": return { w: 260, h: 84 };
+    case "uml-class":
+    case "uml-interface": return { w: 240, h: 200 };
+    case "er-entity": return { w: 240, h: 180 };
+    case "uml-lifeline": return { w: 140, h: 360 };
     default: return { w: STEP_W, h: STEP_H };
   }
 }
+
 
 function effSize(id: string, defW: number, defH: number, overrides: Overrides, measured: Measured) {
   const o = overrides[id];
@@ -213,6 +222,7 @@ interface Props {
   onAddException?: (text: string) => string | void;
   onAddConnection?: (fromId: string, toId: string) => string | void;
   onDeleteConnection?: (id: string) => void;
+  onUpdateConnection?: (id: string, patch: Partial<Connection>) => void;
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
   onApplyRefinement?: (p: Proposal) => void;
@@ -247,11 +257,30 @@ const BPMN_ITEMS: PaletteItem[] = [
   { kind: "step", shape: "swimlane", label: "Swimlane", hint: "Container", Icon: Rows3 },
 ];
 
+const UML_ITEMS: PaletteItem[] = [
+  { kind: "step", shape: "uml-class", label: "Class", hint: "Name / attrs / methods", Icon: Boxes },
+  { kind: "step", shape: "uml-interface", label: "Interface", hint: "«interface»", Icon: Boxes },
+  { kind: "step", shape: "uml-lifeline", label: "Lifeline", hint: "Sequence · stub", Icon: GitBranch },
+];
+
+const DB_ITEMS: PaletteItem[] = [
+  { kind: "step", shape: "er-entity", label: "Entity", hint: "Table · attrs", Icon: Table2 },
+];
+
+type PaletteTab = "flow" | "bpmn" | "uml" | "db";
+const PALETTE_TABS: { id: PaletteTab; label: string; items: PaletteItem[] }[] = [
+  { id: "flow", label: "Flowchart", items: FLOWCHART_ITEMS },
+  { id: "bpmn", label: "BPMN", items: BPMN_ITEMS },
+  { id: "uml", label: "UML", items: UML_ITEMS },
+  { id: "db", label: "Database", items: DB_ITEMS },
+];
+
 export function ProcessCanvas({
   model, onAddStep, onAddDecision, onAddException,
-  onAddConnection, onDeleteConnection,
+  onAddConnection, onDeleteConnection, onUpdateConnection,
   onDeleteAny, onUpdateItem, onApplyRefinement,
 }: Props) {
+
   const [overrides, setOverrides] = useState<Overrides>({});
   const [measured, setMeasured] = useState<Measured>({});
   const [paletteOpen, setPaletteOpen] = useState(true);
@@ -329,7 +358,24 @@ export function ProcessCanvas({
     if (typeof newId === "string") {
       patchOverride(newId, { cx: sx, cy: sy });
       bringToFront(newId);
+      // Seed sectioned content for class/interface/entity boxes.
+      if (payload.kind === "step") {
+        if (payload.shape === "uml-class") {
+          onUpdateItem(newId, {
+            sections: { attributes: ["- id: string"], methods: ["+ save()"] },
+          });
+        } else if (payload.shape === "uml-interface") {
+          onUpdateItem(newId, {
+            sections: { stereotype: "«interface»", methods: ["+ execute()"] },
+          });
+        } else if (payload.shape === "er-entity") {
+          onUpdateItem(newId, {
+            sections: { attributes: ["id · PK", "name · varchar"] },
+          });
+        }
+      }
     }
+
   };
 
   const insertStarter = () => {
@@ -465,7 +511,26 @@ export function ProcessCanvas({
           <marker id="arrow-verified" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-verified)" />
           </marker>
+          {/* Crow's-foot markers. refX at the outer edge so the glyph sits at the end. */}
+          <marker id="crow-one" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="14" markerHeight="14" orient="auto-start-reverse">
+            <path d="M6 1 V11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+          </marker>
+          <marker id="crow-many" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="14" markerHeight="14" orient="auto-start-reverse">
+            <path d="M11 1 L1 6 L11 11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+          </marker>
+          <marker id="crow-one-many" viewBox="0 0 14 12" refX="13" refY="6" markerWidth="16" markerHeight="14" orient="auto-start-reverse">
+            <path d="M8 1 V11 M13 1 L3 6 L13 11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+          </marker>
+          <marker id="crow-zero-one" viewBox="0 0 14 12" refX="13" refY="6" markerWidth="16" markerHeight="14" orient="auto-start-reverse">
+            <path d="M8 1 V11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+            <circle cx="4" cy="6" r="2.2" stroke="var(--color-verified)" strokeWidth="1.2" fill="var(--color-background)" />
+          </marker>
+          <marker id="crow-zero-many" viewBox="0 0 16 12" refX="15" refY="6" markerWidth="18" markerHeight="14" orient="auto-start-reverse">
+            <path d="M15 1 L5 6 L15 11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+            <circle cx="2" cy="6" r="2.2" stroke="var(--color-verified)" strokeWidth="1.2" fill="var(--color-background)" />
+          </marker>
         </defs>
+
 
         {spine.slice(0, -1).map((n, i) => {
           const next = spine[i + 1];
@@ -512,10 +577,21 @@ export function ProcessCanvas({
         {manualConnections.map((c) => {
           const d = routeBetween(c.fromId, c.toId);
           if (!d) return null;
+          const startMk = markerUrlFor(c.startMarker);
+          const endMk = markerUrlFor(c.endMarker) ?? "url(#arrow-verified)";
           return (
-            <path key={c.id} d={d} fill="none" stroke="var(--color-verified)" strokeWidth={1.6} markerEnd="url(#arrow-verified)" />
+            <path
+              key={c.id}
+              d={d}
+              fill="none"
+              stroke="var(--color-verified)"
+              strokeWidth={1.6}
+              markerStart={startMk ?? undefined}
+              markerEnd={endMk}
+            />
           );
         })}
+
 
         {pendingConn && (
           <path
@@ -601,20 +677,121 @@ export function ProcessCanvas({
         const mx = (a.cx + b.cx) / 2;
         const my = (a.cy + b.cy) / 2;
         return (
-          <button
-            key={`del-${c.id}`}
-            data-no-pan
-            data-conn-delete={c.id}
-            onClick={(e) => { e.stopPropagation(); onDeleteConnection?.(c.id); }}
-            title="Delete connector"
-            className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/60 bg-card text-primary shadow-sm opacity-70 hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition flex items-center justify-center"
-            style={{ left: mx, top: my, zIndex: 40 }}
-          >
-            <X className="size-3" />
-          </button>
+          <ConnectorControl
+            key={`ctl-${c.id}`}
+            conn={c}
+            x={mx}
+            y={my}
+            onDelete={() => onDeleteConnection?.(c.id)}
+            onUpdate={onUpdateConnection ? (patch) => onUpdateConnection(c.id, patch) : undefined}
+          />
         );
       })}
     </CanvasShell>
+  );
+}
+
+/** Map a CrowMarker enum to the SVG marker URL used in the path. */
+function markerUrlFor(m?: CrowMarker): string | null {
+  switch (m) {
+    case "one": return "url(#crow-one)";
+    case "many": return "url(#crow-many)";
+    case "one-many": return "url(#crow-one-many)";
+    case "zero-one": return "url(#crow-zero-one)";
+    case "zero-many": return "url(#crow-zero-many)";
+    default: return null;
+  }
+}
+
+const CROW_OPTIONS: { id: CrowMarker; label: string; glyph: string }[] = [
+  { id: "none", label: "None / arrow", glyph: "→" },
+  { id: "one", label: "One", glyph: "|" },
+  { id: "many", label: "Many", glyph: "⋉" },
+  { id: "one-many", label: "One-to-many", glyph: "|⋉" },
+  { id: "zero-one", label: "Zero or one", glyph: "○|" },
+  { id: "zero-many", label: "Zero or many", glyph: "○⋉" },
+];
+
+function ConnectorControl({
+  conn, x, y, onDelete, onUpdate,
+}: {
+  conn: Connection;
+  x: number;
+  y: number;
+  onDelete: () => void;
+  onUpdate?: (patch: Partial<Connection>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      data-no-pan
+      className="absolute -translate-x-1/2 -translate-y-1/2"
+      style={{ left: x, top: y, zIndex: 40 }}
+    >
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        title="Connector settings"
+        className="h-5 w-5 rounded-full border border-primary/60 bg-card text-primary shadow-sm opacity-70 hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition flex items-center justify-center"
+      >
+        <MoreHorizontal className="size-3" />
+      </button>
+      {open && (
+        <div className="absolute left-1/2 top-6 -translate-x-1/2 w-[220px] rounded-lg border bg-card shadow-lg p-2 flex flex-col gap-2">
+          {onUpdate && (
+            <>
+              <div>
+                <div className="text-[9px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-1">Start</div>
+                <div className="flex flex-wrap gap-1">
+                  {CROW_OPTIONS.map((o) => (
+                    <button
+                      key={`s-${o.id}`}
+                      onClick={() => onUpdate({ startMarker: o.id === "none" ? undefined : o.id })}
+                      className={cn(
+                        "px-1.5 py-0.5 rounded border text-[10px] font-mono-tight",
+                        (conn.startMarker ?? "none") === o.id
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:text-foreground",
+                      )}
+                      title={o.label}
+                    >{o.glyph}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-[9px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-1">End</div>
+                <div className="flex flex-wrap gap-1">
+                  {CROW_OPTIONS.map((o) => (
+                    <button
+                      key={`e-${o.id}`}
+                      onClick={() => onUpdate({ endMarker: o.id === "none" ? undefined : o.id })}
+                      className={cn(
+                        "px-1.5 py-0.5 rounded border text-[10px] font-mono-tight",
+                        (conn.endMarker ?? "none") === o.id
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:text-foreground",
+                      )}
+                      title={o.label}
+                    >{o.glyph}</button>
+                  ))}
+                </div>
+              </div>
+              <input
+                value={conn.label ?? ""}
+                onChange={(e) => onUpdate({ label: e.target.value })}
+                placeholder="Label (optional)"
+                className="w-full text-[11px] px-2 py-1 rounded border bg-background"
+              />
+            </>
+          )}
+          <button
+            onClick={() => { onDelete(); setOpen(false); }}
+            className="w-full text-[11px] px-2 py-1 rounded border border-destructive/40 text-destructive hover:bg-destructive/10 flex items-center justify-center gap-1"
+          >
+            <X className="size-3" /> Delete connector
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -628,9 +805,14 @@ function defaultLabelFor(shape?: string) {
     case "task": return "Task";
     case "event": return "Event";
     case "swimlane": return "Swimlane";
+    case "uml-class": return "ClassName";
+    case "uml-interface": return "InterfaceName";
+    case "uml-lifeline": return "Actor";
+    case "er-entity": return "Table";
     default: return "New step";
   }
 }
+
 
 // -------- Palette --------
 
@@ -640,8 +822,8 @@ function ShapePalette({
   open: boolean; onToggle: () => void;
   showStarter: boolean; onInsertStarter: () => void;
 }) {
-  const [tab, setTab] = useState<"flow" | "bpmn">("flow");
-  const items = tab === "flow" ? FLOWCHART_ITEMS : BPMN_ITEMS;
+  const [tab, setTab] = useState<PaletteTab>("flow");
+  const items = PALETTE_TABS.find((t) => t.id === tab)?.items ?? FLOWCHART_ITEMS;
   return (
     <div className="absolute top-3 left-3 z-30 flex items-start gap-2" data-no-pan>
       <Button
@@ -652,17 +834,14 @@ function ShapePalette({
         {open ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
       </Button>
       {open && (
-        <div className="rounded-xl border bg-card/95 backdrop-blur shadow-lg w-[220px] overflow-hidden">
+        <div className="rounded-xl border bg-card/95 backdrop-blur shadow-lg w-[240px] overflow-hidden">
           <div className="flex border-b bg-muted/40">
-            {[
-              { id: "flow", label: "Flowchart" },
-              { id: "bpmn", label: "BPMN" },
-            ].map((t) => (
+            {PALETTE_TABS.map((t) => (
               <button
                 key={t.id}
-                onClick={() => setTab(t.id as "flow" | "bpmn")}
+                onClick={() => setTab(t.id)}
                 className={cn(
-                  "flex-1 px-3 py-2 text-[11px] font-mono-tight uppercase tracking-widest transition",
+                  "flex-1 px-2 py-2 text-[10px] font-mono-tight uppercase tracking-wider transition",
                   tab === t.id
                     ? "bg-card text-foreground border-b-2 border-primary"
                     : "text-muted-foreground hover:text-foreground",
@@ -672,6 +851,7 @@ function ShapePalette({
               </button>
             ))}
           </div>
+
           <div className="p-2">
             <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground px-1 pb-1.5">
               Drag to canvas
@@ -800,10 +980,18 @@ function ShapeGlyph({ kind, shape }: { kind: PaletteItem["kind"]; shape?: string
       );
     case "swimlane":
       return <Rows3 className="size-4 text-primary shrink-0" />;
+    case "uml-class":
+    case "uml-interface":
+      return <Boxes className="size-4 text-primary shrink-0" />;
+    case "uml-lifeline":
+      return <GitBranch className="size-4 text-primary shrink-0" />;
+    case "er-entity":
+      return <Table2 className="size-4 text-primary shrink-0" />;
     default:
       return <Square className="size-4 text-primary shrink-0" />;
   }
 }
+
 
 function Legend() {
   const chip = "flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
@@ -1072,7 +1260,79 @@ function StepNode({
 
   const shape = step.shape ?? "step";
   const isShaped = shape !== "step";
+  const isSectioned = shape === "uml-class" || shape === "uml-interface" || shape === "er-entity";
+  const isLifeline = shape === "uml-lifeline";
   const lowConf = step.confidence < 0.7 && !step.drift;
+
+  // Sectioned box rendering (class / interface / entity): a bordered card with
+  // stacked sections that auto-size to their content.
+  if (isSectioned) {
+    return (
+      <SectionedNode
+        node={node}
+        step={step}
+        model={model}
+        autoHeight={autoHeight}
+        onMeasure={onMeasure}
+        onDelete={onDelete}
+        onUpdate={onUpdate}
+        onDrag={onDrag}
+        onResize={onResize}
+        onRefine={onRefine}
+        onStartConnect={onStartConnect}
+        onSelect={onSelect}
+        onBringToFront={onBringToFront}
+        onSendToBack={onSendToBack}
+        z={z}
+        variant={shape}
+        refEl={ref}
+        dragHandlers={drag}
+      />
+    );
+  }
+
+  // Sequence lifeline — simplified stub: header box + dashed vertical line.
+  // Editable label; not fully wired to sequence-diagram messaging semantics.
+  if (isLifeline) {
+    return (
+      <div
+        ref={ref}
+        data-node
+        data-node-id={step.id}
+        onPointerDown={() => onSelect()}
+        className="group absolute animate-item-in flex flex-col items-center"
+        style={{
+          left: node.cx - node.w / 2,
+          top: node.cy - node.h / 2,
+          width: node.w,
+          minHeight: 200,
+          zIndex: 10 + z,
+          ...(autoHeight ? {} : { height: node.h }),
+        }}
+      >
+        <div className={cn(
+          "relative rounded-md border-2 bg-card shadow-sm px-3 py-2 w-full flex items-center gap-1",
+          step.userAdded && "!border-verified",
+          !step.userAdded && "border-primary/50",
+        )}>
+          <DragHandle handlers={drag} />
+          <IdChip id={step.id} tone="primary" />
+          <div className="text-xs font-medium flex-1 text-center break-words">
+            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} />
+          </div>
+          <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
+          <button onClick={onDelete} data-no-pan
+            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+            <X className="size-3" />
+          </button>
+        </div>
+        <div className="flex-1 w-px border-l-2 border-dashed border-primary/50" style={{ minHeight: 120 }} />
+        <div className="text-[9px] font-mono-tight text-muted-foreground pt-1">lifeline · stub</div>
+        {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
+        <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
+      </div>
+    );
+  }
 
   // Padding tuned per shape so content sits inside the visible outline.
   const padClass =
@@ -1161,6 +1421,161 @@ function StepNode({
     </div>
   );
 }
+
+function SectionedNode({
+  node, step, model, autoHeight, onMeasure,
+  onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
+  onSelect, onBringToFront, onSendToBack, z, variant, refEl, dragHandlers,
+}: {
+  node: SpineNode; step: Step; model: ProcessModel;
+  autoHeight: boolean;
+  onMeasure: (w: number, h: number) => void;
+  onDelete: () => void;
+  onUpdate: (patch: Partial<Step>) => void;
+  onDrag: (d: { dx: number; dy: number }) => void;
+  onResize: (w: number, h: number) => void;
+  onRefine: (p: Proposal) => void;
+  onStartConnect?: (e: React.PointerEvent) => void;
+  onSelect: () => void;
+  onBringToFront: () => void;
+  onSendToBack: () => void;
+  z: number;
+  variant: "uml-class" | "uml-interface" | "er-entity";
+  refEl: React.RefObject<HTMLDivElement | null>;
+  dragHandlers: ReturnType<typeof useNodeDrag>;
+}) {
+  void onMeasure; // measured via useMeasure hook attached in parent
+  const sections = step.sections ?? {};
+  const attrs = sections.attributes ?? [];
+  const methods = sections.methods ?? [];
+  const stereotype = variant === "uml-interface" ? (sections.stereotype ?? "«interface»") : sections.stereotype;
+
+  const updateList = (key: "attributes" | "methods", i: number, v: string) => {
+    const list = [...(sections[key] ?? [])];
+    list[i] = v;
+    onUpdate({ sections: { ...sections, [key]: list } });
+  };
+  const addRow = (key: "attributes" | "methods") => {
+    const list = [...(sections[key] ?? []), key === "attributes" ? "field: type" : "method()"];
+    onUpdate({ sections: { ...sections, [key]: list } });
+  };
+  const removeRow = (key: "attributes" | "methods", i: number) => {
+    const list = [...(sections[key] ?? [])];
+    list.splice(i, 1);
+    onUpdate({ sections: { ...sections, [key]: list } });
+  };
+
+  const showMethods = variant !== "er-entity";
+  const isEntity = variant === "er-entity";
+
+  return (
+    <div
+      ref={refEl}
+      data-node
+      data-node-id={step.id}
+      onPointerDown={() => onSelect()}
+      className={cn(
+        "group absolute animate-item-in rounded-lg border-2 bg-card shadow-sm overflow-hidden flex flex-col",
+        step.userAdded ? "border-verified" : "border-primary/50",
+        isEntity && "border-verified/70",
+      )}
+      style={{
+        left: node.cx - node.w / 2,
+        top: node.cy - node.h / 2,
+        width: node.w,
+        minHeight: 120,
+        zIndex: 10 + z,
+        ...(autoHeight ? {} : { height: node.h }),
+      }}
+    >
+      {/* header */}
+      <div className="flex items-center gap-1 px-2 py-1.5 bg-muted/40 border-b">
+        <DragHandle handlers={dragHandlers} />
+        <IdChip id={step.id} tone="primary" />
+        <div className="flex-1 min-w-0 text-center">
+          {stereotype && (
+            <div className="text-[9px] font-mono-tight text-muted-foreground leading-none">{stereotype}</div>
+          )}
+          <div className="text-xs font-semibold break-words leading-tight">
+            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} />
+          </div>
+        </div>
+        <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
+        <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
+        <button onClick={onDelete} data-no-pan
+          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+          <X className="size-3" />
+        </button>
+      </div>
+      {/* attributes */}
+      <SectionList
+        label={isEntity ? "columns" : "attributes"}
+        items={attrs}
+        onChange={(i, v) => updateList("attributes", i, v)}
+        onRemove={(i) => removeRow("attributes", i)}
+        onAdd={() => addRow("attributes")}
+      />
+      {showMethods && (
+        <SectionList
+          label="methods"
+          items={methods}
+          onChange={(i, v) => updateList("methods", i, v)}
+          onRemove={(i) => removeRow("methods", i)}
+          onAdd={() => addRow("methods")}
+          topBorder
+        />
+      )}
+      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
+      <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
+    </div>
+  );
+}
+
+function SectionList({
+  label, items, onChange, onRemove, onAdd, topBorder,
+}: {
+  label: string;
+  items: string[];
+  onChange: (i: number, v: string) => void;
+  onRemove: (i: number) => void;
+  onAdd: () => void;
+  topBorder?: boolean;
+}) {
+  return (
+    <div className={cn("px-2 py-1.5 flex flex-col gap-0.5", topBorder && "border-t")}>
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] font-mono-tight uppercase tracking-widest text-muted-foreground">{label}</span>
+        <button
+          onClick={onAdd}
+          data-no-pan
+          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition"
+          title={`Add ${label.slice(0, -1)}`}
+        >
+          <Plus className="size-3" />
+        </button>
+      </div>
+      {items.length === 0 && (
+        <div className="text-[10px] italic text-muted-foreground/70">empty</div>
+      )}
+      {items.map((v, i) => (
+        <div key={i} className="flex items-center gap-1 group/row">
+          <span className="text-[11px] font-mono-tight text-foreground/90 flex-1 break-words min-w-0">
+            <InlineEdit value={v} onChange={(next) => onChange(i, next)} />
+          </span>
+          <button
+            onClick={() => onRemove(i)}
+            data-no-pan
+            className="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-destructive transition"
+            title="Remove"
+          >
+            <X className="size-2.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 
 function MetaSelect({
   value, options, onChange,

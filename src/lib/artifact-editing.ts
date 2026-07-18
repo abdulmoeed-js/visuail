@@ -30,6 +30,8 @@ export interface ArtifactEditing {
   onAddBMC: (b: BMCBlock["id"], t: string) => string;
   onAddConnection: (fromId: string, toId: string, label?: string) => string;
   onDeleteConnection: (id: string) => void;
+  onUpdateConnection: (id: string, patch: Partial<Connection>) => void;
+
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
   onApplyRefinement: (p: Proposal) => void;
@@ -134,6 +136,8 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
   };
   const onDeleteConnection = (id: string) => mutate(m => m.kind === "process"
     ? { ...m, connections: (m.connections ?? []).filter(c => c.id !== id) } : m);
+  const onUpdateConnection = (id: string, patch: Partial<Connection>) => mutate(m => m.kind === "process"
+    ? { ...m, connections: (m.connections ?? []).map(c => c.id === id ? { ...c, ...patch } : c) } : m);
 
   const onApplyRefinement = (p: Proposal) =>
     mutate(m => (m.kind === "process" ? applyProposal(p, m) : m));
@@ -142,7 +146,8 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     model, drifted, reset,
     onSimulateDrift, onClearDrift,
     onAddActor, onAddStep, onAddDecision, onAddException, onAddSystem, onAddBMC,
-    onAddConnection, onDeleteConnection,
+    onAddConnection, onDeleteConnection, onUpdateConnection,
     onDeleteAny, onUpdateItem, onApplyRefinement,
   };
 }
+

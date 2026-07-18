@@ -21,7 +21,16 @@ export interface Step extends BaseItem {
   actorId: string;
   systemId?: string;
   /** Visual variant. Undefined = default rectangle. */
-  shape?: "step" | "terminator" | "document" | "io" | "subroutine" | "offpage" | "task" | "event" | "swimlane";
+  shape?:
+    | "step" | "terminator" | "document" | "io" | "subroutine" | "offpage"
+    | "task" | "event" | "swimlane"
+    | "uml-class" | "uml-interface" | "uml-lifeline" | "er-entity";
+  /** Sectioned content for class/interface/entity boxes. */
+  sections?: {
+    stereotype?: string;
+    attributes?: string[];
+    methods?: string[];
+  };
 }
 export interface Decision extends BaseItem {
   afterStepId: string;
@@ -32,13 +41,19 @@ export interface Decision extends BaseItem {
 export interface Exception extends BaseItem { relatedStepId?: string; }
 export interface System extends BaseItem {}
 
+/** Crow's-foot notation for one end of a relationship. */
+export type CrowMarker = "none" | "one" | "many" | "one-many" | "zero-one" | "zero-many";
+
 export interface Connection {
   id: string;
   fromId: string;
   toId: string;
   label?: string;
   userAdded?: boolean;
+  startMarker?: CrowMarker;
+  endMarker?: CrowMarker;
 }
+
 
 export interface ProcessModel {
   kind: "process";
