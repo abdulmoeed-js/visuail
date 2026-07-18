@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Check, Sparkles } from "lucide-react";
+import { sessionStore } from "@/lib/session";
 
 interface Props {
   open: boolean;
@@ -13,6 +15,7 @@ interface Props {
 export function SignupWallModal({ open, onOpenChange, action }: Props) {
   const [email, setEmail] = useState("");
   const [done, setDone] = useState(false);
+  const navigate = useNavigate();
 
   return (
     <Dialog
@@ -36,7 +39,10 @@ export function SignupWallModal({ open, onOpenChange, action }: Props) {
             </DialogHeader>
             <form
               className="space-y-3"
-              onSubmit={(e) => { e.preventDefault(); if (email.trim()) setDone(true); }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (email.trim()) { sessionStore.signIn(email.trim()); setDone(true); }
+              }}
             >
               <Input
                 type="email" required autoFocus placeholder="you@company.com"
@@ -59,7 +65,7 @@ export function SignupWallModal({ open, onOpenChange, action }: Props) {
               We saved your artifact and sent a magic link to <strong>{email}</strong>.
               (Demo: no email actually sent.)
             </p>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Back to workbench</Button>
+            <Button onClick={() => { onOpenChange(false); navigate({ to: "/dashboard" }); }}>Go to dashboard</Button>
           </div>
         )}
       </DialogContent>

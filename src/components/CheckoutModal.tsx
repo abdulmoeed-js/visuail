@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Check, CreditCard, Loader2, Lock } from "lucide-react";
-import { scrollToId } from "@/lib/scroll";
+import { sessionStore } from "@/lib/session";
 
 interface Props {
   open: boolean;
@@ -27,6 +28,7 @@ function formatExpiry(v: string) {
 
 export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Props) {
   const [phase, setPhase] = useState<Phase>("form");
+  const navigate = useNavigate();
   const [card, setCard] = useState("");
   const [expiry, setExpiry] = useState("");
   const [cvc, setCvc] = useState("");
@@ -54,7 +56,10 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
     if (zip.trim().length < 3) return setErr("Billing ZIP required.");
     setErr(null);
     setPhase("processing");
-    setTimeout(() => setPhase("done"), 1400);
+    setTimeout(() => {
+      if (tier) sessionStore.setTier(tier === "Pro" ? "pro" : "team");
+      setPhase("done");
+    }, 1400);
   };
 
   const close = (v: boolean) => {
@@ -155,9 +160,9 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
             </ul>
             <Button
               className="mt-2"
-              onClick={() => { close(false); setTimeout(() => scrollToId("workbench"), 220); }}
+              onClick={() => { close(false); navigate({ to: "/dashboard" }); }}
             >
-              Continue to workbench
+              Continue to dashboard
             </Button>
             <p className="text-[10px] font-mono-tight text-muted-foreground">
               Mocked checkout — no real charge occurred.

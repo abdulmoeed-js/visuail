@@ -19,7 +19,9 @@ import { BMCCanvas } from "./workbench/BMCCanvas";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
 import { DriftNotifier } from "./workbench/DriftNotifier";
 import { TemplateGallery } from "./workbench/TemplateGallery";
-import { IntakeWizard, type ProjectResult } from "./workbench/IntakeWizard";
+import { Link } from "@tanstack/react-router";
+import { FolderPlus } from "lucide-react";
+import { type ProjectResult } from "./workbench/IntakeWizard";
 import { ProjectView } from "./workbench/ProjectView";
 import { SignupWallModal } from "./SignupWallModal";
 import { useArtifactEditing, type ArtifactEditing } from "@/lib/artifact-editing";
@@ -112,7 +114,11 @@ export function Workbench() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <IntakeWizard onComplete={setProject} />
+          <Link to="/new">
+            <Button variant="default" size="sm" className="h-8 gap-1.5">
+              <FolderPlus className="size-3.5" /> New project
+            </Button>
+          </Link>
           <TemplateGallery onPick={loadSample} />
           <span className="mx-1 h-4 w-px bg-border" aria-hidden />
           {SAMPLES.map((sm) => (
