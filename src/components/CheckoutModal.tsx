@@ -160,9 +160,9 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
             </ul>
             <Button
               className="mt-2"
-              onClick={() => { close(false); setTimeout(() => scrollToId("workbench"), 220); }}
+              onClick={() => { close(false); navigate({ to: "/dashboard" }); }}
             >
-              Continue to workbench
+              Continue to dashboard
             </Button>
             <p className="text-[10px] font-mono-tight text-muted-foreground">
               Mocked checkout — no real charge occurred.
