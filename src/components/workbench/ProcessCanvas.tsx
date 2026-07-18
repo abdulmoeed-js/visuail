@@ -511,7 +511,26 @@ export function ProcessCanvas({
           <marker id="arrow-verified" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-verified)" />
           </marker>
+          {/* Crow's-foot markers. refX at the outer edge so the glyph sits at the end. */}
+          <marker id="crow-one" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="14" markerHeight="14" orient="auto-start-reverse">
+            <path d="M6 1 V11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+          </marker>
+          <marker id="crow-many" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="14" markerHeight="14" orient="auto-start-reverse">
+            <path d="M11 1 L1 6 L11 11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+          </marker>
+          <marker id="crow-one-many" viewBox="0 0 14 12" refX="13" refY="6" markerWidth="16" markerHeight="14" orient="auto-start-reverse">
+            <path d="M8 1 V11 M13 1 L3 6 L13 11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+          </marker>
+          <marker id="crow-zero-one" viewBox="0 0 14 12" refX="13" refY="6" markerWidth="16" markerHeight="14" orient="auto-start-reverse">
+            <path d="M8 1 V11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+            <circle cx="4" cy="6" r="2.2" stroke="var(--color-verified)" strokeWidth="1.2" fill="var(--color-background)" />
+          </marker>
+          <marker id="crow-zero-many" viewBox="0 0 16 12" refX="15" refY="6" markerWidth="18" markerHeight="14" orient="auto-start-reverse">
+            <path d="M15 1 L5 6 L15 11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+            <circle cx="2" cy="6" r="2.2" stroke="var(--color-verified)" strokeWidth="1.2" fill="var(--color-background)" />
+          </marker>
         </defs>
+
 
         {spine.slice(0, -1).map((n, i) => {
           const next = spine[i + 1];
