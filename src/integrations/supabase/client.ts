@@ -1,21 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Project URL follows Supabase's fixed, documented scheme
-// (https://<project-ref>.supabase.co) — safe to keep in source, same as any
-// public API endpoint. The publishable/anon key is deliberately client-safe
-// too (that's what "publishable" means), but it lives in a Lovable secret
-// rather than source so it can be rotated without a code change.
+// Both values are deliberately client-safe: the URL is a public endpoint,
+// and a publishable key (sb_publishable_ prefix) is designed to ship in the
+// browser bundle — row-level security on the database is what protects the
+// data, not key secrecy. Rotating the key in the Supabase dashboard just
+// means updating this constant.
 const SUPABASE_URL = "https://osnpexjxxwwvsjfegmga.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as
-  | string
-  | undefined;
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_oAK4042Piy-KErOVS9ABtQ_w82SX-yD";
 
-if (!SUPABASE_PUBLISHABLE_KEY && typeof window !== "undefined") {
-  // eslint-disable-next-line no-console
-  console.error(
-    "[supabase] VITE_SUPABASE_PUBLISHABLE_KEY is not set — check the secret name " +
-      "in Lovable's project settings matches exactly.",
-  );
-}
-
-export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY ?? "");
+export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
