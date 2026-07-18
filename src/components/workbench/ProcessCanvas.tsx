@@ -769,7 +769,7 @@ function ConnectHandle({ onStartConnect }: { onStartConnect: (e: React.PointerEv
 
 function StepNode({
   node, step, actors, systems, model, autoHeight, onMeasure,
-  onDelete, onUpdate, onDrag, onResize, onRefine,
+  onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
 }: {
   node: SpineNode; step: Step; model: ProcessModel;
   actors: { id: string; text: string }[]; systems: { id: string; text: string }[];
@@ -780,6 +780,7 @@ function StepNode({
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
   onRefine: (p: Proposal) => void;
+  onStartConnect?: (e: React.PointerEvent) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   const ref = useMeasure(onMeasure);
