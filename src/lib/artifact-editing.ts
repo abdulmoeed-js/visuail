@@ -6,6 +6,7 @@ import { useCallback, useState } from "react";
 import {
   applyDrift,
   type ArtifactModel, type BaseItem, type BMCBlock, type Connection,
+  type Step, type Decision,
 } from "@/data/samples";
 import { applyProposal, type Proposal } from "@/lib/refine";
 
@@ -99,15 +100,15 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     const item = newUserItem("AC", t);
     return { id: item.id, run: (m) => m.kind === "process" ? { ...m, actors: [...m.actors, item] } : m };
   });
-  const onAddStep = (t: string) => addWithId(() => {
+  const onAddStep = (t: string, shape?: Step["shape"]) => addWithId(() => {
     const item = newUserItem("ST", t);
     return { id: item.id, run: (m) => m.kind === "process"
-      ? { ...m, steps: [...m.steps, { ...item, actorId: m.actors[0]?.id ?? "AC1" }] } : m };
+      ? { ...m, steps: [...m.steps, { ...item, actorId: m.actors[0]?.id ?? "AC1", shape }] } : m };
   });
-  const onAddDecision = (t: string) => addWithId(() => {
+  const onAddDecision = (t: string, shape?: Decision["shape"]) => addWithId(() => {
     const item = newUserItem("DC", t);
     return { id: item.id, run: (m) => m.kind === "process"
-      ? { ...m, decisions: [...m.decisions, { ...item, afterStepId: m.steps.at(-1)?.id ?? "ST1", yes: "—", no: "—" }] } : m };
+      ? { ...m, decisions: [...m.decisions, { ...item, afterStepId: m.steps.at(-1)?.id ?? "ST1", yes: "—", no: "—", shape }] } : m };
   });
   const onAddException = (t: string) => addWithId(() => {
     const item = newUserItem("EX", t);

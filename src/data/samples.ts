@@ -20,11 +20,14 @@ export interface Actor extends BaseItem {}
 export interface Step extends BaseItem {
   actorId: string;
   systemId?: string;
+  /** Visual variant. Undefined = default rectangle. */
+  shape?: "step" | "terminator" | "document" | "io" | "subroutine" | "offpage" | "task" | "event" | "swimlane";
 }
 export interface Decision extends BaseItem {
   afterStepId: string;
   yes: string;
   no: string;
+  shape?: "decision" | "gateway-exclusive" | "gateway-parallel";
 }
 export interface Exception extends BaseItem { relatedStepId?: string; }
 export interface System extends BaseItem {}
