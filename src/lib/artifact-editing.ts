@@ -6,6 +6,7 @@ import { useCallback, useState } from "react";
 import {
   applyDrift,
   type ArtifactModel, type BaseItem, type BMCBlock, type Connection,
+  type Step, type Decision,
 } from "@/data/samples";
 import { applyProposal, type Proposal } from "@/lib/refine";
 
