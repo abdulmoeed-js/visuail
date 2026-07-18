@@ -994,6 +994,7 @@ function ExceptionNode({
       <div className="text-[11px] leading-snug break-words">
         <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline />
       </div>
+      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
