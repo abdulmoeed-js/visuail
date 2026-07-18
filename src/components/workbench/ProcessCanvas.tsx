@@ -849,10 +849,18 @@ function ShapeGlyph({ kind, shape }: { kind: PaletteItem["kind"]; shape?: string
       );
     case "swimlane":
       return <Rows3 className="size-4 text-primary shrink-0" />;
+    case "uml-class":
+    case "uml-interface":
+      return <Boxes className="size-4 text-primary shrink-0" />;
+    case "uml-lifeline":
+      return <GitBranch className="size-4 text-primary shrink-0" />;
+    case "er-entity":
+      return <Table2 className="size-4 text-primary shrink-0" />;
     default:
       return <Square className="size-4 text-primary shrink-0" />;
   }
 }
+
 
 function Legend() {
   const chip = "flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
