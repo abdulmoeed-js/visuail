@@ -45,6 +45,7 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
   const [model, setModel] = useState<ArtifactModel>(initial);
   const [drifted, setDrifted] = useState(false);
   const [pristine, setPristine] = useState<ArtifactModel>(initial);
+  const [lastAddedId, setLastAddedId] = useState<string | null>(null);
 
   const mutate = (fn: (m: ArtifactModel) => ArtifactModel) =>
     setModel(cur => fn(cur));
