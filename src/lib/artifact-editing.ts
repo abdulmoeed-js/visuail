@@ -5,7 +5,7 @@
 import { useCallback, useState } from "react";
 import {
   applyDrift,
-  type ArtifactModel, type BaseItem, type BMCBlock,
+  type ArtifactModel, type BaseItem, type BMCBlock, type Connection,
 } from "@/data/samples";
 import { applyProposal, type Proposal } from "@/lib/refine";
 
@@ -21,12 +21,14 @@ export interface ArtifactEditing {
   reset: (m: ArtifactModel) => void;
   onSimulateDrift: () => void;
   onClearDrift: () => void;
-  onAddActor: (t: string) => void;
-  onAddStep: (t: string) => void;
-  onAddDecision: (t: string) => void;
-  onAddException: (t: string) => void;
-  onAddSystem: (t: string) => void;
-  onAddBMC: (b: BMCBlock["id"], t: string) => void;
+  onAddActor: (t: string) => string;
+  onAddStep: (t: string) => string;
+  onAddDecision: (t: string) => string;
+  onAddException: (t: string) => string;
+  onAddSystem: (t: string) => string;
+  onAddBMC: (b: BMCBlock["id"], t: string) => string;
+  onAddConnection: (fromId: string, toId: string, label?: string) => string;
+  onDeleteConnection: (id: string) => void;
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
   onApplyRefinement: (p: Proposal) => void;
@@ -56,6 +58,7 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
         decisions: m.decisions.filter(x => x.id !== id),
         exceptions: m.exceptions.filter(x => x.id !== id),
         systems: m.systems.filter(x => x.id !== id),
+        connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
       };
     }
     return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })) };
@@ -86,19 +89,50 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.map(apply) })) };
   });
 
-  const onAddActor = (t: string) => mutate(m => m.kind === "process"
-    ? { ...m, actors: [...m.actors, newUserItem("AC", t)] } : m);
-  const onAddStep = (t: string) => mutate(m => m.kind === "process"
-    ? { ...m, steps: [...m.steps, { ...newUserItem("ST", t), actorId: m.actors[0]?.id ?? "AC1" }] } : m);
-  const onAddDecision = (t: string) => mutate(m => m.kind === "process"
-    ? { ...m, decisions: [...m.decisions, { ...newUserItem("DC", t), afterStepId: m.steps.at(-1)?.id ?? "ST1", yes: "—", no: "—" }] } : m);
-  const onAddException = (t: string) => mutate(m => m.kind === "process"
-    ? { ...m, exceptions: [...m.exceptions, { ...newUserItem("EX", t) }] } : m);
-  const onAddSystem = (t: string) => mutate(m => m.kind === "process"
-    ? { ...m, systems: [...m.systems, newUserItem("SY", t)] } : m);
-  const onAddBMC = (bid: BMCBlock["id"], t: string) => mutate(m => m.kind === "bmc"
-    ? { ...m, blocks: m.blocks.map(b => b.id === bid
-      ? { ...b, items: [...b.items, newUserItem(bid.slice(0, 2).toUpperCase(), t)] } : b) } : m);
+  const addWithId = <T,>(mk: () => { id: string; run: (m: ArtifactModel) => ArtifactModel }) => {
+    const { id, run } = mk();
+    mutate(run);
+    return id;
+  };
+
+  const onAddActor = (t: string) => addWithId(() => {
+    const item = newUserItem("AC", t);
+    return { id: item.id, run: (m) => m.kind === "process" ? { ...m, actors: [...m.actors, item] } : m };
+  });
+  const onAddStep = (t: string) => addWithId(() => {
+    const item = newUserItem("ST", t);
+    return { id: item.id, run: (m) => m.kind === "process"
+      ? { ...m, steps: [...m.steps, { ...item, actorId: m.actors[0]?.id ?? "AC1" }] } : m };
+  });
+  const onAddDecision = (t: string) => addWithId(() => {
+    const item = newUserItem("DC", t);
+    return { id: item.id, run: (m) => m.kind === "process"
+      ? { ...m, decisions: [...m.decisions, { ...item, afterStepId: m.steps.at(-1)?.id ?? "ST1", yes: "—", no: "—" }] } : m };
+  });
+  const onAddException = (t: string) => addWithId(() => {
+    const item = newUserItem("EX", t);
+    return { id: item.id, run: (m) => m.kind === "process"
+      ? { ...m, exceptions: [...m.exceptions, { ...item }] } : m };
+  });
+  const onAddSystem = (t: string) => addWithId(() => {
+    const item = newUserItem("SY", t);
+    return { id: item.id, run: (m) => m.kind === "process" ? { ...m, systems: [...m.systems, item] } : m };
+  });
+  const onAddBMC = (bid: BMCBlock["id"], t: string) => addWithId(() => {
+    const item = newUserItem(bid.slice(0, 2).toUpperCase(), t);
+    return { id: item.id, run: (m) => m.kind === "bmc"
+      ? { ...m, blocks: m.blocks.map(b => b.id === bid ? { ...b, items: [...b.items, item] } : b) } : m };
+  });
+
+  const onAddConnection = (fromId: string, toId: string, label?: string) => {
+    const id = nextId("CN");
+    const conn: Connection = { id, fromId, toId, label, userAdded: true };
+    mutate(m => m.kind === "process"
+      ? { ...m, connections: [...(m.connections ?? []), conn] } : m);
+    return id;
+  };
+  const onDeleteConnection = (id: string) => mutate(m => m.kind === "process"
+    ? { ...m, connections: (m.connections ?? []).filter(c => c.id !== id) } : m);
 
   const onApplyRefinement = (p: Proposal) =>
     mutate(m => (m.kind === "process" ? applyProposal(p, m) : m));
@@ -107,6 +141,7 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     model, drifted, reset,
     onSimulateDrift, onClearDrift,
     onAddActor, onAddStep, onAddDecision, onAddException, onAddSystem, onAddBMC,
+    onAddConnection, onDeleteConnection,
     onDeleteAny, onUpdateItem, onApplyRefinement,
   };
 }

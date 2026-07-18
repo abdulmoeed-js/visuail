@@ -18,6 +18,8 @@ interface Props {
   toolbar?: ReactNode;              // extra buttons rendered top-left
   bottomLeft?: ReactNode;           // legend etc.
   bottomRight?: ReactNode;          // e.g. Add step
+  overlay?: ReactNode;              // extra absolute-positioned UI inside the shell (above viewport)
+  onCanvasDrop?: (canvasX: number, canvasY: number, e: React.DragEvent) => void;
   minimap?: boolean;
   gridClassName?: string;
   minZoom?: number;
@@ -27,7 +29,7 @@ interface Props {
 
 export function CanvasShell({
   contentWidth, contentHeight, children,
-  toolbar, bottomLeft, bottomRight, minimap,
+  toolbar, bottomLeft, bottomRight, overlay, onCanvasDrop, minimap,
   gridClassName = "bp-grid",
   minZoom = 0.2, maxZoom = 3,
   fullscreenLabel = "Fullscreen canvas",
@@ -216,6 +218,16 @@ export function CanvasShell({
         onPointerMove={onPointerMove}
         onPointerUp={stopPan}
         onPointerCancel={stopPan}
+        onDragOver={onCanvasDrop ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } : undefined}
+        onDrop={onCanvasDrop ? (e) => {
+          e.preventDefault();
+          const el = viewportRef.current;
+          if (!el) return;
+          const r = el.getBoundingClientRect();
+          const cx = (e.clientX - r.left - pan.x) / zoom;
+          const cy = (e.clientY - r.top - pan.y) / zoom;
+          onCanvasDrop(cx, cy, e);
+        } : undefined}
       >
         <CanvasCtx.Provider value={{ zoom, pan }}>
           <div
@@ -231,6 +243,8 @@ export function CanvasShell({
           </div>
         </CanvasCtx.Provider>
       </div>
+
+      {overlay}
 
       {bottomLeft && <div className="absolute bottom-3 left-3 z-20 flex flex-wrap gap-2" data-no-pan>{bottomLeft}</div>}
       {bottomRight && <div className="absolute bottom-3 right-3 z-20" data-no-pan>{bottomRight}</div>}

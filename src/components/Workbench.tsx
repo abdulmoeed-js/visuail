@@ -370,6 +370,10 @@ export function ArtifactView({
                   <ProcessCanvas
                     model={model}
                     onAddStep={editing.onAddStep}
+                    onAddDecision={editing.onAddDecision}
+                    onAddException={editing.onAddException}
+                    onAddConnection={editing.onAddConnection}
+                    onDeleteConnection={editing.onDeleteConnection}
                     onDeleteAny={editing.onDeleteAny}
                     onUpdateItem={editing.onUpdateItem}
                     onApplyRefinement={editing.onApplyRefinement}

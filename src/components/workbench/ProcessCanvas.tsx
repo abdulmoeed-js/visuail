@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ProcessModel, Step, Decision, Exception } from "@/data/samples";
+import type { ProcessModel, Step, Decision, Exception, Connection } from "@/data/samples";
 import { cn } from "@/lib/utils";
 import { ConfidenceBadge, IdChip } from "./atoms";
-import { Plus, X, GripVertical } from "lucide-react";
+import { Plus, X, GripVertical, Square, Diamond, AlertTriangle, Wand2, PanelRightOpen, PanelRightClose } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CanvasShell, useCanvas } from "./CanvasShell";
@@ -189,15 +189,31 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
 
 interface Props {
   model: ProcessModel;
-  onAddStep: (text: string) => void;
+  onAddStep: (text: string) => string | void;
+  onAddDecision?: (text: string) => string | void;
+  onAddException?: (text: string) => string | void;
+  onAddConnection?: (fromId: string, toId: string) => string | void;
+  onDeleteConnection?: (id: string) => void;
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<Step & Decision & Exception>) => void;
   onApplyRefinement?: (p: Proposal) => void;
 }
 
-export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onApplyRefinement }: Props) {
+type ShapeKind = "step" | "decision" | "exception";
+const PALETTE_MIME = "application/x-visuail-shape";
+
+export function ProcessCanvas({
+  model, onAddStep, onAddDecision, onAddException,
+  onAddConnection, onDeleteConnection,
+  onDeleteAny, onUpdateItem, onApplyRefinement,
+}: Props) {
   const [overrides, setOverrides] = useState<Overrides>({});
   const [measured, setMeasured] = useState<Measured>({});
+  const [paletteOpen, setPaletteOpen] = useState(true);
+  // Manual connector selection uses always-visible HTML delete buttons; no keyboard-select state needed.
+  const [pendingConn, setPendingConn] = useState<null | {
+    fromId: string; fromX: number; fromY: number; toX: number; toY: number;
+  }>(null);
 
   const reportMeasure = useCallback((id: string, w: number, h: number) => {
     setMeasured((cur) => {
@@ -226,6 +242,96 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
     }
   };
 
+  // Map id → geometry for connector anchoring.
+  const geomById = useMemo(() => {
+    const m = new Map<string, { cx: number; cy: number; w: number; h: number }>();
+    spine.forEach((n) => m.set(n.ref.id, { cx: n.cx, cy: n.cy, w: n.w, h: n.h }));
+    right.forEach((n) => m.set(n.ref.id, { cx: n.cx, cy: n.cy, w: n.w, h: n.h }));
+    return m;
+  }, [spine, right]);
+
+  const manualConnections = model.connections ?? [];
+
+
+  const handleDrop = (cx: number, cy: number, e: React.DragEvent) => {
+    const kind = e.dataTransfer.getData(PALETTE_MIME) as ShapeKind | "";
+    if (!kind) return;
+    let newId: string | void = undefined;
+    if (kind === "step") newId = onAddStep("New step");
+    else if (kind === "decision") newId = onAddDecision?.("New decision");
+    else if (kind === "exception") newId = onAddException?.("New exception");
+    if (typeof newId === "string") {
+      patchOverride(newId, { cx, cy });
+    }
+  };
+
+  const insertStarter = () => {
+    // 3-step scaffold with 2 manual connectors.
+    const centerX = 320;
+    const y0 = 100;
+    const gap = 160;
+    const a = onAddStep("Request");
+    const b = onAddStep("Review");
+    const c = onAddDecision?.("Approve?");
+    if (typeof a === "string") patchOverride(a, { cx: centerX, cy: y0 });
+    if (typeof b === "string") patchOverride(b, { cx: centerX, cy: y0 + gap });
+    if (typeof c === "string") patchOverride(c, { cx: centerX, cy: y0 + gap * 2 });
+    if (typeof a === "string" && typeof b === "string") onAddConnection?.(a, b);
+    if (typeof b === "string" && typeof c === "string") onAddConnection?.(b, c);
+  };
+
+  const isEmpty = model.steps.length === 0 && model.decisions.length === 0 && model.exceptions.length === 0;
+
+  // Compute route path between two node ids (orthogonal, matches existing style).
+  const routeBetween = (fromId: string, toId: string) => {
+    const a = geomById.get(fromId);
+    const b = geomById.get(toId);
+    if (!a || !b) return null;
+    const dy = b.cy - a.cy;
+    const dx = b.cx - a.cx;
+    // If mostly-vertical alignment, use vertical elbow (spine style).
+    if (Math.abs(dx) < 10 && Math.abs(dy) > 20) {
+      const from = { x: a.cx, y: a.cy + Math.sign(dy) * (a.h / 2) };
+      const to = { x: b.cx, y: b.cy - Math.sign(dy) * (b.h / 2) };
+      return `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
+    }
+    // Right-side elbow (routes style).
+    const fromRight = { x: a.cx + a.w / 2, y: a.cy };
+    const toLeft = { x: b.cx - b.w / 2, y: b.cy };
+    const laneX = Math.max(fromRight.x, toLeft.x) + 40;
+    return `M ${fromRight.x} ${fromRight.y} H ${laneX} V ${toLeft.y} H ${toLeft.x}`;
+  };
+
+  const startConnDrag = (fromId: string, e: React.PointerEvent) => {
+    const g = geomById.get(fromId);
+    if (!g) return;
+    const startX = g.cx + g.w / 2;
+    const startY = g.cy;
+    setPendingConn({ fromId, fromX: startX, fromY: startY, toX: startX, toY: startY });
+
+    // Convert client coords to canvas coords using the transformed content element.
+    const contentEl = (e.currentTarget as HTMLElement).closest("[data-canvas-content]") as HTMLElement | null;
+    const move = (ev: PointerEvent) => {
+      if (!contentEl) return;
+      const rect = contentEl.getBoundingClientRect();
+      const scaleX = contentEl.offsetWidth ? rect.width / contentEl.offsetWidth : 1;
+      const cx = (ev.clientX - rect.left) / scaleX;
+      const cy = (ev.clientY - rect.top) / scaleX;
+      setPendingConn((cur) => cur ? { ...cur, toX: cx, toY: cy } : cur);
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      // Find a node under the pointer.
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const node = el?.closest("[data-node-id]") as HTMLElement | null;
+      const toId = node?.dataset.nodeId;
+      if (toId && toId !== fromId) onAddConnection?.(fromId, toId);
+      setPendingConn(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   return (
     <CanvasShell
@@ -234,6 +340,15 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
       minimap
       fullscreenLabel="Process map — fullscreen"
       bottomLeft={<Legend />}
+      onCanvasDrop={handleDrop}
+      overlay={
+        <ShapePalette
+          open={paletteOpen}
+          onToggle={() => setPaletteOpen((o) => !o)}
+          showStarter={isEmpty}
+          onInsertStarter={insertStarter}
+        />
+      }
       bottomRight={
         adding ? (
           <div className="flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
@@ -261,7 +376,12 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
         )
       }
     >
-      <svg width={Math.max(width, 900)} height={Math.max(height, 620)} className="absolute inset-0 pointer-events-none">
+      <svg
+        width={Math.max(width, 900)}
+        height={Math.max(height, 620)}
+        className="absolute inset-0"
+        style={{ pointerEvents: "none" }}
+      >
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />
@@ -269,10 +389,17 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
           <marker id="arrow-dashed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-unresolved)" />
           </marker>
+          <marker id="arrow-verified" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--color-verified)" />
+          </marker>
         </defs>
 
         {spine.slice(0, -1).map((n, i) => {
           const next = spine[i + 1];
+          // Skip the auto-spine connector if either endpoint has a position override
+          // (the user has moved it off-spine) or is user-added — those get manual connectors.
+          if (overrides[n.ref.id]?.cx !== undefined || overrides[next.ref.id]?.cx !== undefined) return null;
+          if (n.ref.userAdded || next.ref.userAdded) return null;
           const from = { x: n.cx, y: n.cy + n.h / 2 };
           const to = { x: next.cx, y: next.cy - next.h / 2 };
           const yesLabel = n.kind === "decision" ? `yes → ${(n.ref as Decision).yes}` : null;
@@ -310,6 +437,34 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
             </g>
           );
         })}
+
+        {/* Manual connections (SVG line only; delete button is an HTML overlay below) */}
+        {manualConnections.map((c) => {
+          const d = routeBetween(c.fromId, c.toId);
+          if (!d) return null;
+          return (
+            <path
+              key={c.id}
+              d={d}
+              fill="none"
+              stroke="var(--color-verified)"
+              strokeWidth={1.6}
+              markerEnd="url(#arrow-verified)"
+            />
+          );
+        })}
+
+        {/* Pending (drag-in-progress) connector */}
+        {pendingConn && (
+          <path
+            d={`M ${pendingConn.fromX} ${pendingConn.fromY} L ${pendingConn.toX} ${pendingConn.toY}`}
+            fill="none"
+            stroke="var(--color-verified)"
+            strokeWidth={1.6}
+            strokeDasharray="4 3"
+            opacity={0.8}
+          />
+        )}
       </svg>
 
       {spine.map((n) => {
@@ -331,6 +486,7 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
               onDrag={(delta) => patchOverride(s.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
               onResize={(w, h) => patchOverride(s.id, { w, h })}
               onRefine={handleRefine}
+              onStartConnect={onAddConnection ? (e) => startConnDrag(s.id, e) : undefined}
             />
           );
         }
@@ -346,6 +502,7 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
             onDrag={(delta) => patchOverride(d.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
             onResize={(w, h) => patchOverride(d.id, { w, h })}
             onRefine={handleRefine}
+            onStartConnect={onAddConnection ? (e) => startConnDrag(d.id, e) : undefined}
           />
         );
       })}
@@ -361,12 +518,105 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
             onDrag={(delta) => patchOverride(n.ref.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
             onResize={(w, h) => patchOverride(n.ref.id, { w, h })}
             onRefine={handleRefine}
+            onStartConnect={onAddConnection ? (e) => startConnDrag(n.ref.id, e) : undefined}
           />
+        );
+      })}
+      {/* Manual connector delete buttons — HTML overlays at midpoints */}
+      {manualConnections.map((c) => {
+        const a = geomById.get(c.fromId);
+        const b = geomById.get(c.toId);
+        if (!a || !b) return null;
+        const mx = (a.cx + b.cx) / 2;
+        const my = (a.cy + b.cy) / 2;
+        return (
+          <button
+            key={`del-${c.id}`}
+            data-no-pan
+            data-conn-delete={c.id}
+            onClick={(e) => { e.stopPropagation(); onDeleteConnection?.(c.id); }}
+            title="Delete connector"
+            className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/60 bg-card text-primary shadow-sm opacity-70 hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition flex items-center justify-center"
+            style={{ left: mx, top: my }}
+          >
+            <X className="size-3" />
+          </button>
         );
       })}
     </CanvasShell>
   );
 }
+
+function ShapePalette({
+  open, onToggle, showStarter, onInsertStarter,
+}: {
+  open: boolean; onToggle: () => void;
+  showStarter: boolean; onInsertStarter: () => void;
+}) {
+  const items: { kind: ShapeKind; label: string; Icon: typeof Square; hint: string }[] = [
+    { kind: "step", label: "Step", Icon: Square, hint: "Rectangle" },
+    { kind: "decision", label: "Decision", Icon: Diamond, hint: "Diamond" },
+    { kind: "exception", label: "Exception", Icon: AlertTriangle, hint: "Dashed" },
+  ];
+  return (
+    <div className="absolute top-3 left-3 z-30 flex items-start gap-2" data-no-pan>
+      <Button
+        size="icon" variant="outline" className="h-8 w-8 bg-card/95 backdrop-blur"
+        onClick={onToggle}
+        title={open ? "Hide shape palette" : "Show shape palette"}
+      >
+        {open ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+      </Button>
+      {open && (
+        <div className="rounded-lg border bg-card/95 backdrop-blur p-2 shadow-sm w-[168px]">
+          <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground px-1 pb-1.5">
+            Shapes · drag to canvas
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {items.map(({ kind, label, Icon, hint }) => (
+              <div
+                key={kind}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(PALETTE_MIME, kind);
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
+                className="group flex items-center gap-2 rounded-md border bg-background px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-primary/60 hover:bg-primary/5 transition"
+                title={`Drag ${label.toLowerCase()} onto the canvas`}
+              >
+                <Icon className="size-4 text-primary shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium leading-tight">{label}</div>
+                  <div className="text-[10px] font-mono-tight text-muted-foreground leading-tight">{hint}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {showStarter && (
+            <>
+              <div className="my-2 h-px bg-border" />
+              <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground px-1 pb-1.5">
+                Starters
+              </div>
+              <Button
+                size="sm" variant="outline" className="w-full h-8 justify-start gap-1.5"
+                onClick={onInsertStarter}
+              >
+                <Wand2 className="size-3.5 text-primary" />
+                <span className="text-xs">Request → Review → Decision</span>
+              </Button>
+            </>
+          )}
+          <div className="mt-2 text-[10px] text-muted-foreground leading-snug px-1">
+            Hover a node to see its connect handle; drag it onto another node to link.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 
 function Legend() {
   const chip = "flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
@@ -466,11 +716,22 @@ function DragHandle({ handlers }: { handlers: ReturnType<typeof useNodeDrag> }) 
   );
 }
 
+function ConnectHandle({ onStartConnect }: { onStartConnect: (e: React.PointerEvent) => void }) {
+  return (
+    <div
+      data-no-pan
+      onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e); }}
+      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 hover:scale-125 transition cursor-crosshair z-10"
+      title="Drag to another node to connect"
+    />
+  );
+}
+
 // ---- Step ----
 
 function StepNode({
   node, step, actors, systems, model, autoHeight, onMeasure,
-  onDelete, onUpdate, onDrag, onResize, onRefine,
+  onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
 }: {
   node: SpineNode; step: Step; model: ProcessModel;
   actors: { id: string; text: string }[]; systems: { id: string; text: string }[];
@@ -481,6 +742,7 @@ function StepNode({
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
   onRefine: (p: Proposal) => void;
+  onStartConnect?: (e: React.PointerEvent) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   const ref = useMeasure(onMeasure);
@@ -488,6 +750,7 @@ function StepNode({
     <div
       ref={ref}
       data-node
+      data-node-id={step.id}
       className={cn(
         "group absolute rounded-lg border-2 bg-card px-3 py-2 shadow-sm flex flex-col gap-1 animate-item-in",
         step.drift && "border-drift animate-drift bg-drift/5",
@@ -534,6 +797,7 @@ function StepNode({
           onChange={(v) => onUpdate({ systemId: v || undefined })}
         />
       </div>
+      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
@@ -570,7 +834,7 @@ function MetaSelect({
 
 function DecisionNode({
   node, d, model, autoHeight, onMeasure,
-  onDelete, onUpdate, onDrag, onResize, onRefine,
+  onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
 }: {
   node: SpineNode; d: Decision; model: ProcessModel;
   autoHeight: boolean;
@@ -580,6 +844,7 @@ function DecisionNode({
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
   onRefine: (p: Proposal) => void;
+  onStartConnect?: (e: React.PointerEvent) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   const ref = useMeasure(onMeasure);
@@ -590,6 +855,7 @@ function DecisionNode({
     <div
       ref={ref}
       data-node
+      data-node-id={d.id}
       className={cn("group absolute animate-item-in", d.drift && "animate-drift")}
       style={{
         left,
@@ -633,6 +899,7 @@ function DecisionNode({
           <span className="text-drift">no→<InlineEdit value={d.no} onChange={(v) => onUpdate({ no: v })} /></span>
         </div>
       </div>
+      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
@@ -642,7 +909,7 @@ function DecisionNode({
 
 function ExceptionNode({
   node, e, model, autoHeight, onMeasure,
-  onDelete, onUpdate, onDrag, onResize, onRefine,
+  onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
 }: {
   node: RightNode; e: Exception; model: ProcessModel;
   autoHeight: boolean;
@@ -652,6 +919,7 @@ function ExceptionNode({
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
   onRefine: (p: Proposal) => void;
+  onStartConnect?: (e: React.PointerEvent) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   const ref = useMeasure(onMeasure);
@@ -659,6 +927,7 @@ function ExceptionNode({
     <div
       ref={ref}
       data-node
+      data-node-id={e.id}
       className={cn(
         "group absolute rounded-md border border-dashed bg-unresolved/5 border-unresolved/70 px-2.5 py-2 shadow-sm flex flex-col gap-1 animate-item-in",
         e.userAdded && "user-added !border-verified border-solid",
@@ -690,6 +959,7 @@ function ExceptionNode({
       <div className="text-[11px] leading-snug break-words">
         <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline />
       </div>
+      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
