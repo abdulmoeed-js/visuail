@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
-import { Moon, Sun, LayoutDashboard } from "lucide-react";
+import { Moon, Sun, LayoutDashboard, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { scrollToId } from "@/lib/scroll";
-import { useSession } from "@/lib/session";
+import { sessionStore, useSession } from "@/lib/session";
 
 export function Nav() {
   const [dark, setDark] = useState(false);
@@ -64,12 +64,21 @@ export function Nav() {
             {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </button>
           {session.signedIn ? (
-            <Link
-              to="/dashboard"
-              className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition inline-flex items-center gap-1.5"
-            >
-              <LayoutDashboard className="size-3.5" /> Dashboard
-            </Link>
+            <>
+              <Link
+                to="/dashboard"
+                className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition inline-flex items-center gap-1.5"
+              >
+                <LayoutDashboard className="size-3.5" /> Dashboard
+              </Link>
+              <button
+                onClick={() => { sessionStore.signOut(); router.navigate({ to: "/" }); }}
+                className="h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition"
+                aria-label="Sign out" title={`Sign out (${session.email})`}
+              >
+                <LogOut className="size-4" />
+              </button>
+            </>
           ) : (
             <Link
               to="/dashboard"

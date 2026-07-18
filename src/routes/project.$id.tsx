@@ -36,13 +36,28 @@ function ProjectPage() {
   const session = useSession();
   const project = useMemo(() => session.projects.find(p => p.id === id), [session, id]);
 
+  if (session.loading) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Nav />
+        <main className="mx-auto max-w-3xl px-4 pt-24 flex justify-center">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </main>
+      </div>
+    );
+  }
+
   if (!project) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <Nav />
         <main className="mx-auto max-w-3xl px-4 pt-16 text-center">
           <h1 className="font-display text-3xl">Project not found</h1>
-          <p className="text-muted-foreground mt-2">It may have been deleted from this browser.</p>
+          <p className="text-muted-foreground mt-2">
+            {session.signedIn
+              ? "It may have been deleted, or belongs to a different account."
+              : "Sign in to see your projects."}
+          </p>
           <Link to="/dashboard" className="inline-block mt-6">
             <Button><ArrowLeft className="size-4" /> Back to dashboard</Button>
           </Link>
@@ -68,7 +83,9 @@ function ProjectShell({ project }: { project: StoredProject }) {
   const paneRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const editingModelsRef = useRef<Record<string, ArtifactModel>>({});
 
-  // Persist canvas edits back to the stored project (debounced by React commit).
+  // Persist canvas edits back to the stored project. Fires on every edit, so
+  // this goes through the debounced writer -- one network write per pause in
+  // typing/dragging, not one per keystroke.
   const registerModel = useCallback((key: string, model: ArtifactModel) => {
     editingModelsRef.current[key] = model;
   }, []);
@@ -77,7 +94,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
       kind: p.kind,
       model: editingModelsRef.current[p.key] ?? p.initial,
     }));
-    sessionStore.updateProject(project.id, { canvases: merged });
+    sessionStore.updateProjectDebounced(project.id, { canvases: merged });
   }, [panes, project.id]);
 
   const onPublish = (action: string) => {
@@ -292,11 +309,17 @@ function AddSourceDialog({ project }: { project: StoredProject }) {
       if (!canvases.find(c => c.kind === existing.kind)) canvases.push(existing);
     }
 
-    sessionStore.updateProject(project.id, {
-      sources: allSources,
-      canvases,
-      fromScratch: false,
-    });
+    try {
+      await sessionStore.updateProject(project.id, {
+        sources: allSources,
+        canvases,
+        fromScratch: false,
+      });
+    } catch (err) {
+      setBusy(false);
+      alert(err instanceof Error ? err.message : "Couldn't save the new source. Try again.");
+      return;
+    }
     setBusy(false);
     setOpen(false);
     // Force full remount so the ProjectShell picks up regenerated canvases.

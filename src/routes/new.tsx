@@ -17,6 +17,7 @@ import { SAMPLES } from "@/data/samples";
 import type { ArtifactModel } from "@/data/samples";
 import { emptyCanvas } from "@/lib/empty-models";
 import { sessionStore, useSession } from "@/lib/session";
+import { SignupWallModal } from "@/components/SignupWallModal";
 
 export const Route = createFileRoute("/new")({
   head: () => ({
@@ -66,7 +67,7 @@ function NewProjectPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const capCheck = sessionStore.canCreateProject();
+  const capCheck = sessionStore.canCreateProject(session.projects.length, session.tier);
   const canContinue1 = name.trim().length > 0;
   const canContinue2 = kinds.length > 0;
 
@@ -137,16 +138,55 @@ function NewProjectPage() {
       storedSources = [];
     }
 
-    const project = sessionStore.createProject({
-      name: name.trim(),
-      description: desc.trim() || undefined,
-      kinds,
-      sources: storedSources,
-      canvases,
-      fromScratch,
-    });
-    navigate({ to: "/project/$id", params: { id: project.id } });
+    if (!session.userId) {
+      setCreating(false);
+      setError("You need to be signed in to create a project.");
+      return;
+    }
+    try {
+      const project = await sessionStore.createProject(session.userId, {
+        name: name.trim(),
+        description: desc.trim() || undefined,
+        kinds,
+        sources: storedSources,
+        canvases,
+        fromScratch,
+      });
+      navigate({ to: "/project/$id", params: { id: project.id } });
+    } catch (err) {
+      setCreating(false);
+      setError(err instanceof Error ? err.message : "Couldn't create this project. Try again.");
+    }
   };
+
+  const [signInOpen, setSignInOpen] = useState(false);
+
+  if (session.loading) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Nav />
+        <main className="mx-auto max-w-3xl px-4 pt-24 flex justify-center">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </main>
+      </div>
+    );
+  }
+
+  if (!session.signedIn) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Nav />
+        <main className="mx-auto max-w-3xl px-4 pt-24 text-center">
+          <h1 className="font-display text-2xl">Sign in to start a project.</h1>
+          <p className="text-muted-foreground text-sm mt-2 max-w-md mx-auto">
+            Projects are tied to your account now, so they follow you across devices.
+          </p>
+          <Button className="mt-6" onClick={() => setSignInOpen(true)}>Sign in</Button>
+        </main>
+        <SignupWallModal open={signInOpen} onOpenChange={setSignInOpen} action="Sign in" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">

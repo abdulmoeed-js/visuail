@@ -5,10 +5,11 @@ import { useSession, sessionStore, FREE_LIMIT, type StoredProject } from "@/lib/
 import { allItems } from "@/data/samples";
 import {
   FolderPlus, Workflow, LayoutGrid, ArrowUpRight, Trash2, ShieldCheck,
-  Clock, Sparkles, Info,
+  Clock, Sparkles, Info, Loader2, LogIn,
 } from "lucide-react";
 import { useState } from "react";
 import { CheckoutModal } from "@/components/CheckoutModal";
+import { SignupWallModal } from "@/components/SignupWallModal";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard")({
@@ -47,14 +48,47 @@ function DashboardPage() {
   const s = useSession();
   const navigate = useNavigate();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false);
 
   const remaining = s.tier === "free" ? Math.max(0, FREE_LIMIT - s.projects.length) : Infinity;
 
   const startNew = () => {
-    const check = sessionStore.canCreateProject();
+    const check = sessionStore.canCreateProject(s.projects.length, s.tier);
     if (!check.ok) { setUpgradeOpen(true); return; }
     navigate({ to: "/new" });
   };
+
+  if (s.loading) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Nav />
+        <main className="mx-auto max-w-[1200px] px-4 pt-24 flex justify-center">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </main>
+      </div>
+    );
+  }
+
+  if (!s.signedIn) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Nav />
+        <main className="mx-auto max-w-[1200px] px-4 pt-24 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border bg-card mb-4">
+            <LogIn className="size-5 text-primary" />
+          </div>
+          <h1 className="font-display text-2xl">Sign in to see your projects.</h1>
+          <p className="text-muted-foreground text-sm mt-2 max-w-md mx-auto">
+            Projects are tied to your account now, not just this browser — so they follow you across devices.
+          </p>
+          <Button className="mt-6" onClick={() => setSignInOpen(true)}>
+            <LogIn className="size-4" /> Sign in
+          </Button>
+        </main>
+        <SignupWallModal open={signInOpen} onOpenChange={setSignInOpen} action="Sign in" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -67,7 +101,7 @@ function DashboardPage() {
             </div>
             <h1 className="font-display text-3xl md:text-4xl mt-1">Your projects</h1>
             <p className="text-muted-foreground text-sm mt-1 max-w-xl">
-              Stored locally in this browser. No server, no account.
+              Signed in as {s.email}. Your projects follow you across devices now.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -186,7 +220,9 @@ function ProjectCard({ project }: { project: StoredProject }) {
         onClick={(e) => {
           e.preventDefault();
           if (confirm(`Delete "${project.name}"? This can't be undone.`)) {
-            sessionStore.deleteProject(project.id);
+            sessionStore.deleteProject(project.id).catch((err) => {
+              alert(err instanceof Error ? err.message : "Couldn't delete this project. Try again.");
+            });
           }
         }}
         className="absolute opacity-0 pointer-events-none"

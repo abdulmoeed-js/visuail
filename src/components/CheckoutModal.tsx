@@ -3,8 +3,9 @@ import { useNavigate } from "@tanstack/react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Check, CreditCard, Loader2, Lock } from "lucide-react";
-import { sessionStore } from "@/lib/session";
+import { Check, CreditCard, LogIn, Loader2, Lock } from "lucide-react";
+import { sessionStore, useSession } from "@/lib/session";
+import { SignupWallModal } from "@/components/SignupWallModal";
 
 interface Props {
   open: boolean;
@@ -29,6 +30,8 @@ function formatExpiry(v: string) {
 export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Props) {
   const [phase, setPhase] = useState<Phase>("form");
   const navigate = useNavigate();
+  const session = useSession();
+  const [signInOpen, setSignInOpen] = useState(false);
   const [card, setCard] = useState("");
   const [expiry, setExpiry] = useState("");
   const [cvc, setCvc] = useState("");
@@ -54,11 +57,17 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
     if (cvc.replace(/\D/g, "").length < 3) return setErr("CVC must be 3–4 digits.");
     if (!name.trim()) return setErr("Cardholder name required.");
     if (zip.trim().length < 3) return setErr("Billing ZIP required.");
+    if (!session.userId) return setErr("Sign in first, then come back to upgrade.");
     setErr(null);
     setPhase("processing");
-    setTimeout(() => {
-      if (tier) sessionStore.setTier(tier === "Pro" ? "pro" : "team");
-      setPhase("done");
+    setTimeout(async () => {
+      try {
+        if (tier && session.userId) await sessionStore.setTier(session.userId, tier === "Pro" ? "pro" : "team");
+        setPhase("done");
+      } catch (e) {
+        setPhase("form");
+        setErr(e instanceof Error ? e.message : "Couldn't activate the plan. Try again.");
+      }
     }, 1400);
   };
 
@@ -66,6 +75,31 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
     onOpenChange(v);
     if (!v) setTimeout(reset, 200);
   };
+
+  if (open && !session.loading && !session.signedIn) {
+    return (
+      <>
+        <Dialog open={open} onOpenChange={close}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display text-2xl leading-tight">Sign in to upgrade.</DialogTitle>
+              <DialogDescription className="text-sm">
+                Plans are tied to your account, so we need you signed in before activating {tier ?? "a plan"}.
+              </DialogDescription>
+            </DialogHeader>
+            <Button className="w-full h-11" onClick={() => setSignInOpen(true)}>
+              <LogIn className="size-4" /> Sign in
+            </Button>
+          </DialogContent>
+        </Dialog>
+        <SignupWallModal
+          open={signInOpen}
+          onOpenChange={(v) => { setSignInOpen(v); if (!v) close(false); }}
+          action={`Upgrade to ${tier ?? "Pro"}`}
+        />
+      </>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={close}>
