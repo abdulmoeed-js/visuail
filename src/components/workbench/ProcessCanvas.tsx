@@ -834,6 +834,7 @@ function StepNode({
           onChange={(v) => onUpdate({ systemId: v || undefined })}
         />
       </div>
+      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
