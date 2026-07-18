@@ -358,7 +358,24 @@ export function ProcessCanvas({
     if (typeof newId === "string") {
       patchOverride(newId, { cx: sx, cy: sy });
       bringToFront(newId);
+      // Seed sectioned content for class/interface/entity boxes.
+      if (payload.kind === "step") {
+        if (payload.shape === "uml-class") {
+          onUpdateItem(newId, {
+            sections: { attributes: ["- id: string"], methods: ["+ save()"] },
+          });
+        } else if (payload.shape === "uml-interface") {
+          onUpdateItem(newId, {
+            sections: { stereotype: "«interface»", methods: ["+ execute()"] },
+          });
+        } else if (payload.shape === "er-entity") {
+          onUpdateItem(newId, {
+            sections: { attributes: ["id · PK", "name · varchar"] },
+          });
+        }
+      }
     }
+
   };
 
   const insertStarter = () => {
