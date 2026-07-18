@@ -107,11 +107,11 @@ export function Workbench() {
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">
-            The workbench · No signup
+            No signup to start
           </div>
           <h2 className="font-display text-3xl md:text-4xl mt-1">Try it on a real transcript.</h2>
           <p className="text-muted-foreground text-sm mt-1 max-w-xl">
-            Start a project with real files, or paste a transcript to try the workbench.
+            Upload real files, or paste a transcript.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -185,7 +185,7 @@ export function Workbench() {
             <div className="flex items-start gap-1.5">
               <Info className="size-3.5 mt-0.5 shrink-0" />
               <span>
-                Nothing you paste — or upload via New project — leaves your browser in this demo.
+                Nothing you paste or upload leaves your browser.
               </span>
             </div>
           </div>
@@ -298,7 +298,7 @@ export function ArtifactView({
       <div className="border-b p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
-            {model.kind === "process" ? "PROCESS MAP" : "BUSINESS MODEL CANVAS"} · v1
+            {model.kind === "process" ? "PROCESS MAP" : "BUSINESS MODEL CANVAS"}
           </div>
           <h3 className="font-display text-xl truncate">{model.title}</h3>
         </div>

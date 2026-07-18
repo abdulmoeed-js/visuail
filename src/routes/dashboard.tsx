@@ -67,7 +67,7 @@ function DashboardPage() {
             </div>
             <h1 className="font-display text-3xl md:text-4xl mt-1">Your projects</h1>
             <p className="text-muted-foreground text-sm mt-1 max-w-xl">
-              Every project is stored locally in this browser — no server, no account. Consistent with the demo's no-signup promise.
+              Stored locally in this browser. No server, no account.
             </p>
           </div>
           <div className="flex items-center gap-2">

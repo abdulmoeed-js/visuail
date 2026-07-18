@@ -19,18 +19,18 @@ const TONES = {
 export function WhyNotMiro() {
   const contrasts: Array<{ k: string; v: string; tone: keyof typeof TONES }> = [
     {
-      k: "Miro gives you a first draft.",
-      v: "Visuail gives you a typed model — one source, BRD and backlog fall out of it.",
+      k: "A first draft, then you're on your own.",
+      v: "One source, every downstream doc — BRD and backlog fall out of the same typed extraction.",
       tone: "confident",
     },
     {
-      k: "Miro forgets where a shape came from.",
-      v: "Every Visuail item carries a confidence score and the quote it was pulled from.",
+      k: "Diagrams forget where a shape came from.",
+      v: "Every item remembers where it came from — a confidence score and the source quote, on every item.",
       tone: "unresolved",
     },
     {
-      k: "Miro diagrams go stale in silence.",
-      v: "Visuail flags the exact steps, requirements, and stories the source just invalidated.",
+      k: "Stale diagrams stay silent.",
+      v: "A source change flags exactly which steps, requirements, and stories it invalidated.",
       tone: "drift",
     },
   ];
@@ -59,8 +59,8 @@ export function WhyNotMiro() {
                   </p>
                 </div>
                 <p className="font-display text-2xl md:text-3xl text-foreground leading-tight">
-                  {c.v.split(/(confidence score|typed model|flags the exact)/).map((frag, i) =>
-                    /confidence score|typed model|flags the exact/.test(frag) ? (
+                  {c.v.split(/(confidence score|typed extraction|flags exactly)/).map((frag, i) =>
+                    /confidence score|typed extraction|flags exactly/.test(frag) ? (
                       <span key={i} className={t.accent}>{frag}</span>
                     ) : (
                       <span key={i}>{frag}</span>

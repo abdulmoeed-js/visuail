@@ -101,7 +101,7 @@ export function RefineControl({ node, model, onApply, className }: Props) {
             />
             <div className="flex items-center justify-between gap-2">
               <div className="text-[10px] text-muted-foreground leading-tight">
-                Mocked deterministic transform · no LLM call
+                Deterministic — not a guess
               </div>
               <Button size="sm" className="h-7 px-2.5" disabled={!prompt.trim()} onClick={generate}>
                 <Wand2 className="size-3" /> Propose

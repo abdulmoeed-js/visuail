@@ -133,7 +133,7 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
               {err && <p className="text-xs text-drift">{err}</p>}
               <Button type="submit" className="w-full h-11">Pay {price} → Activate {tier}</Button>
               <p className="text-[11px] text-muted-foreground text-center">
-                This is a demo — no real payment is processed.
+                No real payment is processed.
               </p>
             </form>
           </>
@@ -143,7 +143,7 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
           <div className="flex flex-col items-center text-center gap-3 py-10">
             <Loader2 className="size-8 animate-spin text-primary" />
             <DialogTitle className="font-display text-xl">Processing payment…</DialogTitle>
-            <p className="text-xs text-muted-foreground">Mocked authorization — no card network contacted.</p>
+            <p className="text-xs text-muted-foreground">No card network is contacted.</p>
           </div>
         )}
 
@@ -165,7 +165,7 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
               Continue to dashboard
             </Button>
             <p className="text-[10px] font-mono-tight text-muted-foreground">
-              Mocked checkout — no real charge occurred.
+              No real charge occurred.
             </p>
           </div>
         )}

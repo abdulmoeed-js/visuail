@@ -210,7 +210,7 @@ function NewProjectPage() {
         {step === 2 && (
           <div className="space-y-5 rounded-2xl border bg-card p-6">
             <p className="text-sm text-muted-foreground">
-              Which typed artifacts should Visuail build for this project?
+              What should Visuail build for this project?
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <KindCard
@@ -254,7 +254,7 @@ function NewProjectPage() {
               {mode === "sources" && (
                 <div className="space-y-3">
                   <p className="text-xs text-muted-foreground">
-                    Nothing you paste or upload leaves your browser in this demo.
+                    Nothing you paste or upload leaves your browser.
                   </p>
                   <SourceIntake sources={sources} onChange={setSources} />
                 </div>

@@ -100,7 +100,7 @@ export function DriftNotifier({
                     : "Emailed alice@company.com"}
                 </div>
                 <div className="text-[11px] mt-0.5 opacity-80">
-                  Mocked send — no real integration was called.
+                  Preview only — nothing sent.
                 </div>
               </div>
             </div>
@@ -135,7 +135,7 @@ export function DriftNotifier({
               Send notification
             </Button>
             <div className="text-[10px] font-mono-tight text-muted-foreground text-center">
-              Mocked notification — no real send.
+              Preview only — nothing sent.
             </div>
           </div>
         )}

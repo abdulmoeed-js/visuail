@@ -38,9 +38,9 @@ export function Hero() {
               Diagrams that <span className="italic text-primary">know when they're stale.</span>
             </h1>
             <p className="mt-6 text-lg md:text-xl text-muted-foreground max-w-xl leading-relaxed">
-              Miro is where you think.{" "}
+              Traced to source.{" "}
               <span className="text-foreground font-medium">
-                Visuail is what survives contact with delivery.
+                Flagged when it drifts.
               </span>
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">

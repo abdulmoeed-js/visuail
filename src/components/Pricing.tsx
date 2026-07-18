@@ -175,11 +175,11 @@ export function Footer() {
       <div className="mx-auto max-w-[1400px] px-4 py-8 flex flex-wrap items-center justify-between gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 font-mono-tight">
           <span className="h-1.5 w-1.5 rounded-full bg-confident" />
-          Visuail · typed artifacts for discovery work
+          Visuail · diagrams that know when they're stale
         </div>
         <div className="flex items-center gap-4">
           <a className="hover:text-foreground" href="#workbench">Workbench</a>
-          <a className="hover:text-foreground" href="#why-not-miro">Why not Miro</a>
+          <a className="hover:text-foreground" href="#why-not-miro">The maintenance problem</a>
           <a className="hover:text-foreground" href="#pricing">Pricing</a>
 
           <span>© 2026</span>

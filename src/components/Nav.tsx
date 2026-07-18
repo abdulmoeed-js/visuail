@@ -43,13 +43,10 @@ export function Nav() {
         <Link to="/" className="flex items-center gap-2 group">
           <Logo />
           <span className="font-display text-xl tracking-tight">Visuail</span>
-          <span className="ml-1 rounded-sm bg-primary/10 text-primary text-[9px] font-mono-tight px-1.5 py-0.5">
-            v0.1 · demo
-          </span>
         </Link>
         <nav className="hidden md:flex items-center gap-1 text-sm">
           <button onClick={() => scrollTo("workbench")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Workbench</button>
-          <button onClick={() => scrollTo("why-not-miro")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Why not Miro</button>
+          <button onClick={() => scrollTo("why-not-miro")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">The maintenance problem</button>
           <button onClick={() => scrollTo("pricing")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Pricing</button>
           {session.signedIn && !onDashboard && (
             <Link to="/dashboard" className="px-3 py-1.5 rounded-md hover:bg-muted transition inline-flex items-center gap-1.5">
