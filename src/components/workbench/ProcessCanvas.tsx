@@ -219,7 +219,6 @@ export function ProcessCanvas({
     setMeasured((cur) => {
       const prev = cur[id];
       if (prev && Math.abs(prev.h - h) < 1 && Math.abs(prev.w - w) < 1) return cur;
-      console.log("DBG measure", id, w, h, "prev", prev);
       return { ...cur, [id]: { w, h } };
     });
   }, []);
