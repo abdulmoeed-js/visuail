@@ -18,6 +18,8 @@ interface Props {
   toolbar?: ReactNode;              // extra buttons rendered top-left
   bottomLeft?: ReactNode;           // legend etc.
   bottomRight?: ReactNode;          // e.g. Add step
+  overlay?: ReactNode;              // extra absolute-positioned UI inside the shell (above viewport)
+  onCanvasDrop?: (canvasX: number, canvasY: number, e: React.DragEvent) => void;
   minimap?: boolean;
   gridClassName?: string;
   minZoom?: number;
@@ -27,7 +29,7 @@ interface Props {
 
 export function CanvasShell({
   contentWidth, contentHeight, children,
-  toolbar, bottomLeft, bottomRight, minimap,
+  toolbar, bottomLeft, bottomRight, overlay, onCanvasDrop, minimap,
   gridClassName = "bp-grid",
   minZoom = 0.2, maxZoom = 3,
   fullscreenLabel = "Fullscreen canvas",
