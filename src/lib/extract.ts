@@ -46,7 +46,7 @@ function score(text: string, hints: string[]): number {
  *  - index 0: unchanged base
  *  - index 1+: rename one specific item to create a conflict for reconciliation
  */
-function perturb(model: ArtifactModel, index: number): ArtifactModel {
+export function perturb(model: ArtifactModel, index: number): ArtifactModel {
   if (index === 0) return model;
   if (model.kind === "process") {
     // A follow-up source clarifies who sends the welcome pack (ST6).

@@ -4,11 +4,12 @@
 
 import { useCallback, useState } from "react";
 import {
-  applyDrift,
   type ArtifactModel, type BaseItem, type BMCBlock, type Connection,
   type Step, type Decision,
 } from "@/data/samples";
 import { applyProposal, type Proposal } from "@/lib/refine";
+import { diffModels } from "@/lib/diff";
+import { perturb } from "@/lib/extract";
 
 let uid = 1000;
 
@@ -77,7 +78,13 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     setModel(m); setPristine(m); setDrifted(false);
   }, []);
 
-  const onSimulateDrift = () => { setModel(cur => applyDrift(cur)); setDrifted(true); };
+  // Re-checking the source: run the same deterministic extractor again
+  // (index 1, same source position but a fresh look), then diff the result
+  // against the pristine baseline for real -- not a hardcoded set of ids.
+  const onSimulateDrift = () => {
+    setModel(() => diffModels(pristine, perturb(pristine, 1)));
+    setDrifted(true);
+  };
   const onClearDrift = () => { setModel(pristine); setDrifted(false); };
 
   const onDeleteAny = (id: string) => mutate(m => {

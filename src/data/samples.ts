@@ -256,39 +256,10 @@ export const SAMPLES: Sample[] = [
   },
 ];
 
-/* -------------------- Drift application -------------------- */
-
-export function applyDrift(model: ArtifactModel): ArtifactModel {
-  if (model.kind === "process") {
-    return {
-      ...model,
-      steps: model.steps.map(s =>
-        s.id === "ST4" || s.id === "ST5"
-          ? { ...s, drift: true }
-          : s,
-      ),
-      decisions: model.decisions.map(d =>
-        d.id === "DC2" ? { ...d, drift: true } : d,
-      ),
-    };
-  }
-  return {
-    ...model,
-    blocks: model.blocks.map(b =>
-      b.id === "revenue"
-        ? {
-            ...b,
-            blockDrift: true,
-            driftNote:
-              "Follow-up call (Mar 14): fuel-card upsell was dropped. Team is piloting a data-licensing revenue stream with Samsara.",
-            items: b.items.map(i =>
-              i.id === "RV3" ? { ...i, drift: true } : i,
-            ),
-          }
-        : b,
-    ),
-  };
-}
+/* -------------------- Drift summary -------------------- */
+// Real drift detection (diffing a re-check against the pristine baseline)
+// lives in src/lib/diff.ts — this file only keeps the aggregate summary
+// helper, which stays useful regardless of how items got flagged.
 
 export function driftSummary(model: ArtifactModel): { count: number; label: string } {
   if (model.kind === "process") {

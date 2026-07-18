@@ -26,6 +26,8 @@ import { type ProjectResult } from "./workbench/IntakeWizard";
 import { ProjectView } from "./workbench/ProjectView";
 import { SignupWallModal } from "./SignupWallModal";
 import { useArtifactEditing, type ArtifactEditing } from "@/lib/artifact-editing";
+import { checkRefusal } from "@/lib/refusal";
+import { verifyGrounding } from "@/lib/grounding";
 
 type State =
   | { status: "empty" }
@@ -53,21 +55,15 @@ export function Workbench() {
   };
 
   const extract = () => {
-    if (transcript.trim().length < 120 || activeSample.id === "thin") {
-      setState({ status: "extracting" });
-      setTimeout(() => {
-        setState({
-          status: "refused",
-          reason:
-            "This input doesn't contain enough structure — actors, steps, or system references — to build a safe artifact. A blank canvas beats a confidently wrong diagram.",
-        });
-      }, 700);
-      return;
-    }
     setState({ status: "extracting" });
     setTimeout(() => {
-      const model = activeSample.build();
-      if (!model) { setState({ status: "refused", reason: "Sample intentionally unbuildable." }); return; }
+      const rawModel = transcript.trim().length < 120 ? null : activeSample.build();
+      const refusal = checkRefusal(rawModel);
+      if (refusal.refuse) {
+        setState({ status: "refused", reason: refusal.reason! });
+        return;
+      }
+      const model = verifyGrounding(rawModel!, transcript);
       editing.reset(model);
       setState({ status: "ready" });
     }, 900);
