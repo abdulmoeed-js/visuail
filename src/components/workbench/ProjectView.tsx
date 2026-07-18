@@ -35,21 +35,17 @@ export function ProjectView({ project, onPublish }: Props) {
     setExporting(true);
     const originalActive = active;
     try {
-      const sections: ExportSection[] = [];
-      for (const p of panes) {
-        // Bring each pane into view so its DOM lays out before snapshotting —
-        // hidden panes have zero-size boxes and would produce blank pages.
-        setActive(p.key);
-        // Wait two rAFs so React commits and the browser paints the newly
-        // visible pane before we take its screenshot.
-        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-        const el = paneRefs.current[p.key];
-        if (!el) continue;
-        sections.push({
-          title: `${project.name} — ${p.kind === "process" ? "Process map" : "Business Model Canvas"}`,
-          element: el,
-        });
-      }
+      const sections: ExportSection[] = panes.map(p => ({
+        title: `${project.name} — ${p.kind === "process" ? "Process map" : "Business Model Canvas"}`,
+        getElement: async () => {
+          setActive(p.key);
+          // Two rAFs: React commits, then browser paints the newly visible pane.
+          await new Promise<void>((r) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => r())),
+          );
+          return paneRefs.current[p.key];
+        },
+      }));
       const safe = project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
       await exportSectionsToPdf(`${safe || "visuail-project"}.pdf`, sections);
     } catch (e) {
