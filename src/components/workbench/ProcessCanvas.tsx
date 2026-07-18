@@ -252,23 +252,6 @@ export function ProcessCanvas({
 
   const manualConnections = model.connections ?? [];
 
-  // Delete selected connection with Backspace/Delete.
-  useEffect(() => {
-    if (!selectedConn) return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      if (e.key === "Backspace" || e.key === "Delete") {
-        e.preventDefault();
-        onDeleteConnection?.(selectedConn);
-        setSelectedConn(null);
-      } else if (e.key === "Escape") {
-        setSelectedConn(null);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selectedConn, onDeleteConnection]);
 
   const handleDrop = (cx: number, cy: number, e: React.DragEvent) => {
     const kind = e.dataTransfer.getData(PALETTE_MIME) as ShapeKind | "";
