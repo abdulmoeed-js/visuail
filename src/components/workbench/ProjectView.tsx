@@ -57,12 +57,7 @@ export function ProjectView({ project, onPublish }: Props) {
   const recon = useMemo(() => {
     let confirmed = 0, conflict = 0, total = 0;
     for (const c of project.canvases) {
-      const items = c.kind === "process"
-        ? [
-            ...c.model.actors, ...c.model.steps, ...c.model.decisions,
-            ...c.model.exceptions, ...c.model.systems,
-          ]
-        : c.model.blocks.flatMap(b => b.items);
+      const items = allItems(c.model);
       for (const it of items) {
         total++;
         if (it.conflict) conflict++;
