@@ -1,16 +1,17 @@
-import { useState, useMemo, useCallback, type ReactNode } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
   Sparkles, RotateCcw, AlertOctagon, Share2, FileDown,
-  ExternalLink, LayoutList, Shuffle, ShieldCheck, X, Loader2, Info,
+  ExternalLink, LayoutList, Shuffle, ShieldCheck, Loader2, Info,
+  FolderOpen, X as XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  SAMPLES, applyDrift, driftSummary, stats,
-  type ArtifactModel, type Sample, type BaseItem, type BMCBlock,
+  SAMPLES, stats, driftSummary,
+  type ArtifactModel, type Sample, type BaseItem,
 } from "@/data/samples";
 import { EditableList } from "./workbench/EditableList";
 import { ProcessCanvas } from "./workbench/ProcessCanvas";
@@ -18,19 +19,18 @@ import { BMCCanvas } from "./workbench/BMCCanvas";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
 import { DriftNotifier } from "./workbench/DriftNotifier";
 import { TemplateGallery } from "./workbench/TemplateGallery";
+import { IntakeWizard, type ProjectResult } from "./workbench/IntakeWizard";
+import { ProjectView } from "./workbench/ProjectView";
 import { SignupWallModal } from "./SignupWallModal";
-import { applyProposal, type Proposal } from "@/lib/refine";
+import { useArtifactEditing, type ArtifactEditing } from "@/lib/artifact-editing";
 
 type State =
   | { status: "empty" }
   | { status: "extracting" }
   | { status: "refused"; reason: string }
-  | { status: "ready"; model: ArtifactModel; drifted: boolean };
+  | { status: "ready" };
 
 type ArtifactTab = "artifact" | "items" | "downstream1" | "downstream2";
-
-let uid = 1000;
-const nextId = (prefix: string) => `${prefix}-U${++uid}`;
 
 export function Workbench() {
   const [transcript, setTranscript] = useState(SAMPLES[0].transcript);
@@ -38,6 +38,10 @@ export function Workbench() {
   const [state, setState] = useState<State>({ status: "empty" });
   const [wallOpen, setWallOpen] = useState(false);
   const [wallAction, setWallAction] = useState("Share link");
+  const [project, setProject] = useState<ProjectResult | null>(null);
+
+  const initialModel = useMemo(() => SAMPLES[0].build()!, []);
+  const editing = useArtifactEditing(initialModel);
 
   const loadSample = (s: Sample) => {
     setActiveSample(s);
@@ -45,12 +49,9 @@ export function Workbench() {
     setState({ status: "empty" });
   };
 
-  const extract = useCallback(() => {
-    // refuse if input is too short OR if current sample is the thin one
+  const extract = () => {
     if (transcript.trim().length < 120 || activeSample.id === "thin") {
-      setState({
-        status: "extracting",
-      });
+      setState({ status: "extracting" });
       setTimeout(() => {
         setState({
           status: "refused",
@@ -63,76 +64,40 @@ export function Workbench() {
     setState({ status: "extracting" });
     setTimeout(() => {
       const model = activeSample.build();
-      if (!model) {
-        setState({ status: "refused", reason: "Sample intentionally unbuildable." });
-        return;
-      }
-      setState({ status: "ready", model, drifted: false });
+      if (!model) { setState({ status: "refused", reason: "Sample intentionally unbuildable." }); return; }
+      editing.reset(model);
+      setState({ status: "ready" });
     }, 900);
-  }, [transcript, activeSample]);
-
-  const model = state.status === "ready" ? state.model : null;
-  const s = model ? stats(model) : null;
-
-  const mutate = (fn: (m: ArtifactModel) => ArtifactModel) => {
-    setState((cur) => cur.status === "ready" ? { ...cur, model: fn(cur.model) } : cur);
   };
 
   const openWall = (action: string) => { setWallAction(action); setWallOpen(true); };
+  const s = state.status === "ready" ? stats(editing.model) : null;
 
-  // Editing handlers
-  const onDeleteAny = (id: string) => mutate((m) => {
-    if (m.kind === "process") {
-      return {
-        ...m,
-        actors: m.actors.filter((x) => x.id !== id),
-        steps: m.steps.filter((x) => x.id !== id),
-        decisions: m.decisions.filter((x) => x.id !== id),
-        exceptions: m.exceptions.filter((x) => x.id !== id),
-        systems: m.systems.filter((x) => x.id !== id),
-      };
-    }
-    return { ...m, blocks: m.blocks.map((b) => ({ ...b, items: b.items.filter((i) => i.id !== id) })) };
-  });
-
-  // In-place edit of any item: patches the IR item by id so every derived view
-  // (Typed IR list, BRD, backlog, brief, questions) updates from the same source.
-  // Text edits also promote the item to user-verified: confidence 1, drift off.
-  const onUpdateItem = (id: string, patch: Partial<BaseItem> & Record<string, unknown>) =>
-    mutate((m) => {
-      const apply = <T extends BaseItem>(i: T): T => {
-        if (i.id !== id) return i;
-        const merged = { ...i, ...patch } as T;
-        if (Object.prototype.hasOwnProperty.call(patch, "text")) {
-          (merged as BaseItem).userAdded = true;
-          (merged as BaseItem).confidence = 1;
-          (merged as BaseItem).drift = false;
-        }
-        return merged;
-      };
-      if (m.kind === "process") {
-        return {
-          ...m,
-          actors: m.actors.map(apply),
-          steps: m.steps.map(apply),
-          decisions: m.decisions.map(apply),
-          exceptions: m.exceptions.map(apply),
-          systems: m.systems.map(apply),
-        };
-      }
-      return { ...m, blocks: m.blocks.map((b) => ({ ...b, items: b.items.map(apply) })) };
-    });
-
-  const newUserItem = (prefix: string, text: string): BaseItem => ({
-    id: nextId(prefix), text, confidence: 1, userAdded: true,
-  });
-
-  // AI-assisted refinement: applies a Proposal (produced by RefineControl's
-  // mocked deterministic transform) to the ProcessModel. Goes through the same
-  // setState as manual edits, so Typed IR / BRD / Backlog re-derive automatically.
-  const onApplyRefinement = (p: Proposal) =>
-    mutate((m) => (m.kind === "process" ? applyProposal(p, m) : m));
-
+  // Project mode short-circuits the single-source workbench UI.
+  if (project) {
+    return (
+      <section id="workbench" className="mx-auto max-w-[1400px] px-4 pb-24">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-[10px] font-mono-tight uppercase tracking-widest text-primary">
+              <FolderOpen className="size-3" /> Project · {project.sources.length} source{project.sources.length === 1 ? "" : "s"}
+            </div>
+            <h2 className="font-display text-3xl md:text-4xl mt-1 truncate max-w-[820px]">
+              {project.name}
+            </h2>
+            <p className="text-muted-foreground text-sm mt-1 max-w-xl">
+              {project.canvases.length} artifact{project.canvases.length === 1 ? "" : "s"} generated from {project.sources.length} reconciled source{project.sources.length === 1 ? "" : "s"}.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setProject(null)}>
+            <XIcon className="size-3.5" /> Exit project
+          </Button>
+        </div>
+        <ProjectView project={project} onPublish={openWall} />
+        <SignupWallModal open={wallOpen} onOpenChange={setWallOpen} action={wallAction} />
+      </section>
+    );
+  }
 
   return (
     <section id="workbench" className="mx-auto max-w-[1400px] px-4 pb-24">
@@ -143,10 +108,11 @@ export function Workbench() {
           </div>
           <h2 className="font-display text-3xl md:text-4xl mt-1">Try it on a real transcript.</h2>
           <p className="text-muted-foreground text-sm mt-1 max-w-xl">
-            Paste a transcript or pick a sample. Get a typed artifact, generated docs, and a drift flag when the source moves.
+            Start a project with real files, or paste a transcript to try the workbench.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          <IntakeWizard onComplete={setProject} />
           <TemplateGallery onPick={loadSample} />
           <span className="mx-1 h-4 w-px bg-border" aria-hidden />
           {SAMPLES.map((sm) => (
@@ -212,8 +178,7 @@ export function Workbench() {
             <div className="flex items-start gap-1.5">
               <Info className="size-3.5 mt-0.5 shrink-0" />
               <span>
-                Extraction is deterministic on this demo. Real Visuail runs a typed IR pass, not
-                a free-text prompt — that's why every item carries a confidence score.
+                Nothing you paste — or upload via New project — leaves your browser in this demo.
               </span>
             </div>
           </div>
@@ -224,33 +189,8 @@ export function Workbench() {
           {state.status === "empty" && <EmptyState onClick={extract} />}
           {state.status === "extracting" && <ExtractingState />}
           {state.status === "refused" && <RefusedState reason={state.reason} onRetry={() => setState({ status: "empty" })} />}
-          {state.status === "ready" && model && s && (
-            <ArtifactView
-              model={model}
-              drifted={state.drifted}
-              stats={s}
-              onSimulateDrift={() =>
-                setState((cur) => cur.status === "ready"
-                  ? { ...cur, model: applyDrift(cur.model), drifted: true }
-                  : cur)}
-              onClearDrift={() => setState({ status: "ready", model: activeSample.build()!, drifted: false })}
-              onPublish={openWall}
-              onAddActor={(text) => mutate((m) => m.kind === "process"
-                ? { ...m, actors: [...m.actors, newUserItem("AC", text)] } : m)}
-              onAddStep={(text) => mutate((m) => m.kind === "process"
-                ? { ...m, steps: [...m.steps, { ...newUserItem("ST", text), actorId: m.actors[0]?.id ?? "AC1" }] } : m)}
-              onAddDecision={(text) => mutate((m) => m.kind === "process"
-                ? { ...m, decisions: [...m.decisions, { ...newUserItem("DC", text), afterStepId: m.steps.at(-1)?.id ?? "ST1", yes: "—", no: "—" }] } : m)}
-              onAddException={(text) => mutate((m) => m.kind === "process"
-                ? { ...m, exceptions: [...m.exceptions, { ...newUserItem("EX", text) }] } : m)}
-              onAddSystem={(text) => mutate((m) => m.kind === "process"
-                ? { ...m, systems: [...m.systems, newUserItem("SY", text)] } : m)}
-              onAddBMC={(bid, text) => mutate((m) => m.kind === "bmc"
-                ? { ...m, blocks: m.blocks.map((b) => b.id === bid ? { ...b, items: [...b.items, newUserItem(bid.slice(0,2).toUpperCase(), text)] } : b) } : m)}
-              onDeleteAny={onDeleteAny}
-              onUpdateItem={onUpdateItem}
-              onApplyRefinement={onApplyRefinement}
-            />
+          {state.status === "ready" && s && (
+            <ArtifactView editing={editing} stats={s} onPublish={openWall} />
           )}
         </div>
       </div>
@@ -270,7 +210,7 @@ function EmptyState({ onClick }: { onClick: () => void }) {
         Your typed artifact will render here — not a shape library, a model.
       </h3>
       <p className="text-sm text-muted-foreground max-w-sm">
-        Pick a sample and press <strong>Extract</strong>. Nothing you paste leaves your browser in this demo.
+        Pick a sample and press <strong>Extract</strong>, or click <strong>New project</strong> to upload real PDF/DOCX files. Nothing leaves your browser.
       </p>
       <Button onClick={onClick} className="mt-2"><Sparkles className="size-4" /> Extract artifact</Button>
     </div>
@@ -318,24 +258,21 @@ function RefusedState({ reason, onRetry }: { reason: string; onRetry: () => void
   );
 }
 
-function ArtifactView(props: {
-  model: ArtifactModel;
-  drifted: boolean;
+/**
+ * ArtifactView — renders a single artifact model with all editing controls,
+ * downstream tabs, and publish/export actions. Extracted so the multi-canvas
+ * project view can reuse the exact same UI per artifact.
+ */
+export function ArtifactView({
+  editing, stats: st, onPublish, canvasRef, extraHeaderRight,
+}: {
+  editing: ArtifactEditing;
   stats: ReturnType<typeof stats>;
-  onSimulateDrift: () => void;
-  onClearDrift: () => void;
   onPublish: (action: string) => void;
-  onAddActor: (t: string) => void;
-  onAddStep: (t: string) => void;
-  onAddDecision: (t: string) => void;
-  onAddException: (t: string) => void;
-  onAddSystem: (t: string) => void;
-  onAddBMC: (b: BMCBlock["id"], t: string) => void;
-  onDeleteAny: (id: string) => void;
-  onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
-  onApplyRefinement: (p: Proposal) => void;
+  canvasRef?: React.RefObject<HTMLDivElement>;
+  extraHeaderRight?: ReactNode;
 }) {
-  const { model, drifted, stats: st } = props;
+  const { model, drifted } = editing;
   const avgPct = Math.round(st.avg * 100);
   const avgTone = avgPct >= 85 ? "text-confident" : avgPct >= 70 ? "text-unresolved" : "text-drift";
   const drift = drifted ? driftSummary(model) : { count: 0, label: "" };
@@ -347,7 +284,6 @@ function ArtifactView(props: {
     { value: "downstream1", label: model.kind === "process" ? "BRD" : "Summary brief" },
     { value: "downstream2", label: model.kind === "process" ? "Traced backlog" : "Open questions" },
   ];
-
 
   return (
     <div className="flex-1 flex flex-col">
@@ -374,11 +310,10 @@ function ArtifactView(props: {
             driftedNames={driftedNames(model, drifted)}
             artifactTitle={model.title}
           />
+          {extraHeaderRight}
         </div>
       </div>
 
-
-      {/* Drift banner */}
       {drifted && (
         <div className="flex items-start gap-3 border-b bg-drift/10 px-4 py-3 text-drift">
           <AlertOctagon className="size-5 mt-0.5 shrink-0" />
@@ -386,13 +321,13 @@ function ArtifactView(props: {
             <div className="font-semibold">Source of truth drifted — {drift.label}.</div>
             <p className="text-[13px] mt-0.5 text-drift/90">
               {model.kind === "process"
-                ? "A follow-up call revised the KYC path: high-risk customers now bypass Ops entirely and route to a new dedicated onboarding team. Steps ST4–ST5 and decision DC2 no longer match the source."
-                : "A follow-up call revealed the Revenue Streams block is stale: the fuel-card upsell was dropped and the team is piloting a data-licensing stream with Samsara."}
+                ? "A follow-up call revised the KYC path: high-risk customers now bypass Ops entirely and route to a new dedicated onboarding team."
+                : "A follow-up call revealed the Revenue Streams block is stale."}
             </p>
           </div>
           <Button size="sm" variant="outline"
             className="bg-card text-foreground border-drift/40 hover:bg-card"
-            onClick={props.onClearDrift}>
+            onClick={editing.onClearDrift}>
             Reconcile
           </Button>
         </div>
@@ -406,9 +341,7 @@ function ArtifactView(props: {
               return (
                 <button
                   key={item.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
+                  type="button" role="tab" aria-selected={active}
                   data-state={active ? "active" : "inactive"}
                   className={cn(
                     "inline-flex h-7 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -423,24 +356,24 @@ function ArtifactView(props: {
           </div>
         </div>
 
-        <div className="relative z-0 flex-1 min-h-0 overflow-hidden">
+        <div className="relative z-0 flex-1 min-h-0 overflow-hidden" ref={canvasRef}>
           {tab === "artifact" && (
             <div className="h-full p-4">
               <div className="h-[640px]">
                 {model.kind === "process" ? (
                   <ProcessCanvas
                     model={model}
-                    onAddStep={props.onAddStep}
-                    onDeleteAny={props.onDeleteAny}
-                    onUpdateItem={props.onUpdateItem}
-                    onApplyRefinement={props.onApplyRefinement}
+                    onAddStep={editing.onAddStep}
+                    onDeleteAny={editing.onDeleteAny}
+                    onUpdateItem={editing.onUpdateItem}
+                    onApplyRefinement={editing.onApplyRefinement}
                   />
                 ) : (
                   <BMCCanvas
                     model={model}
-                    onAdd={props.onAddBMC}
-                    onDelete={(_, id) => props.onDeleteAny(id)}
-                    onUpdate={props.onUpdateItem}
+                    onAdd={editing.onAddBMC}
+                    onDelete={(_, id) => editing.onDeleteAny(id)}
+                    onUpdate={editing.onUpdateItem}
                   />
                 )}
               </div>
@@ -451,11 +384,11 @@ function ArtifactView(props: {
             <div className="p-4 space-y-4">
               {model.kind === "process" ? (
                 <div className="grid gap-4 md:grid-cols-2">
-                  <ItemGroup title="Actors" items={model.actors} onAdd={props.onAddActor} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
-                  <ItemGroup title="Systems" items={model.systems} onAdd={props.onAddSystem} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
-                  <ItemGroup title="Steps" items={model.steps} onAdd={props.onAddStep} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
-                  <ItemGroup title="Decisions" items={model.decisions} onAdd={props.onAddDecision} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
-                  <ItemGroup title="Exceptions" items={model.exceptions} onAdd={props.onAddException} onDelete={props.onDeleteAny} onEdit={(id, t) => props.onUpdateItem(id, { text: t })} />
+                  <ItemGroup title="Actors" items={model.actors} onAdd={editing.onAddActor} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} />
+                  <ItemGroup title="Systems" items={model.systems} onAdd={editing.onAddSystem} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} />
+                  <ItemGroup title="Steps" items={model.steps} onAdd={editing.onAddStep} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} />
+                  <ItemGroup title="Decisions" items={model.decisions} onAdd={editing.onAddDecision} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} />
+                  <ItemGroup title="Exceptions" items={model.exceptions} onAdd={editing.onAddException} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} />
                 </div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-3">
@@ -464,9 +397,9 @@ function ArtifactView(props: {
                       <h4 className="text-sm font-semibold mb-2">{b.title}</h4>
                       <EditableList
                         items={b.items}
-                        onAdd={(t) => props.onAddBMC(b.id, t)}
-                        onDelete={(id) => props.onDeleteAny(id)}
-                        onEdit={(id, t) => props.onUpdateItem(id, { text: t })}
+                        onAdd={(t) => editing.onAddBMC(b.id, t)}
+                        onDelete={(id) => editing.onDeleteAny(id)}
+                        onEdit={(id, t) => editing.onUpdateItem(id, { text: t })}
                         compact showIds={false}
                       />
                     </div>
@@ -489,11 +422,10 @@ function ArtifactView(props: {
         </div>
       </div>
 
-      {/* Publish action bar */}
       <div className="border-t bg-muted/40 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button size="sm" variant={drifted ? "secondary" : "outline"}
-            onClick={drifted ? props.onClearDrift : props.onSimulateDrift}>
+            onClick={drifted ? editing.onClearDrift : editing.onSimulateDrift}>
             <Shuffle className="size-3.5" />
             {drifted ? "Restore source" : "Simulate source change"}
           </Button>
@@ -501,16 +433,16 @@ function ArtifactView(props: {
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] font-mono-tight text-muted-foreground mr-1">PUBLISH</span>
-          <Button size="sm" variant="outline" onClick={() => props.onPublish("Share link")}>
+          <Button size="sm" variant="outline" onClick={() => onPublish("Share link")}>
             <Share2 className="size-3.5" /> Share link
           </Button>
-          <Button size="sm" variant="outline" onClick={() => props.onPublish("Push to Confluence")}>
+          <Button size="sm" variant="outline" onClick={() => onPublish("Push to Confluence")}>
             <ExternalLink className="size-3.5" /> Push to Confluence
           </Button>
-          <Button size="sm" variant="outline" onClick={() => props.onPublish("Push to Jira")}>
+          <Button size="sm" variant="outline" onClick={() => onPublish("Push to Jira")}>
             <ExternalLink className="size-3.5" /> Push to Jira
           </Button>
-          <Button size="sm" onClick={() => props.onPublish("Export")}>
+          <Button size="sm" onClick={() => onPublish("Export")}>
             <FileDown className="size-3.5" /> Export
           </Button>
         </div>
