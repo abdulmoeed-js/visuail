@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ProcessModel, Step, Decision, Exception } from "@/data/samples";
+import type { ProcessModel, Step, Decision, Exception, Connection } from "@/data/samples";
 import { cn } from "@/lib/utils";
 import { ConfidenceBadge, IdChip } from "./atoms";
-import { Plus, X, GripVertical } from "lucide-react";
+import { Plus, X, GripVertical, Square, Diamond, AlertTriangle, Wand2, PanelRightOpen, PanelRightClose } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CanvasShell, useCanvas } from "./CanvasShell";
