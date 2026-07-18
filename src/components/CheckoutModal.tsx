@@ -56,7 +56,10 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
     if (zip.trim().length < 3) return setErr("Billing ZIP required.");
     setErr(null);
     setPhase("processing");
-    setTimeout(() => setPhase("done"), 1400);
+    setTimeout(() => {
+      if (tier) sessionStore.setTier(tier === "Pro" ? "pro" : "team");
+      setPhase("done");
+    }, 1400);
   };
 
   const close = (v: boolean) => {
