@@ -616,47 +616,6 @@ function ShapePalette({
   );
 }
 
-function ManualConnector({
-  conn, d, selected, onSelect, onDelete, geomById,
-}: {
-  conn: Connection;
-  d: string;
-  selected: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-  geomById: Map<string, { cx: number; cy: number; w: number; h: number }>;
-}) {
-  const from = geomById.get(conn.fromId);
-  const to = geomById.get(conn.toId);
-  const mid = from && to
-    ? { x: (from.cx + to.cx) / 2, y: (from.cy + to.cy) / 2 }
-    : { x: 0, y: 0 };
-  return (
-    <g pointerEvents="auto">
-      {/* Wide invisible hit target */}
-      <path d={d} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer"
-        pointerEvents="stroke"
-        onClick={(e) => { console.log("DBG conn click", conn.id); e.stopPropagation(); onSelect(); }} />
-      <path
-        d={d} fill="none"
-        stroke={selected ? "var(--color-primary)" : "var(--color-verified)"}
-        strokeWidth={selected ? 2 : 1.6}
-        markerEnd="url(#arrow-verified)"
-        style={{ pointerEvents: "none" }}
-      />
-      {selected && (
-        <g transform={`translate(${mid.x - 9} ${mid.y - 9})`}>
-          <rect width={18} height={18} rx={9} fill="var(--color-card)" stroke="var(--color-primary)" strokeWidth={1.4} />
-          <path d="M 5 5 L 13 13 M 13 5 L 5 13" stroke="var(--color-primary)" strokeWidth={1.6} strokeLinecap="round" />
-          <rect width={18} height={18} rx={9} fill="transparent" className="cursor-pointer"
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}>
-            <title>Delete connector</title>
-          </rect>
-        </g>
-      )}
-    </g>
-  );
-}
 
 
 function Legend() {
