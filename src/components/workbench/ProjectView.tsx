@@ -33,9 +33,16 @@ export function ProjectView({ project, onPublish }: Props) {
 
   const exportAll = async () => {
     setExporting(true);
+    const originalActive = active;
     try {
       const sections: ExportSection[] = [];
       for (const p of panes) {
+        // Bring each pane into view so its DOM lays out before snapshotting —
+        // hidden panes have zero-size boxes and would produce blank pages.
+        setActive(p.key);
+        // Wait two rAFs so React commits and the browser paints the newly
+        // visible pane before we take its screenshot.
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
         const el = paneRefs.current[p.key];
         if (!el) continue;
         sections.push({
@@ -49,6 +56,7 @@ export function ProjectView({ project, onPublish }: Props) {
       console.error(e);
       alert("PDF export failed. See console for details.");
     } finally {
+      setActive(originalActive);
       setExporting(false);
     }
   };
