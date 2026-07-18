@@ -1037,15 +1037,38 @@ function useNodeDrag(onDrag: (d: { dx: number; dy: number }) => void, onSelect?:
 
 function useMeasure(onMeasure: (w: number, h: number) => void) {
   const ref = useRef<HTMLDivElement | null>(null);
+  // Keep the latest callback in a ref so identity churn on the parent doesn't
+  // re-subscribe the ResizeObserver (which used to fire a synchronous measure
+  // on every render and could interact with layout to feed a setState loop —
+  // that's the class of bug that bricked class-shape nodes on first drop).
+  const cbRef = useRef(onMeasure);
+  useLayoutEffect(() => { cbRef.current = onMeasure; });
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const report = () => onMeasure(el.offsetWidth, el.offsetHeight);
-    report();
-    const ro = new ResizeObserver(report);
+    let lastW = -1, lastH = -1;
+    let rafId = 0;
+    const report = () => {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      // Skip when the box is stable (integer pixel equality). This is a
+      // second-line guard on top of the parent's setState guard so a
+      // ResizeObserver + layout feedback loop can't run away.
+      if (w === lastW && h === lastH) return;
+      lastW = w; lastH = h;
+      cbRef.current(w, h);
+    };
+    // Defer the initial measure to the next frame so mount-time layout has
+    // fully settled before we push a height back into state.
+    rafId = requestAnimationFrame(report);
+    const ro = new ResizeObserver(() => {
+      // Batch to rAF: breaks the sync observer→setState→layout→observer chain.
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(report);
+    });
     ro.observe(el);
-    return () => ro.disconnect();
-  }, [onMeasure]);
+    return () => { cancelAnimationFrame(rafId); ro.disconnect(); };
+  }, []);
   return ref;
 }
 
