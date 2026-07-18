@@ -119,17 +119,16 @@ function NewProjectPage() {
     } else if (mode === "template" && templateId) {
       const tpl = TEMPLATES.find(t => t.id === templateId);
       const sample = tpl && SAMPLES.find(s => s.id === tpl.sampleId);
-      if (sample) {
-        // Build canvases for each requested kind — from the sample if it matches,
-        // otherwise from an empty starter.
+      const built = sample?.build();
+      if (built) {
         for (const kind of kinds) {
-          if (sample.model.kind === kind) {
-            canvases.push({ kind, model: structuredClone(sample.model) });
+          if (built.kind === kind) {
+            canvases.push({ kind, model: structuredClone(built) });
           } else {
             canvases.push({ kind, model: emptyCanvas(kind, name.trim()) });
           }
         }
-        storedSources = [{ label: "Template transcript", text: sample.transcript, origin: "paste" }];
+        storedSources = sample ? [{ label: "Template transcript", text: sample.transcript, origin: "paste" }] : [];
       }
     } else {
       // scratch
