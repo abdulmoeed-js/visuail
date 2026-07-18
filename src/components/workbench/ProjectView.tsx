@@ -34,16 +34,15 @@ export function ProjectView({ project, onPublish }: Props) {
   const exportAll = async () => {
     setExporting(true);
     try {
-      const sections: ExportSection[] = panes
-        .map(p => {
-          const el = paneRefs.current[p.key];
-          if (!el) return null;
-          return {
-            title: `${project.name} — ${p.kind === "process" ? "Process map" : "Business Model Canvas"}`,
-            element: el,
-          };
-        })
-        .filter((x): x is ExportSection => !!x);
+      const sections: ExportSection[] = [];
+      for (const p of panes) {
+        const el = paneRefs.current[p.key];
+        if (!el) continue;
+        sections.push({
+          title: `${project.name} — ${p.kind === "process" ? "Process map" : "Business Model Canvas"}`,
+          element: el,
+        });
+      }
       const safe = project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
       await exportSectionsToPdf(`${safe || "visuail-project"}.pdf`, sections);
     } catch (e) {
