@@ -130,16 +130,33 @@ function RootComponent() {
   // the permanent, real verification that the connection works.
   useEffect(() => {
     import("@/integrations/supabase/client").then(({ supabase }) => {
+      // Exposed only for this temporary diagnostic — remove alongside it.
+      (window as unknown as Record<string, unknown>).__supabaseDebug = supabase;
       supabase
         .from("profiles")
         .select("id", { count: "exact", head: true })
-        .then(({ error, status }) => {
+        .then(({ error, status, statusText, count }) => {
           if (error) {
             // eslint-disable-next-line no-console
-            console.error("[supabase smoke test] FAILED", { status, message: error.message });
+            console.error(
+              "[supabase smoke test] FAILED status=" +
+                status +
+                " statusText=" +
+                statusText +
+                " code=" +
+                error.code +
+                " message=" +
+                error.message +
+                " details=" +
+                error.details +
+                " hint=" +
+                error.hint,
+            );
           } else {
             // eslint-disable-next-line no-console
-            console.log("[supabase smoke test] OK — connection reached the database.", { status });
+            console.log(
+              "[supabase smoke test] OK status=" + status + " count=" + count,
+            );
           }
         });
     });
