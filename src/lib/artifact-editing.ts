@@ -19,6 +19,7 @@ const newUserItem = (prefix: string, text: string): BaseItem => ({
 export interface ArtifactEditing {
   model: ArtifactModel;
   drifted: boolean;
+  lastAddedId: string | null;
   reset: (m: ArtifactModel) => void;
   onSimulateDrift: () => void;
   onClearDrift: () => void;
@@ -35,12 +36,16 @@ export interface ArtifactEditing {
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
   onApplyRefinement: (p: Proposal) => void;
+  /** Recovery: remove the most recently user-added item (used by canvas
+   * error boundary to un-brick a project after a bad shape drop). */
+  onRemoveLastAdded: () => void;
 }
 
 export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
   const [model, setModel] = useState<ArtifactModel>(initial);
   const [drifted, setDrifted] = useState(false);
   const [pristine, setPristine] = useState<ArtifactModel>(initial);
+  const [lastAddedId, setLastAddedId] = useState<string | null>(null);
 
   const mutate = (fn: (m: ArtifactModel) => ArtifactModel) =>
     setModel(cur => fn(cur));
@@ -95,8 +100,31 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
   const addWithId = <T,>(mk: () => { id: string; run: (m: ArtifactModel) => ArtifactModel }) => {
     const { id, run } = mk();
     mutate(run);
+    setLastAddedId(id);
     return id;
   };
+
+  const onRemoveLastAdded = useCallback(() => {
+    setLastAddedId(id => {
+      if (!id) return null;
+      // Reuse onDeleteAny's model-shape-aware removal.
+      setModel(m => {
+        if (m.kind === "process") {
+          return {
+            ...m,
+            actors: m.actors.filter(x => x.id !== id),
+            steps: m.steps.filter(x => x.id !== id),
+            decisions: m.decisions.filter(x => x.id !== id),
+            exceptions: m.exceptions.filter(x => x.id !== id),
+            systems: m.systems.filter(x => x.id !== id),
+            connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
+          };
+        }
+        return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })) };
+      });
+      return null;
+    });
+  }, []);
 
   const onAddActor = (t: string) => addWithId(() => {
     const item = newUserItem("AC", t);
@@ -143,11 +171,12 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     mutate(m => (m.kind === "process" ? applyProposal(p, m) : m));
 
   return {
-    model, drifted, reset,
+    model, drifted, lastAddedId, reset,
     onSimulateDrift, onClearDrift,
     onAddActor, onAddStep, onAddDecision, onAddException, onAddSystem, onAddBMC,
     onAddConnection, onDeleteConnection, onUpdateConnection,
     onDeleteAny, onUpdateItem, onApplyRefinement,
+    onRemoveLastAdded,
   };
 }
 
