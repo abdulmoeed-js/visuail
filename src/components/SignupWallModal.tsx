@@ -65,7 +65,7 @@ export function SignupWallModal({ open, onOpenChange, action }: Props) {
               We saved your artifact and sent a magic link to <strong>{email}</strong>.
               (Demo: no email actually sent.)
             </p>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Back to workbench</Button>
+            <Button onClick={() => { onOpenChange(false); navigate({ to: "/dashboard" }); }}>Go to dashboard</Button>
           </div>
         )}
       </DialogContent>
