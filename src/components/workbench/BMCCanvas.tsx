@@ -113,7 +113,7 @@ function Block({
     <section
       data-node
       className={cn(
-        "relative rounded-lg border bg-card p-3 flex flex-col gap-2 group overflow-hidden",
+        "relative rounded-lg border bg-card p-3 flex flex-col gap-2 group",
         emphasis && "border-primary/50 ring-1 ring-primary/20 bg-gradient-to-b from-primary/5 to-transparent",
         b.blockDrift && "border-drift bg-drift/5 animate-drift",
         className,
