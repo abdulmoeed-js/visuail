@@ -28,6 +28,7 @@ function formatExpiry(v: string) {
 
 export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Props) {
   const [phase, setPhase] = useState<Phase>("form");
+  const navigate = useNavigate();
   const [card, setCard] = useState("");
   const [expiry, setExpiry] = useState("");
   const [cvc, setCvc] = useState("");
