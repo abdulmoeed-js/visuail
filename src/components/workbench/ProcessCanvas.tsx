@@ -633,6 +633,7 @@ function ManualConnector({
     <g style={{ pointerEvents: "auto" }}>
       {/* Wide invisible hit target */}
       <path d={d} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer"
+        style={{ pointerEvents: "stroke" }}
         onClick={(e) => { e.stopPropagation(); onSelect(); }} />
       <path
         d={d} fill="none"
