@@ -538,6 +538,7 @@ export function ProcessCanvas({
             onStartConnect={onAddConnection ? (e) => startConnDrag(n.ref.id, e) : undefined}
           />
         );
+      })}
       {/* Manual connector delete buttons — HTML overlays at midpoints */}
       {manualConnections.map((c) => {
         const a = geomById.get(c.fromId);
