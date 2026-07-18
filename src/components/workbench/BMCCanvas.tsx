@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { BMCModel, BMCBlock, BaseItem } from "@/data/samples";
 import { EditableList } from "./EditableList";
 import { cn } from "@/lib/utils";
@@ -18,35 +18,55 @@ const DEFAULT_W = 1180;
 const DEFAULT_H = 720;
 
 export function BMCCanvas({ model, onAdd, onDelete, onUpdate }: Props) {
-  // Per-block height overrides (resize handle drags this).
+  // Per-block minimum-height overrides (resize handle drags this). Blocks are
+  // free to grow past this to fit their content.
   const [heights, setHeights] = useState<Record<string, number>>({});
   const h = (id: BMCBlock["id"], base: number) => heights[id] ?? base;
   const setH = (id: string, v: number) => setHeights((cur) => ({ ...cur, [id]: v }));
 
   const by = (id: BMCBlock["id"]) => model.blocks.find((b) => b.id === id)!;
 
+  // Measure the rendered canvas so the CanvasShell viewport (and minimap)
+  // grows to accommodate blocks that expanded past their default heights.
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [dims, setDims] = useState({ w: DEFAULT_W, h: DEFAULT_H });
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const report = () => setDims({
+      w: Math.max(DEFAULT_W, el.scrollWidth),
+      h: Math.max(DEFAULT_H, el.scrollHeight),
+    });
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <CanvasShell
-      contentWidth={DEFAULT_W}
-      contentHeight={DEFAULT_H}
+      contentWidth={dims.w}
+      contentHeight={dims.h}
       fullscreenLabel="Business Model Canvas — fullscreen"
       gridClassName="bp-grid-fine"
     >
       <div
+        ref={contentRef}
         className="p-2"
-        style={{ width: DEFAULT_W, height: DEFAULT_H }}
+        style={{ width: DEFAULT_W }}
       >
         <div
-          className="grid gap-2 h-full"
+          className="grid gap-2"
           style={{
             gridTemplateColumns: "1.15fr 1.15fr 1.5fr 1.15fr 1.15fr",
-            gridTemplateRows: "minmax(220px, 1fr) minmax(220px, 1fr) minmax(160px, 220px)",
+            gridTemplateRows: "auto auto auto",
+            gridAutoRows: "auto",
           }}
         >
           <Block b={by("partnerships")} h={h("partnerships", 460)} setH={(v) => setH("partnerships", v)}
             onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} className="row-span-2" />
 
-          <div className="row-span-2 grid grid-rows-2 gap-2 min-h-0">
+          <div className="row-span-2 grid grid-rows-2 gap-2">
             <Block b={by("activities")}  h={h("activities", 220)} setH={(v) => setH("activities", v)}
               onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} />
             <Block b={by("resources")}   h={h("resources", 220)}  setH={(v) => setH("resources", v)}
@@ -56,7 +76,7 @@ export function BMCCanvas({ model, onAdd, onDelete, onUpdate }: Props) {
           <Block b={by("value")} h={h("value", 460)} setH={(v) => setH("value", v)}
             onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} className="row-span-2" emphasis />
 
-          <div className="row-span-2 grid grid-rows-2 gap-2 min-h-0">
+          <div className="row-span-2 grid grid-rows-2 gap-2">
             <Block b={by("relationships")} h={h("relationships", 220)} setH={(v) => setH("relationships", v)}
               onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} />
             <Block b={by("channels")}      h={h("channels", 220)}      setH={(v) => setH("channels", v)}
