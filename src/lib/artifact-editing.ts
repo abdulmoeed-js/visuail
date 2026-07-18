@@ -171,11 +171,12 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     mutate(m => (m.kind === "process" ? applyProposal(p, m) : m));
 
   return {
-    model, drifted, reset,
+    model, drifted, lastAddedId, reset,
     onSimulateDrift, onClearDrift,
     onAddActor, onAddStep, onAddDecision, onAddException, onAddSystem, onAddBMC,
     onAddConnection, onDeleteConnection, onUpdateConnection,
     onDeleteAny, onUpdateItem, onApplyRefinement,
+    onRemoveLastAdded,
   };
 }
 
