@@ -30,6 +30,8 @@ export interface ArtifactEditing {
   onAddBMC: (b: BMCBlock["id"], t: string) => string;
   onAddConnection: (fromId: string, toId: string, label?: string) => string;
   onDeleteConnection: (id: string) => void;
+  onUpdateConnection: (id: string, patch: Partial<Connection>) => void;
+
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
   onApplyRefinement: (p: Proposal) => void;
