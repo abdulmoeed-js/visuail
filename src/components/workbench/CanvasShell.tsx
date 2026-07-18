@@ -218,6 +218,16 @@ export function CanvasShell({
         onPointerMove={onPointerMove}
         onPointerUp={stopPan}
         onPointerCancel={stopPan}
+        onDragOver={onCanvasDrop ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } : undefined}
+        onDrop={onCanvasDrop ? (e) => {
+          e.preventDefault();
+          const el = viewportRef.current;
+          if (!el) return;
+          const r = el.getBoundingClientRect();
+          const cx = (e.clientX - r.left - pan.x) / zoom;
+          const cy = (e.clientY - r.top - pan.y) / zoom;
+          onCanvasDrop(cx, cy, e);
+        } : undefined}
       >
         <CanvasCtx.Provider value={{ zoom, pan }}>
           <div
@@ -233,6 +243,8 @@ export function CanvasShell({
           </div>
         </CanvasCtx.Provider>
       </div>
+
+      {overlay}
 
       {bottomLeft && <div className="absolute bottom-3 left-3 z-20 flex flex-wrap gap-2" data-no-pan>{bottomLeft}</div>}
       {bottomRight && <div className="absolute bottom-3 right-3 z-20" data-no-pan>{bottomRight}</div>}
