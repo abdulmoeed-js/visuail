@@ -455,20 +455,18 @@ export function ProcessCanvas({
           );
         })}
 
-        {/* Manual connections */}
+        {/* Manual connections (SVG line only; delete button is an HTML overlay below) */}
         {manualConnections.map((c) => {
           const d = routeBetween(c.fromId, c.toId);
           if (!d) return null;
-          const isSelected = selectedConn === c.id;
           return (
-            <ManualConnector
+            <path
               key={c.id}
-              conn={c}
               d={d}
-              selected={isSelected}
-              onSelect={() => setSelectedConn(c.id)}
-              onDelete={() => { onDeleteConnection?.(c.id); setSelectedConn(null); }}
-              geomById={geomById}
+              fill="none"
+              stroke="var(--color-verified)"
+              strokeWidth={1.6}
+              markerEnd="url(#arrow-verified)"
             />
           );
         })}
