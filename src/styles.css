@@ -126,8 +126,8 @@
   --unresolved-foreground: oklch(0.18 0.05 78);
   --drift: oklch(0.7 0.22 27);
   --drift-foreground: oklch(0.15 0.05 27);
-  --verified: oklch(0.72 0.16 210);
-  --verified-foreground: oklch(0.14 0.04 210);
+  --verified: oklch(0.68 0.17 192);
+  --verified-foreground: oklch(0.14 0.04 192);
 }
 
 @layer base {

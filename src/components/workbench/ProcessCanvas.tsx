@@ -344,7 +344,12 @@ export function ProcessCanvas({
     if (!raw) return;
     let payload: { kind: string; shape?: string };
     try { payload = JSON.parse(raw); } catch { return; }
-    const sx = snap(cx), sy = snap(cy);
+    // The palette panel sits top-left (~260x340 open), the same corner shapes
+    // are dragged from — nudge drops that would land underneath it so a new
+    // shape can never be placed somewhere the palette immediately occludes.
+    const PALETTE_W = 280, PALETTE_H = 360;
+    const underPalette = paletteOpen && cx < PALETTE_W && cy < PALETTE_H;
+    const sx = snap(underPalette ? PALETTE_W + 40 : cx), sy = snap(cy);
     let newId: string | void = undefined;
     if (payload.kind === "step") {
       const label = defaultLabelFor(payload.shape);
@@ -827,11 +832,12 @@ function ShapePalette({
   return (
     <div className="absolute top-3 left-3 z-30 flex items-start gap-2" data-no-pan>
       <Button
-        size="icon" variant="outline" className="h-8 w-8 bg-card/95 backdrop-blur shadow-sm"
+        size="sm" variant="outline"
+        className={cn("h-8 bg-card/95 backdrop-blur shadow-sm gap-1.5", open ? "w-8 px-0" : "px-2.5")}
         onClick={onToggle}
         title={open ? "Hide shape palette" : "Show shape palette"}
       >
-        {open ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+        {open ? <PanelRightClose className="size-4" /> : <><PanelRightOpen className="size-4" /><span className="text-xs">Shapes</span></>}
       </Button>
       {open && (
         <div className="rounded-xl border bg-card/95 backdrop-blur shadow-lg w-[240px] overflow-hidden">

@@ -106,7 +106,7 @@ export function Pricing() {
           <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">Pricing</div>
           <h2 className="font-display text-4xl md:text-5xl mt-2 leading-[1.05]">Priced for people who bill by the hour.</h2>
           <p className="text-muted-foreground mt-4 text-lg">
-            Traceability and drift detection live in Pro and up — never in a free plan. That's the moat.
+            Traceability and drift detection live in Pro and up — never in a free plan. That's what you're actually paying for.
           </p>
         </div>
         <div className="grid gap-px bg-border md:grid-cols-3 border rounded-lg overflow-hidden">

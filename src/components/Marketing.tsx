@@ -1,3 +1,5 @@
+import { Check, Minus } from "lucide-react";
+
 const TONES = {
   confident: {
     dot: "bg-confident",
@@ -54,18 +56,22 @@ export function WhyNotMiro() {
                     <span className={`h-1.5 w-1.5 rounded-full ${t.dot}`} />
                     <span className={t.accent}>{t.label}</span>
                   </div>
-                  <p className="font-display text-2xl md:text-3xl text-muted-foreground/70 leading-tight">
-                    {c.k}
+                  <p className="font-display text-2xl md:text-3xl text-muted-foreground/70 leading-tight flex gap-2.5">
+                    <Minus className="size-5 md:size-6 shrink-0 mt-1.5 text-muted-foreground/50" aria-hidden="true" />
+                    <span>{c.k}</span>
                   </p>
                 </div>
-                <p className="font-display text-2xl md:text-3xl text-foreground leading-tight">
-                  {c.v.split(/(confidence score|typed extraction|flags exactly)/).map((frag, i) =>
-                    /confidence score|typed extraction|flags exactly/.test(frag) ? (
-                      <span key={i} className={t.accent}>{frag}</span>
-                    ) : (
-                      <span key={i}>{frag}</span>
-                    ),
-                  )}
+                <p className="font-display text-2xl md:text-3xl text-foreground leading-tight flex gap-2.5">
+                  <Check className={`size-5 md:size-6 shrink-0 mt-1.5 ${t.accent}`} aria-hidden="true" />
+                  <span>
+                    {c.v.split(/(confidence score|typed extraction|flags exactly)/).map((frag, i) =>
+                      /confidence score|typed extraction|flags exactly/.test(frag) ? (
+                        <span key={i} className={t.accent}>{frag}</span>
+                      ) : (
+                        <span key={i}>{frag}</span>
+                      ),
+                    )}
+                  </span>
                 </p>
               </div>
             );
