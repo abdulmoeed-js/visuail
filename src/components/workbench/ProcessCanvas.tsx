@@ -935,6 +935,7 @@ function DecisionNode({
           <span className="text-drift">no→<InlineEdit value={d.no} onChange={(v) => onUpdate({ no: v })} /></span>
         </div>
       </div>
+      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
