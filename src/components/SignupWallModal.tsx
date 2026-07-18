@@ -39,7 +39,10 @@ export function SignupWallModal({ open, onOpenChange, action }: Props) {
             </DialogHeader>
             <form
               className="space-y-3"
-              onSubmit={(e) => { e.preventDefault(); if (email.trim()) setDone(true); }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (email.trim()) { sessionStore.signIn(email.trim()); setDone(true); }
+              }}
             >
               <Input
                 type="email" required autoFocus placeholder="you@company.com"
