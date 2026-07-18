@@ -691,8 +691,8 @@ function ShapePalette({
   open: boolean; onToggle: () => void;
   showStarter: boolean; onInsertStarter: () => void;
 }) {
-  const [tab, setTab] = useState<"flow" | "bpmn">("flow");
-  const items = tab === "flow" ? FLOWCHART_ITEMS : BPMN_ITEMS;
+  const [tab, setTab] = useState<PaletteTab>("flow");
+  const items = PALETTE_TABS.find((t) => t.id === tab)?.items ?? FLOWCHART_ITEMS;
   return (
     <div className="absolute top-3 left-3 z-30 flex items-start gap-2" data-no-pan>
       <Button
@@ -703,17 +703,14 @@ function ShapePalette({
         {open ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
       </Button>
       {open && (
-        <div className="rounded-xl border bg-card/95 backdrop-blur shadow-lg w-[220px] overflow-hidden">
+        <div className="rounded-xl border bg-card/95 backdrop-blur shadow-lg w-[240px] overflow-hidden">
           <div className="flex border-b bg-muted/40">
-            {[
-              { id: "flow", label: "Flowchart" },
-              { id: "bpmn", label: "BPMN" },
-            ].map((t) => (
+            {PALETTE_TABS.map((t) => (
               <button
                 key={t.id}
-                onClick={() => setTab(t.id as "flow" | "bpmn")}
+                onClick={() => setTab(t.id)}
                 className={cn(
-                  "flex-1 px-3 py-2 text-[11px] font-mono-tight uppercase tracking-widest transition",
+                  "flex-1 px-2 py-2 text-[10px] font-mono-tight uppercase tracking-wider transition",
                   tab === t.id
                     ? "bg-card text-foreground border-b-2 border-primary"
                     : "text-muted-foreground hover:text-foreground",
@@ -723,6 +720,7 @@ function ShapePalette({
               </button>
             ))}
           </div>
+
           <div className="p-2">
             <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground px-1 pb-1.5">
               Drag to canvas
