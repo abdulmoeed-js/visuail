@@ -246,21 +246,23 @@ function KindCard({
   active, onToggle, icon, title, desc,
 }: { active: boolean; onToggle: () => void; icon: React.ReactNode; title: string; desc: string }) {
   return (
-    <button
-      type="button" onClick={onToggle}
+    <div
+      role="button" tabIndex={0}
+      onClick={onToggle}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}
       className={cn(
-        "flex items-start gap-3 rounded-lg border p-3 text-left transition",
+        "flex items-start gap-3 rounded-lg border p-3 text-left transition cursor-pointer",
         active ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "bg-card hover:bg-muted/60",
       )}
     >
-      <Checkbox checked={active} onCheckedChange={onToggle} className="mt-0.5" />
+      <Checkbox checked={active} onCheckedChange={onToggle} className="mt-0.5" onClick={(e) => e.stopPropagation()} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 text-sm font-semibold">
           {icon} {title}
         </div>
         <div className="text-xs text-muted-foreground mt-0.5">{desc}</div>
       </div>
-    </button>
+    </div>
   );
 }
 
