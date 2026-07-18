@@ -14,14 +14,37 @@ export interface ExportSection {
 }
 
 async function snapshot(el: HTMLElement): Promise<{ dataUrl: string; w: number; h: number }> {
-  const rect = el.getBoundingClientRect();
-  const dataUrl = await toPng(el, {
-    backgroundColor: "#ffffff",
-    pixelRatio: 2,
-    cacheBust: true,
-    width: rect.width,
-    height: rect.height,
-  });
+  // If this is a pan/zoom canvas outer container, snapshot the inner untransformed
+  // content layer instead — otherwise html-to-image captures whatever the user's
+  // current pan/zoom happens to be.
+  const inner = el.querySelector<HTMLElement>("[data-canvas-content]") ?? el;
+
+  // Temporarily neutralize the pan/zoom transform so the snapshot uses the
+  // element's natural layout size and position.
+  const prevTransform = inner.style.transform;
+  const prevTransition = inner.style.transition;
+  inner.style.transition = "none";
+  inner.style.transform = "none";
+
+  // Force layout so getBoundingClientRect reflects the untransformed size.
+  const width = inner.offsetWidth;
+  const height = inner.offsetHeight;
+
+  let dataUrl: string;
+  try {
+    dataUrl = await toPng(inner, {
+      backgroundColor: "#ffffff",
+      pixelRatio: 2,
+      cacheBust: true,
+      width,
+      height,
+      style: { transform: "none", transformOrigin: "top left", left: "0", top: "0" },
+    });
+  } finally {
+    inner.style.transform = prevTransform;
+    inner.style.transition = prevTransition;
+  }
+
   const img = new Image();
   img.src = dataUrl;
   await new Promise<void>((res, rej) => {

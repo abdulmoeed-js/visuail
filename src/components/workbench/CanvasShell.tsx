@@ -219,6 +219,7 @@ export function CanvasShell({
       >
         <CanvasCtx.Provider value={{ zoom, pan }}>
           <div
+            data-canvas-content
             className="absolute origin-top-left"
             style={{
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
