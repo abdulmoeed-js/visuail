@@ -86,11 +86,11 @@ export function Nav() {
 
 function Logo() {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" className="text-primary">
-      <rect x="2.5" y="2.5" width="19" height="19" rx="4" fill="none" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M6 8 L10 14 L14 10 L18 16" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="6" cy="8" r="1.4" fill="currentColor" />
-      <circle cx="18" cy="16" r="1.4" fill="currentColor" />
+    <svg width="24" height="24" viewBox="0 0 48 48" className="text-primary">
+      <path d="M9 9 L24 37 L39 9" fill="none" stroke="currentColor" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="9" cy="9" r="4" fill="currentColor" />
+      <circle cx="39" cy="9" r="4" className="fill-unresolved" />
+      <circle cx="24" cy="37" r="5.2" fill="currentColor" />
     </svg>
   );
 }
