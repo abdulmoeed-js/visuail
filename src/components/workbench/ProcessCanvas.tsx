@@ -273,7 +273,7 @@ export function ProcessCanvas({
   const handleDrop = (cx: number, cy: number, e: React.DragEvent) => {
     const kind = e.dataTransfer.getData(PALETTE_MIME) as ShapeKind | "";
     if (!kind) return;
-    let newId: string | void;
+    let newId: string | void = undefined;
     if (kind === "step") newId = onAddStep("New step");
     else if (kind === "decision") newId = onAddDecision?.("New decision");
     else if (kind === "exception") newId = onAddException?.("New exception");
