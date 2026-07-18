@@ -1129,7 +1129,79 @@ function StepNode({
 
   const shape = step.shape ?? "step";
   const isShaped = shape !== "step";
+  const isSectioned = shape === "uml-class" || shape === "uml-interface" || shape === "er-entity";
+  const isLifeline = shape === "uml-lifeline";
   const lowConf = step.confidence < 0.7 && !step.drift;
+
+  // Sectioned box rendering (class / interface / entity): a bordered card with
+  // stacked sections that auto-size to their content.
+  if (isSectioned) {
+    return (
+      <SectionedNode
+        node={node}
+        step={step}
+        model={model}
+        autoHeight={autoHeight}
+        onMeasure={onMeasure}
+        onDelete={onDelete}
+        onUpdate={onUpdate}
+        onDrag={onDrag}
+        onResize={onResize}
+        onRefine={onRefine}
+        onStartConnect={onStartConnect}
+        onSelect={onSelect}
+        onBringToFront={onBringToFront}
+        onSendToBack={onSendToBack}
+        z={z}
+        variant={shape}
+        refEl={ref}
+        dragHandlers={drag}
+      />
+    );
+  }
+
+  // Sequence lifeline — simplified stub: header box + dashed vertical line.
+  // Editable label; not fully wired to sequence-diagram messaging semantics.
+  if (isLifeline) {
+    return (
+      <div
+        ref={ref}
+        data-node
+        data-node-id={step.id}
+        onPointerDown={() => onSelect()}
+        className="group absolute animate-item-in flex flex-col items-center"
+        style={{
+          left: node.cx - node.w / 2,
+          top: node.cy - node.h / 2,
+          width: node.w,
+          minHeight: 200,
+          zIndex: 10 + z,
+          ...(autoHeight ? {} : { height: node.h }),
+        }}
+      >
+        <div className={cn(
+          "relative rounded-md border-2 bg-card shadow-sm px-3 py-2 w-full flex items-center gap-1",
+          step.userAdded && "!border-verified",
+          !step.userAdded && "border-primary/50",
+        )}>
+          <DragHandle handlers={drag} />
+          <IdChip id={step.id} tone="primary" />
+          <div className="text-xs font-medium flex-1 text-center break-words">
+            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} />
+          </div>
+          <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
+          <button onClick={onDelete} data-no-pan
+            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+            <X className="size-3" />
+          </button>
+        </div>
+        <div className="flex-1 w-px border-l-2 border-dashed border-primary/50" style={{ minHeight: 120 }} />
+        <div className="text-[9px] font-mono-tight text-muted-foreground pt-1">lifeline · stub</div>
+        {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
+        <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
+      </div>
+    );
+  }
 
   // Padding tuned per shape so content sits inside the visible outline.
   const padClass =
@@ -1218,6 +1290,161 @@ function StepNode({
     </div>
   );
 }
+
+function SectionedNode({
+  node, step, model, autoHeight, onMeasure,
+  onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
+  onSelect, onBringToFront, onSendToBack, z, variant, refEl, dragHandlers,
+}: {
+  node: SpineNode; step: Step; model: ProcessModel;
+  autoHeight: boolean;
+  onMeasure: (w: number, h: number) => void;
+  onDelete: () => void;
+  onUpdate: (patch: Partial<Step>) => void;
+  onDrag: (d: { dx: number; dy: number }) => void;
+  onResize: (w: number, h: number) => void;
+  onRefine: (p: Proposal) => void;
+  onStartConnect?: (e: React.PointerEvent) => void;
+  onSelect: () => void;
+  onBringToFront: () => void;
+  onSendToBack: () => void;
+  z: number;
+  variant: "uml-class" | "uml-interface" | "er-entity";
+  refEl: React.RefObject<HTMLDivElement | null>;
+  dragHandlers: ReturnType<typeof useNodeDrag>;
+}) {
+  void onMeasure; // measured via useMeasure hook attached in parent
+  const sections = step.sections ?? {};
+  const attrs = sections.attributes ?? [];
+  const methods = sections.methods ?? [];
+  const stereotype = variant === "uml-interface" ? (sections.stereotype ?? "«interface»") : sections.stereotype;
+
+  const updateList = (key: "attributes" | "methods", i: number, v: string) => {
+    const list = [...(sections[key] ?? [])];
+    list[i] = v;
+    onUpdate({ sections: { ...sections, [key]: list } });
+  };
+  const addRow = (key: "attributes" | "methods") => {
+    const list = [...(sections[key] ?? []), key === "attributes" ? "field: type" : "method()"];
+    onUpdate({ sections: { ...sections, [key]: list } });
+  };
+  const removeRow = (key: "attributes" | "methods", i: number) => {
+    const list = [...(sections[key] ?? [])];
+    list.splice(i, 1);
+    onUpdate({ sections: { ...sections, [key]: list } });
+  };
+
+  const showMethods = variant !== "er-entity";
+  const isEntity = variant === "er-entity";
+
+  return (
+    <div
+      ref={refEl}
+      data-node
+      data-node-id={step.id}
+      onPointerDown={() => onSelect()}
+      className={cn(
+        "group absolute animate-item-in rounded-lg border-2 bg-card shadow-sm overflow-hidden flex flex-col",
+        step.userAdded ? "border-verified" : "border-primary/50",
+        isEntity && "border-verified/70",
+      )}
+      style={{
+        left: node.cx - node.w / 2,
+        top: node.cy - node.h / 2,
+        width: node.w,
+        minHeight: 120,
+        zIndex: 10 + z,
+        ...(autoHeight ? {} : { height: node.h }),
+      }}
+    >
+      {/* header */}
+      <div className="flex items-center gap-1 px-2 py-1.5 bg-muted/40 border-b">
+        <DragHandle handlers={dragHandlers} />
+        <IdChip id={step.id} tone="primary" />
+        <div className="flex-1 min-w-0 text-center">
+          {stereotype && (
+            <div className="text-[9px] font-mono-tight text-muted-foreground leading-none">{stereotype}</div>
+          )}
+          <div className="text-xs font-semibold break-words leading-tight">
+            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} />
+          </div>
+        </div>
+        <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
+        <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
+        <button onClick={onDelete} data-no-pan
+          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+          <X className="size-3" />
+        </button>
+      </div>
+      {/* attributes */}
+      <SectionList
+        label={isEntity ? "columns" : "attributes"}
+        items={attrs}
+        onChange={(i, v) => updateList("attributes", i, v)}
+        onRemove={(i) => removeRow("attributes", i)}
+        onAdd={() => addRow("attributes")}
+      />
+      {showMethods && (
+        <SectionList
+          label="methods"
+          items={methods}
+          onChange={(i, v) => updateList("methods", i, v)}
+          onRemove={(i) => removeRow("methods", i)}
+          onAdd={() => addRow("methods")}
+          topBorder
+        />
+      )}
+      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
+      <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
+    </div>
+  );
+}
+
+function SectionList({
+  label, items, onChange, onRemove, onAdd, topBorder,
+}: {
+  label: string;
+  items: string[];
+  onChange: (i: number, v: string) => void;
+  onRemove: (i: number) => void;
+  onAdd: () => void;
+  topBorder?: boolean;
+}) {
+  return (
+    <div className={cn("px-2 py-1.5 flex flex-col gap-0.5", topBorder && "border-t")}>
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] font-mono-tight uppercase tracking-widest text-muted-foreground">{label}</span>
+        <button
+          onClick={onAdd}
+          data-no-pan
+          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition"
+          title={`Add ${label.slice(0, -1)}`}
+        >
+          <Plus className="size-3" />
+        </button>
+      </div>
+      {items.length === 0 && (
+        <div className="text-[10px] italic text-muted-foreground/70">empty</div>
+      )}
+      {items.map((v, i) => (
+        <div key={i} className="flex items-center gap-1 group/row">
+          <span className="text-[11px] font-mono-tight text-foreground/90 flex-1 break-words min-w-0">
+            <InlineEdit value={v} onChange={(next) => onChange(i, next)} />
+          </span>
+          <button
+            onClick={() => onRemove(i)}
+            data-no-pan
+            className="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-destructive transition"
+            title="Remove"
+          >
+            <X className="size-2.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 
 function MetaSelect({
   value, options, onChange,
