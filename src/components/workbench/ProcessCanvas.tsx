@@ -788,6 +788,7 @@ function StepNode({
     <div
       ref={ref}
       data-node
+      data-node-id={step.id}
       className={cn(
         "group absolute rounded-lg border-2 bg-card px-3 py-2 shadow-sm flex flex-col gap-1 animate-item-in",
         step.drift && "border-drift animate-drift bg-drift/5",
@@ -892,6 +893,7 @@ function DecisionNode({
     <div
       ref={ref}
       data-node
+      data-node-id={d.id}
       className={cn("group absolute animate-item-in", d.drift && "animate-drift")}
       style={{
         left,
@@ -963,6 +965,7 @@ function ExceptionNode({
     <div
       ref={ref}
       data-node
+      data-node-id={e.id}
       className={cn(
         "group absolute rounded-md border border-dashed bg-unresolved/5 border-unresolved/70 px-2.5 py-2 shadow-sm flex flex-col gap-1 animate-item-in",
         e.userAdded && "user-added !border-verified border-solid",
