@@ -674,9 +674,14 @@ function defaultLabelFor(shape?: string) {
     case "task": return "Task";
     case "event": return "Event";
     case "swimlane": return "Swimlane";
+    case "uml-class": return "ClassName";
+    case "uml-interface": return "InterfaceName";
+    case "uml-lifeline": return "Actor";
+    case "er-entity": return "Table";
     default: return "New step";
   }
 }
+
 
 // -------- Palette --------
 
