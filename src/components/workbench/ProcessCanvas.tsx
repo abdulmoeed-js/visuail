@@ -6,7 +6,7 @@ import {
   Plus, X, GripVertical, Square, Diamond, AlertTriangle, Wand2,
   PanelRightOpen, PanelRightClose, Circle, FileText, ChevronsRight,
   Layers, ArrowUpToLine, ArrowDownToLine, Zap, Rows3,
-  Table2, Boxes, GitBranch,
+  Table2, Boxes, GitBranch, MoreHorizontal,
 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
