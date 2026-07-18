@@ -19,6 +19,7 @@ const newUserItem = (prefix: string, text: string): BaseItem => ({
 export interface ArtifactEditing {
   model: ArtifactModel;
   drifted: boolean;
+  lastAddedId: string | null;
   reset: (m: ArtifactModel) => void;
   onSimulateDrift: () => void;
   onClearDrift: () => void;
@@ -35,6 +36,9 @@ export interface ArtifactEditing {
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
   onApplyRefinement: (p: Proposal) => void;
+  /** Recovery: remove the most recently user-added item (used by canvas
+   * error boundary to un-brick a project after a bad shape drop). */
+  onRemoveLastAdded: () => void;
 }
 
 export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
