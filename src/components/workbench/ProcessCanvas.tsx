@@ -630,10 +630,10 @@ function ManualConnector({
     ? { x: (from.cx + to.cx) / 2, y: (from.cy + to.cy) / 2 }
     : { x: 0, y: 0 };
   return (
-    <g style={{ pointerEvents: "auto" }}>
+    <g pointerEvents="auto">
       {/* Wide invisible hit target */}
       <path d={d} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer"
-        style={{ pointerEvents: "stroke" }}
+        pointerEvents="stroke"
         onClick={(e) => { console.log("DBG conn click", conn.id); e.stopPropagation(); onSelect(); }} />
       <path
         d={d} fill="none"
