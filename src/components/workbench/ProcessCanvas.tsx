@@ -677,20 +677,121 @@ export function ProcessCanvas({
         const mx = (a.cx + b.cx) / 2;
         const my = (a.cy + b.cy) / 2;
         return (
-          <button
-            key={`del-${c.id}`}
-            data-no-pan
-            data-conn-delete={c.id}
-            onClick={(e) => { e.stopPropagation(); onDeleteConnection?.(c.id); }}
-            title="Delete connector"
-            className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/60 bg-card text-primary shadow-sm opacity-70 hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition flex items-center justify-center"
-            style={{ left: mx, top: my, zIndex: 40 }}
-          >
-            <X className="size-3" />
-          </button>
+          <ConnectorControl
+            key={`ctl-${c.id}`}
+            conn={c}
+            x={mx}
+            y={my}
+            onDelete={() => onDeleteConnection?.(c.id)}
+            onUpdate={onUpdateConnection ? (patch) => onUpdateConnection(c.id, patch) : undefined}
+          />
         );
       })}
     </CanvasShell>
+  );
+}
+
+/** Map a CrowMarker enum to the SVG marker URL used in the path. */
+function markerUrlFor(m?: CrowMarker): string | null {
+  switch (m) {
+    case "one": return "url(#crow-one)";
+    case "many": return "url(#crow-many)";
+    case "one-many": return "url(#crow-one-many)";
+    case "zero-one": return "url(#crow-zero-one)";
+    case "zero-many": return "url(#crow-zero-many)";
+    default: return null;
+  }
+}
+
+const CROW_OPTIONS: { id: CrowMarker; label: string; glyph: string }[] = [
+  { id: "none", label: "None / arrow", glyph: "→" },
+  { id: "one", label: "One", glyph: "|" },
+  { id: "many", label: "Many", glyph: "⋉" },
+  { id: "one-many", label: "One-to-many", glyph: "|⋉" },
+  { id: "zero-one", label: "Zero or one", glyph: "○|" },
+  { id: "zero-many", label: "Zero or many", glyph: "○⋉" },
+];
+
+function ConnectorControl({
+  conn, x, y, onDelete, onUpdate,
+}: {
+  conn: Connection;
+  x: number;
+  y: number;
+  onDelete: () => void;
+  onUpdate?: (patch: Partial<Connection>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      data-no-pan
+      className="absolute -translate-x-1/2 -translate-y-1/2"
+      style={{ left: x, top: y, zIndex: 40 }}
+    >
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        title="Connector settings"
+        className="h-5 w-5 rounded-full border border-primary/60 bg-card text-primary shadow-sm opacity-70 hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition flex items-center justify-center"
+      >
+        <MoreHorizontal className="size-3" />
+      </button>
+      {open && (
+        <div className="absolute left-1/2 top-6 -translate-x-1/2 w-[220px] rounded-lg border bg-card shadow-lg p-2 flex flex-col gap-2">
+          {onUpdate && (
+            <>
+              <div>
+                <div className="text-[9px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-1">Start</div>
+                <div className="flex flex-wrap gap-1">
+                  {CROW_OPTIONS.map((o) => (
+                    <button
+                      key={`s-${o.id}`}
+                      onClick={() => onUpdate({ startMarker: o.id === "none" ? undefined : o.id })}
+                      className={cn(
+                        "px-1.5 py-0.5 rounded border text-[10px] font-mono-tight",
+                        (conn.startMarker ?? "none") === o.id
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:text-foreground",
+                      )}
+                      title={o.label}
+                    >{o.glyph}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-[9px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-1">End</div>
+                <div className="flex flex-wrap gap-1">
+                  {CROW_OPTIONS.map((o) => (
+                    <button
+                      key={`e-${o.id}`}
+                      onClick={() => onUpdate({ endMarker: o.id === "none" ? undefined : o.id })}
+                      className={cn(
+                        "px-1.5 py-0.5 rounded border text-[10px] font-mono-tight",
+                        (conn.endMarker ?? "none") === o.id
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border text-muted-foreground hover:text-foreground",
+                      )}
+                      title={o.label}
+                    >{o.glyph}</button>
+                  ))}
+                </div>
+              </div>
+              <input
+                value={conn.label ?? ""}
+                onChange={(e) => onUpdate({ label: e.target.value })}
+                placeholder="Label (optional)"
+                className="w-full text-[11px] px-2 py-1 rounded border bg-background"
+              />
+            </>
+          )}
+          <button
+            onClick={() => { onDelete(); setOpen(false); }}
+            className="w-full text-[11px] px-2 py-1 rounded border border-destructive/40 text-destructive hover:bg-destructive/10 flex items-center justify-center gap-1"
+          >
+            <X className="size-3" /> Delete connector
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
