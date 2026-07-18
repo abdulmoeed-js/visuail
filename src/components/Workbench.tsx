@@ -16,6 +16,7 @@ import {
 import { EditableList } from "./workbench/EditableList";
 import { ProcessCanvas } from "./workbench/ProcessCanvas";
 import { BMCCanvas } from "./workbench/BMCCanvas";
+import { CanvasErrorBoundary } from "./workbench/CanvasErrorBoundary";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
 import { DriftNotifier } from "./workbench/DriftNotifier";
 import { TemplateGallery } from "./workbench/TemplateGallery";
