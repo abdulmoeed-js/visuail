@@ -15,6 +15,7 @@ interface Props {
 export function SignupWallModal({ open, onOpenChange, action }: Props) {
   const [email, setEmail] = useState("");
   const [done, setDone] = useState(false);
+  const navigate = useNavigate();
 
   return (
     <Dialog
