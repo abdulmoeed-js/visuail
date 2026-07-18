@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ProcessModel, Step, Decision, Exception } from "@/data/samples";
+import type { ProcessModel, Step, Decision, Exception, Connection, CrowMarker } from "@/data/samples";
 import { cn } from "@/lib/utils";
 import { ConfidenceBadge, IdChip } from "./atoms";
 import {
   Plus, X, GripVertical, Square, Diamond, AlertTriangle, Wand2,
   PanelRightOpen, PanelRightClose, Circle, FileText, ChevronsRight,
-  Layers, ArrowUpToLine, ArrowDownToLine, Zap, Rows3,
+  Layers, ArrowUpToLine, ArrowDownToLine, Rows3,
+  Table2, Boxes, GitBranch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CanvasShell, useCanvas } from "./CanvasShell";
 import { InlineEdit } from "./InlineEdit";
 import { RefineControl } from "./RefineControl";
 import { applyProposal, type Proposal } from "@/lib/refine";
+
 
 /**
  * Deterministic top-to-bottom flowchart with a single vertical spine.
