@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { FileDown, Loader2, Workflow, LayoutGrid, Users2, ShieldCheck } from "lucide-react";
 import { ArtifactView } from "@/components/Workbench";
 import { useArtifactEditing } from "@/lib/artifact-editing";
-import { stats, type ArtifactModel } from "@/data/samples";
+import { stats, allItems, type ArtifactModel } from "@/data/samples";
 import type { ProjectResult } from "./IntakeWizard";
 import { exportSectionsToPdf, type ExportSection } from "@/lib/export-pdf";
 
