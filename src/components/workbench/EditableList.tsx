@@ -40,7 +40,7 @@ export function EditableList({
           className={cn(
             "group relative flex items-start gap-2 rounded-md border bg-card px-2.5 py-1.5 text-sm animate-item-in",
             item.confidence < 0.7 && !item.userAdded && "border-dashed border-unresolved/60 bg-unresolved/5",
-            item.drift && "border-drift bg-drift/5 animate-drift",
+            (item.drift || item.conflict) && "border-drift bg-drift/5 animate-drift",
             item.userAdded && "user-added",
           )}
         >
@@ -51,7 +51,13 @@ export function EditableList({
             ) : (
               <span className="text-foreground break-words">{item.text}</span>
             )}
-            {item.snippet && !item.userAdded && (
+            {item.conflict && item.conflictNote && (
+              <div className="mt-1 text-[11px] text-drift">
+                <span className="font-semibold uppercase tracking-wider text-[10px]">Conflicting sources · </span>
+                <span className="text-drift/90">{item.conflictNote.replace(/^Conflicting sources — /, "")}</span>
+              </div>
+            )}
+            {item.snippet && !item.userAdded && !item.conflict && (
               <div className="mt-1 flex gap-1.5 text-[11px] italic text-muted-foreground">
                 <span className="text-unresolved">“</span>
                 <span>{item.snippet}</span>
