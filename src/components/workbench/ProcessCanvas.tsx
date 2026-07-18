@@ -222,6 +222,7 @@ interface Props {
   onAddException?: (text: string) => string | void;
   onAddConnection?: (fromId: string, toId: string) => string | void;
   onDeleteConnection?: (id: string) => void;
+  onUpdateConnection?: (id: string, patch: Partial<Connection>) => void;
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
   onApplyRefinement?: (p: Proposal) => void;
@@ -256,11 +257,30 @@ const BPMN_ITEMS: PaletteItem[] = [
   { kind: "step", shape: "swimlane", label: "Swimlane", hint: "Container", Icon: Rows3 },
 ];
 
+const UML_ITEMS: PaletteItem[] = [
+  { kind: "step", shape: "uml-class", label: "Class", hint: "Name / attrs / methods", Icon: Boxes },
+  { kind: "step", shape: "uml-interface", label: "Interface", hint: "«interface»", Icon: Boxes },
+  { kind: "step", shape: "uml-lifeline", label: "Lifeline", hint: "Sequence · stub", Icon: GitBranch },
+];
+
+const DB_ITEMS: PaletteItem[] = [
+  { kind: "step", shape: "er-entity", label: "Entity", hint: "Table · attrs", Icon: Table2 },
+];
+
+type PaletteTab = "flow" | "bpmn" | "uml" | "db";
+const PALETTE_TABS: { id: PaletteTab; label: string; items: PaletteItem[] }[] = [
+  { id: "flow", label: "Flowchart", items: FLOWCHART_ITEMS },
+  { id: "bpmn", label: "BPMN", items: BPMN_ITEMS },
+  { id: "uml", label: "UML", items: UML_ITEMS },
+  { id: "db", label: "Database", items: DB_ITEMS },
+];
+
 export function ProcessCanvas({
   model, onAddStep, onAddDecision, onAddException,
-  onAddConnection, onDeleteConnection,
+  onAddConnection, onDeleteConnection, onUpdateConnection,
   onDeleteAny, onUpdateItem, onApplyRefinement,
 }: Props) {
+
   const [overrides, setOverrides] = useState<Overrides>({});
   const [measured, setMeasured] = useState<Measured>({});
   const [paletteOpen, setPaletteOpen] = useState(true);
