@@ -189,15 +189,31 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
 
 interface Props {
   model: ProcessModel;
-  onAddStep: (text: string) => void;
+  onAddStep: (text: string) => string | void;
+  onAddDecision?: (text: string) => string | void;
+  onAddException?: (text: string) => string | void;
+  onAddConnection?: (fromId: string, toId: string) => string | void;
+  onDeleteConnection?: (id: string) => void;
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<Step & Decision & Exception>) => void;
   onApplyRefinement?: (p: Proposal) => void;
 }
 
-export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onApplyRefinement }: Props) {
+type ShapeKind = "step" | "decision" | "exception";
+const PALETTE_MIME = "application/x-visuail-shape";
+
+export function ProcessCanvas({
+  model, onAddStep, onAddDecision, onAddException,
+  onAddConnection, onDeleteConnection,
+  onDeleteAny, onUpdateItem, onApplyRefinement,
+}: Props) {
   const [overrides, setOverrides] = useState<Overrides>({});
   const [measured, setMeasured] = useState<Measured>({});
+  const [paletteOpen, setPaletteOpen] = useState(true);
+  const [selectedConn, setSelectedConn] = useState<string | null>(null);
+  const [pendingConn, setPendingConn] = useState<null | {
+    fromId: string; fromX: number; fromY: number; toX: number; toY: number;
+  }>(null);
 
   const reportMeasure = useCallback((id: string, w: number, h: number) => {
     setMeasured((cur) => {
@@ -226,6 +242,113 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
     }
   };
 
+  // Map id → geometry for connector anchoring.
+  const geomById = useMemo(() => {
+    const m = new Map<string, { cx: number; cy: number; w: number; h: number }>();
+    spine.forEach((n) => m.set(n.ref.id, { cx: n.cx, cy: n.cy, w: n.w, h: n.h }));
+    right.forEach((n) => m.set(n.ref.id, { cx: n.cx, cy: n.cy, w: n.w, h: n.h }));
+    return m;
+  }, [spine, right]);
+
+  const manualConnections = model.connections ?? [];
+
+  // Delete selected connection with Backspace/Delete.
+  useEffect(() => {
+    if (!selectedConn) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        onDeleteConnection?.(selectedConn);
+        setSelectedConn(null);
+      } else if (e.key === "Escape") {
+        setSelectedConn(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedConn, onDeleteConnection]);
+
+  const handleDrop = (cx: number, cy: number, e: React.DragEvent) => {
+    const kind = e.dataTransfer.getData(PALETTE_MIME) as ShapeKind | "";
+    if (!kind) return;
+    let newId: string | void;
+    if (kind === "step") newId = onAddStep("New step");
+    else if (kind === "decision") newId = onAddDecision?.("New decision");
+    else if (kind === "exception") newId = onAddException?.("New exception");
+    if (typeof newId === "string") {
+      patchOverride(newId, { cx, cy });
+    }
+  };
+
+  const insertStarter = () => {
+    // 3-step scaffold with 2 manual connectors.
+    const centerX = 320;
+    const y0 = 100;
+    const gap = 160;
+    const a = onAddStep("Request");
+    const b = onAddStep("Review");
+    const c = onAddDecision?.("Approve?");
+    if (typeof a === "string") patchOverride(a, { cx: centerX, cy: y0 });
+    if (typeof b === "string") patchOverride(b, { cx: centerX, cy: y0 + gap });
+    if (typeof c === "string") patchOverride(c, { cx: centerX, cy: y0 + gap * 2 });
+    if (typeof a === "string" && typeof b === "string") onAddConnection?.(a, b);
+    if (typeof b === "string" && typeof c === "string") onAddConnection?.(b, c);
+  };
+
+  const isEmpty = model.steps.length === 0 && model.decisions.length === 0 && model.exceptions.length === 0;
+
+  // Compute route path between two node ids (orthogonal, matches existing style).
+  const routeBetween = (fromId: string, toId: string) => {
+    const a = geomById.get(fromId);
+    const b = geomById.get(toId);
+    if (!a || !b) return null;
+    const dy = b.cy - a.cy;
+    const dx = b.cx - a.cx;
+    // If mostly-vertical alignment, use vertical elbow (spine style).
+    if (Math.abs(dx) < 10 && Math.abs(dy) > 20) {
+      const from = { x: a.cx, y: a.cy + Math.sign(dy) * (a.h / 2) };
+      const to = { x: b.cx, y: b.cy - Math.sign(dy) * (b.h / 2) };
+      return `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
+    }
+    // Right-side elbow (routes style).
+    const fromRight = { x: a.cx + a.w / 2, y: a.cy };
+    const toLeft = { x: b.cx - b.w / 2, y: b.cy };
+    const laneX = Math.max(fromRight.x, toLeft.x) + 40;
+    return `M ${fromRight.x} ${fromRight.y} H ${laneX} V ${toLeft.y} H ${toLeft.x}`;
+  };
+
+  const startConnDrag = (fromId: string, e: React.PointerEvent) => {
+    const g = geomById.get(fromId);
+    if (!g) return;
+    const startX = g.cx + g.w / 2;
+    const startY = g.cy;
+    setPendingConn({ fromId, fromX: startX, fromY: startY, toX: startX, toY: startY });
+
+    // Convert client coords to canvas coords using the transformed content element.
+    const contentEl = (e.currentTarget as HTMLElement).closest("[data-canvas-content]") as HTMLElement | null;
+    const move = (ev: PointerEvent) => {
+      if (!contentEl) return;
+      const rect = contentEl.getBoundingClientRect();
+      const scaleX = contentEl.offsetWidth ? rect.width / contentEl.offsetWidth : 1;
+      const cx = (ev.clientX - rect.left) / scaleX;
+      const cy = (ev.clientY - rect.top) / scaleX;
+      setPendingConn((cur) => cur ? { ...cur, toX: cx, toY: cy } : cur);
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      // Find a node under the pointer.
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const node = el?.closest("[data-node-id]") as HTMLElement | null;
+      const toId = node?.dataset.nodeId;
+      if (toId && toId !== fromId) onAddConnection?.(fromId, toId);
+      setPendingConn(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   return (
     <CanvasShell
@@ -234,6 +357,15 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
       minimap
       fullscreenLabel="Process map — fullscreen"
       bottomLeft={<Legend />}
+      onCanvasDrop={handleDrop}
+      overlay={
+        <ShapePalette
+          open={paletteOpen}
+          onToggle={() => setPaletteOpen((o) => !o)}
+          showStarter={isEmpty}
+          onInsertStarter={insertStarter}
+        />
+      }
       bottomRight={
         adding ? (
           <div className="flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
@@ -261,7 +393,12 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
         )
       }
     >
-      <svg width={Math.max(width, 900)} height={Math.max(height, 620)} className="absolute inset-0 pointer-events-none">
+      <svg
+        width={Math.max(width, 900)}
+        height={Math.max(height, 620)}
+        className="absolute inset-0"
+        style={{ pointerEvents: "none" }}
+      >
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />
@@ -269,10 +406,17 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
           <marker id="arrow-dashed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-unresolved)" />
           </marker>
+          <marker id="arrow-verified" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--color-verified)" />
+          </marker>
         </defs>
 
         {spine.slice(0, -1).map((n, i) => {
           const next = spine[i + 1];
+          // Skip the auto-spine connector if either endpoint has a position override
+          // (the user has moved it off-spine) or is user-added — those get manual connectors.
+          if (overrides[n.ref.id]?.cx !== undefined || overrides[next.ref.id]?.cx !== undefined) return null;
+          if (n.ref.userAdded || next.ref.userAdded) return null;
           const from = { x: n.cx, y: n.cy + n.h / 2 };
           const to = { x: next.cx, y: next.cy - next.h / 2 };
           const yesLabel = n.kind === "decision" ? `yes → ${(n.ref as Decision).yes}` : null;
@@ -310,6 +454,36 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
             </g>
           );
         })}
+
+        {/* Manual connections */}
+        {manualConnections.map((c) => {
+          const d = routeBetween(c.fromId, c.toId);
+          if (!d) return null;
+          const isSelected = selectedConn === c.id;
+          return (
+            <ManualConnector
+              key={c.id}
+              conn={c}
+              d={d}
+              selected={isSelected}
+              onSelect={() => setSelectedConn(c.id)}
+              onDelete={() => { onDeleteConnection?.(c.id); setSelectedConn(null); }}
+              geomById={geomById}
+            />
+          );
+        })}
+
+        {/* Pending (drag-in-progress) connector */}
+        {pendingConn && (
+          <path
+            d={`M ${pendingConn.fromX} ${pendingConn.fromY} L ${pendingConn.toX} ${pendingConn.toY}`}
+            fill="none"
+            stroke="var(--color-verified)"
+            strokeWidth={1.6}
+            strokeDasharray="4 3"
+            opacity={0.8}
+          />
+        )}
       </svg>
 
       {spine.map((n) => {
@@ -331,6 +505,7 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
               onDrag={(delta) => patchOverride(s.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
               onResize={(w, h) => patchOverride(s.id, { w, h })}
               onRefine={handleRefine}
+              onStartConnect={onAddConnection ? (e) => startConnDrag(s.id, e) : undefined}
             />
           );
         }
@@ -346,6 +521,7 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
             onDrag={(delta) => patchOverride(d.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
             onResize={(w, h) => patchOverride(d.id, { w, h })}
             onRefine={handleRefine}
+            onStartConnect={onAddConnection ? (e) => startConnDrag(d.id, e) : undefined}
           />
         );
       })}
@@ -361,12 +537,124 @@ export function ProcessCanvas({ model, onAddStep, onDeleteAny, onUpdateItem, onA
             onDrag={(delta) => patchOverride(n.ref.id, { cx: n.cx + delta.dx, cy: n.cy + delta.dy })}
             onResize={(w, h) => patchOverride(n.ref.id, { w, h })}
             onRefine={handleRefine}
+            onStartConnect={onAddConnection ? (e) => startConnDrag(n.ref.id, e) : undefined}
           />
         );
       })}
     </CanvasShell>
   );
 }
+
+function ShapePalette({
+  open, onToggle, showStarter, onInsertStarter,
+}: {
+  open: boolean; onToggle: () => void;
+  showStarter: boolean; onInsertStarter: () => void;
+}) {
+  const items: { kind: ShapeKind; label: string; Icon: typeof Square; hint: string }[] = [
+    { kind: "step", label: "Step", Icon: Square, hint: "Rectangle" },
+    { kind: "decision", label: "Decision", Icon: Diamond, hint: "Diamond" },
+    { kind: "exception", label: "Exception", Icon: AlertTriangle, hint: "Dashed" },
+  ];
+  return (
+    <div className="absolute top-3 left-3 z-30 flex items-start gap-2" data-no-pan>
+      <Button
+        size="icon" variant="outline" className="h-8 w-8 bg-card/95 backdrop-blur"
+        onClick={onToggle}
+        title={open ? "Hide shape palette" : "Show shape palette"}
+      >
+        {open ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+      </Button>
+      {open && (
+        <div className="rounded-lg border bg-card/95 backdrop-blur p-2 shadow-sm w-[168px]">
+          <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground px-1 pb-1.5">
+            Shapes · drag to canvas
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {items.map(({ kind, label, Icon, hint }) => (
+              <div
+                key={kind}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(PALETTE_MIME, kind);
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
+                className="group flex items-center gap-2 rounded-md border bg-background px-2 py-1.5 cursor-grab active:cursor-grabbing hover:border-primary/60 hover:bg-primary/5 transition"
+                title={`Drag ${label.toLowerCase()} onto the canvas`}
+              >
+                <Icon className="size-4 text-primary shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium leading-tight">{label}</div>
+                  <div className="text-[10px] font-mono-tight text-muted-foreground leading-tight">{hint}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {showStarter && (
+            <>
+              <div className="my-2 h-px bg-border" />
+              <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground px-1 pb-1.5">
+                Starters
+              </div>
+              <Button
+                size="sm" variant="outline" className="w-full h-8 justify-start gap-1.5"
+                onClick={onInsertStarter}
+              >
+                <Wand2 className="size-3.5 text-primary" />
+                <span className="text-xs">Request → Review → Decision</span>
+              </Button>
+            </>
+          )}
+          <div className="mt-2 text-[10px] text-muted-foreground leading-snug px-1">
+            Hover a node to see its connect handle; drag it onto another node to link.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ManualConnector({
+  conn, d, selected, onSelect, onDelete, geomById,
+}: {
+  conn: Connection;
+  d: string;
+  selected: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+  geomById: Map<string, { cx: number; cy: number; w: number; h: number }>;
+}) {
+  const from = geomById.get(conn.fromId);
+  const to = geomById.get(conn.toId);
+  const mid = from && to
+    ? { x: (from.cx + to.cx) / 2, y: (from.cy + to.cy) / 2 }
+    : { x: 0, y: 0 };
+  return (
+    <g style={{ pointerEvents: "auto" }}>
+      {/* Wide invisible hit target */}
+      <path d={d} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer"
+        onClick={(e) => { e.stopPropagation(); onSelect(); }} />
+      <path
+        d={d} fill="none"
+        stroke={selected ? "var(--color-primary)" : "var(--color-verified)"}
+        strokeWidth={selected ? 2 : 1.6}
+        markerEnd="url(#arrow-verified)"
+        style={{ pointerEvents: "none" }}
+      />
+      {selected && (
+        <g transform={`translate(${mid.x - 9} ${mid.y - 9})`}>
+          <rect width={18} height={18} rx={9} fill="var(--color-card)" stroke="var(--color-primary)" strokeWidth={1.4} />
+          <path d="M 5 5 L 13 13 M 13 5 L 5 13" stroke="var(--color-primary)" strokeWidth={1.6} strokeLinecap="round" />
+          <rect width={18} height={18} rx={9} fill="transparent" className="cursor-pointer"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+            <title>Delete connector</title>
+          </rect>
+        </g>
+      )}
+    </g>
+  );
+}
+
 
 function Legend() {
   const chip = "flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
