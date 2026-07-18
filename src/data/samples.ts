@@ -11,6 +11,9 @@ export interface BaseItem {
   unresolved?: boolean;  // confidence < 0.7
   drift?: boolean;       // flipped by "simulate source change"
   userAdded?: boolean;   // added by the user in the workbench
+  confirmedBySources?: string[]; // labels of sources that produced a matching item
+  conflict?: boolean;    // multiple sources produced different text for the same item
+  conflictNote?: string; // human-readable summary of the conflict
 }
 
 export interface Actor extends BaseItem {}
