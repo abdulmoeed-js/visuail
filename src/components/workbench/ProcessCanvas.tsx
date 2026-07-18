@@ -577,10 +577,21 @@ export function ProcessCanvas({
         {manualConnections.map((c) => {
           const d = routeBetween(c.fromId, c.toId);
           if (!d) return null;
+          const startMk = markerUrlFor(c.startMarker);
+          const endMk = markerUrlFor(c.endMarker) ?? "url(#arrow-verified)";
           return (
-            <path key={c.id} d={d} fill="none" stroke="var(--color-verified)" strokeWidth={1.6} markerEnd="url(#arrow-verified)" />
+            <path
+              key={c.id}
+              d={d}
+              fill="none"
+              stroke="var(--color-verified)"
+              strokeWidth={1.6}
+              markerStart={startMk ?? undefined}
+              markerEnd={endMk}
+            />
           );
         })}
+
 
         {pendingConn && (
           <path
