@@ -100,8 +100,31 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
   const addWithId = <T,>(mk: () => { id: string; run: (m: ArtifactModel) => ArtifactModel }) => {
     const { id, run } = mk();
     mutate(run);
+    setLastAddedId(id);
     return id;
   };
+
+  const onRemoveLastAdded = useCallback(() => {
+    setLastAddedId(id => {
+      if (!id) return null;
+      // Reuse onDeleteAny's model-shape-aware removal.
+      setModel(m => {
+        if (m.kind === "process") {
+          return {
+            ...m,
+            actors: m.actors.filter(x => x.id !== id),
+            steps: m.steps.filter(x => x.id !== id),
+            decisions: m.decisions.filter(x => x.id !== id),
+            exceptions: m.exceptions.filter(x => x.id !== id),
+            systems: m.systems.filter(x => x.id !== id),
+            connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
+          };
+        }
+        return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })) };
+      });
+      return null;
+    });
+  }, []);
 
   const onAddActor = (t: string) => addWithId(() => {
     const item = newUserItem("AC", t);
