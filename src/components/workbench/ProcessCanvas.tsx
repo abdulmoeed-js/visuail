@@ -754,6 +754,17 @@ function DragHandle({ handlers }: { handlers: ReturnType<typeof useNodeDrag> }) 
   );
 }
 
+function ConnectHandle({ onStartConnect }: { onStartConnect: (e: React.PointerEvent) => void }) {
+  return (
+    <div
+      data-no-pan
+      onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e); }}
+      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 hover:scale-125 transition cursor-crosshair z-10"
+      title="Drag to another node to connect"
+    />
+  );
+}
+
 // ---- Step ----
 
 function StepNode({
