@@ -11,6 +11,28 @@ import {
 import { applyProposal, type Proposal } from "@/lib/refine";
 
 let uid = 1000;
+
+// The counter above is module-scoped and resets to 1000 on every fresh page
+// load. A loaded/persisted model can already contain ids minted by an
+// earlier session (e.g. "ST-U1005"), so before generating new ids for a
+// model we bump the counter past the highest numeric suffix already present
+// — otherwise a reopened project's new shapes collide with its old ones.
+function bumpUidPast(model: ArtifactModel) {
+  const ids: string[] = [];
+  if (model.kind === "process") {
+    for (const group of [model.actors, model.steps, model.decisions, model.exceptions, model.systems]) {
+      for (const item of group) ids.push(item.id);
+    }
+    for (const c of model.connections ?? []) ids.push(c.id);
+  } else {
+    for (const b of model.blocks) for (const item of b.items) ids.push(item.id);
+  }
+  for (const id of ids) {
+    const match = /-U(\d+)$/.exec(id);
+    if (match) uid = Math.max(uid, parseInt(match[1], 10));
+  }
+}
+
 const nextId = (prefix: string) => `${prefix}-U${++uid}`;
 const newUserItem = (prefix: string, text: string): BaseItem => ({
   id: nextId(prefix), text, confidence: 1, userAdded: true,
@@ -42,7 +64,7 @@ export interface ArtifactEditing {
 }
 
 export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
-  const [model, setModel] = useState<ArtifactModel>(initial);
+  const [model, setModel] = useState<ArtifactModel>(() => { bumpUidPast(initial); return initial; });
   const [drifted, setDrifted] = useState(false);
   const [pristine, setPristine] = useState<ArtifactModel>(initial);
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
@@ -51,6 +73,7 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     setModel(cur => fn(cur));
 
   const reset = useCallback((m: ArtifactModel) => {
+    bumpUidPast(m);
     setModel(m); setPristine(m); setDrifted(false);
   }, []);
 
