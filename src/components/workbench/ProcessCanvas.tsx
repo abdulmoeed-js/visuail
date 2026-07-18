@@ -870,7 +870,7 @@ function MetaSelect({
 
 function DecisionNode({
   node, d, model, autoHeight, onMeasure,
-  onDelete, onUpdate, onDrag, onResize, onRefine,
+  onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
 }: {
   node: SpineNode; d: Decision; model: ProcessModel;
   autoHeight: boolean;
@@ -880,6 +880,7 @@ function DecisionNode({
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
   onRefine: (p: Proposal) => void;
+  onStartConnect?: (e: React.PointerEvent) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   const ref = useMeasure(onMeasure);
