@@ -29,6 +29,14 @@ export interface Decision extends BaseItem {
 export interface Exception extends BaseItem { relatedStepId?: string; }
 export interface System extends BaseItem {}
 
+export interface Connection {
+  id: string;
+  fromId: string;
+  toId: string;
+  label?: string;
+  userAdded?: boolean;
+}
+
 export interface ProcessModel {
   kind: "process";
   title: string;
@@ -37,6 +45,7 @@ export interface ProcessModel {
   decisions: Decision[];
   exceptions: Exception[];
   systems: System[];
+  connections?: Connection[];
 }
 
 export interface BMCBlock {
