@@ -210,7 +210,7 @@ export function ProcessCanvas({
   const [overrides, setOverrides] = useState<Overrides>({});
   const [measured, setMeasured] = useState<Measured>({});
   const [paletteOpen, setPaletteOpen] = useState(true);
-  const [selectedConn, setSelectedConn] = useState<string | null>(null);
+  // Manual connector selection uses always-visible HTML delete buttons; no keyboard-select state needed.
   const [pendingConn, setPendingConn] = useState<null | {
     fromId: string; fromX: number; fromY: number; toX: number; toY: number;
   }>(null);
