@@ -91,9 +91,14 @@ function defaultSizeFor(kind: "step" | "decision" | "exception", shape?: string)
     case "io": return { w: 260, h: 84 };
     case "offpage": return { w: 240, h: 88 };
     case "task": return { w: 260, h: 84 };
+    case "uml-class":
+    case "uml-interface": return { w: 240, h: 200 };
+    case "er-entity": return { w: 240, h: 180 };
+    case "uml-lifeline": return { w: 140, h: 360 };
     default: return { w: STEP_W, h: STEP_H };
   }
 }
+
 
 function effSize(id: string, defW: number, defH: number, overrides: Overrides, measured: Measured) {
   const o = overrides[id];
