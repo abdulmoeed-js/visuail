@@ -634,7 +634,7 @@ function ManualConnector({
       {/* Wide invisible hit target */}
       <path d={d} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer"
         style={{ pointerEvents: "stroke" }}
-        onClick={(e) => { e.stopPropagation(); onSelect(); }} />
+        onClick={(e) => { console.log("DBG conn click", conn.id); e.stopPropagation(); onSelect(); }} />
       <path
         d={d} fill="none"
         stroke={selected ? "var(--color-primary)" : "var(--color-verified)"}
