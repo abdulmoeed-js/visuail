@@ -12,8 +12,16 @@ import {
   type ProcessModel,
   type BMCModel,
 } from "@/data/samples";
+import { supabase } from "@/integrations/supabase/client";
+import { verifyGrounding } from "@/lib/grounding";
 
 export type ArtifactKind = "process" | "bmc";
+
+// Off until the extract-artifact edge function is deployed and the
+// ANTHROPIC_API_KEY secret is set — until then this must stay false, or
+// every project-creation call on the live site breaks. Flip to true once
+// both are confirmed working (see supabase/functions/extract-artifact).
+export const REAL_EXTRACTION_ENABLED = false;
 
 export interface ExtractionInput {
   label: string;         // source label (e.g. "Source 1", or filename)
@@ -93,10 +101,10 @@ export function perturb(model: ArtifactModel, index: number): ArtifactModel {
 }
 
 /**
- * Run per-source extraction. Returns null when the text is too thin OR when
+ * Deterministic mock extraction. Returns [] when the text is too thin OR when
  * the requested artifact kinds are not represented in the text (refuse-when-unsure).
  */
-export function extractFromSource(
+export function extractFromSourceMock(
   input: ExtractionInput,
   allowedKinds: ArtifactKind[],
 ): ExtractionResult[] {
@@ -126,4 +134,79 @@ export function extractFromSource(
     });
   }
   return results;
+}
+
+/**
+ * Prefix every item id (and every field that references an item id) with a
+ * per-source tag. Independent extraction calls have no shared id namespace,
+ * so without this, two unrelated items from different sources that happen to
+ * both land on e.g. "ST1" would be silently treated as the same item by
+ * merge.ts's id-based reconciliation — a false "confirmed by both sources"
+ * merge is worse than no merge at all. Real cross-source matching (comparing
+ * item *content*, not id) is a separate, not-yet-built feature — see the
+ * dashboard follow-up note.
+ */
+function prefixIds(model: ArtifactModel, index: number): ArtifactModel {
+  const tag = (id: string) => `s${index}-${id}`;
+  if (model.kind === "process") {
+    return {
+      ...model,
+      actors: model.actors.map(a => ({ ...a, id: tag(a.id) })),
+      systems: model.systems.map(s => ({ ...s, id: tag(s.id) })),
+      steps: model.steps.map(s => ({
+        ...s,
+        id: tag(s.id),
+        actorId: tag(s.actorId),
+        systemId: s.systemId ? tag(s.systemId) : s.systemId,
+      })),
+      decisions: model.decisions.map(d => ({
+        ...d,
+        id: tag(d.id),
+        afterStepId: tag(d.afterStepId),
+        yes: tag(d.yes),
+        no: tag(d.no),
+      })),
+      exceptions: model.exceptions.map(e => ({
+        ...e,
+        id: tag(e.id),
+        relatedStepId: e.relatedStepId ? tag(e.relatedStepId) : e.relatedStepId,
+      })),
+    };
+  }
+  return {
+    ...model,
+    blocks: model.blocks.map(b => ({ ...b, items: b.items.map(i => ({ ...i, id: tag(i.id) })) })),
+  };
+}
+
+interface EdgeFunctionResult { kind: ArtifactKind; model: ArtifactModel }
+interface EdgeFunctionResponse { results?: EdgeFunctionResult[]; error?: string }
+
+/** Real, Claude-backed extraction for one source. Throws on failure — callers decide how to surface that. */
+export async function extractFromSourceReal(
+  input: ExtractionInput,
+  allowedKinds: ArtifactKind[],
+): Promise<ExtractionResult[]> {
+  const trimmed = input.text.trim();
+  if (trimmed.length < 40) return [];
+
+  const { data, error } = await supabase.functions.invoke<EdgeFunctionResponse>("extract-artifact", {
+    body: { text: trimmed, allowedKinds },
+  });
+  if (error) throw new Error(error.message || "Extraction failed. Try again.");
+  if (data?.error) throw new Error(data.error);
+
+  return (data?.results ?? []).map(({ kind, model }) => ({
+    kind,
+    model: verifyGrounding(prefixIds(model, input.index), trimmed),
+  }));
+}
+
+/** Single entry point every call site should use — dispatches to real or mock extraction. */
+export async function extractFromSource(
+  input: ExtractionInput,
+  allowedKinds: ArtifactKind[],
+): Promise<ExtractionResult[]> {
+  if (!REAL_EXTRACTION_ENABLED) return extractFromSourceMock(input, allowedKinds);
+  return extractFromSourceReal(input, allowedKinds);
 }

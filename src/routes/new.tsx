@@ -13,6 +13,7 @@ import {
 import { SourceIntake, makeSource, type SourceDraft } from "@/components/workbench/SourceIntake";
 import { extractFromSource, type ArtifactKind } from "@/lib/extract";
 import { mergeByKind } from "@/lib/merge";
+import { checkRefusal } from "@/lib/refusal";
 import { SAMPLES } from "@/data/samples";
 import type { ArtifactModel } from "@/data/samples";
 import { emptyCanvas } from "@/lib/empty-models";
@@ -96,8 +97,18 @@ function NewProjectPage() {
     let fromScratch = false;
 
     if (mode === "sources") {
-      const perSource = readySources.map((s, i) =>
-        ({ label: s.label, results: extractFromSource({ label: s.label, text: s.text, index: i }, kinds) }));
+      let perSource: { label: string; results: Awaited<ReturnType<typeof extractFromSource>> }[];
+      try {
+        perSource = await Promise.all(readySources.map(async (s, i) => ({
+          label: s.label,
+          results: await extractFromSource({ label: s.label, text: s.text, index: i }, kinds),
+        })));
+      } catch (err) {
+        setCreating(false);
+        setError(err instanceof Error ? err.message : "Extraction failed. Try again.");
+        return;
+      }
+      let refusalReason: string | null = null;
       for (const kind of kinds) {
         const models: ArtifactModel[] = [];
         const labels: string[] = [];
@@ -107,14 +118,20 @@ function NewProjectPage() {
         }
         if (models.length === 0) continue;
         const merged = mergeByKind(models, labels);
-        if (merged) canvases.push({ kind, model: merged });
+        if (!merged) continue;
+        const refusal = checkRefusal(merged);
+        if (refusal.refuse) { refusalReason ??= refusal.reason ?? null; continue; }
+        canvases.push({ kind, model: merged });
       }
       storedSources = readySources.map(s => ({
         label: s.label, text: s.text, origin: s.origin, filename: s.filename,
       }));
       if (canvases.length === 0) {
         setCreating(false);
-        setError("Not enough structure in these sources to build the selected artifact(s). Try longer or more detailed inputs.");
+        setError(
+          refusalReason ??
+          "Not enough structure in these sources to build the selected artifact(s). Try longer or more detailed inputs.",
+        );
         return;
       }
     } else if (mode === "template" && templateId) {

@@ -20,6 +20,7 @@ import { SignupWallModal } from "@/components/SignupWallModal";
 import { SourceIntake, makeSource, type SourceDraft } from "@/components/workbench/SourceIntake";
 import { extractFromSource, type ArtifactKind } from "@/lib/extract";
 import { mergeByKind } from "@/lib/merge";
+import { checkRefusal } from "@/lib/refusal";
 
 export const Route = createFileRoute("/project/$id")({
   head: () => ({
@@ -278,7 +279,6 @@ function AddSourceDialog({ project }: { project: StoredProject }) {
 
   const apply = async () => {
     setBusy(true);
-    await new Promise(r => setTimeout(r, 400));
 
     const newStored = ready.map(s => ({
       label: s.label, text: s.text, origin: s.origin, filename: s.filename,
@@ -288,10 +288,17 @@ function AddSourceDialog({ project }: { project: StoredProject }) {
     // Re-run extraction across the full source list per kind, then merge.
     // This regenerates the canvases and preserves reconciliation; note it will
     // overwrite manual canvas edits made after the last source-based generation.
-    const perSource = allSources.map((s, i) => ({
-      label: s.label,
-      results: extractFromSource({ label: s.label, text: s.text, index: i }, project.kinds),
-    }));
+    let perSource: { label: string; results: Awaited<ReturnType<typeof extractFromSource>> }[];
+    try {
+      perSource = await Promise.all(allSources.map(async (s, i) => ({
+        label: s.label,
+        results: await extractFromSource({ label: s.label, text: s.text, index: i }, project.kinds),
+      })));
+    } catch (err) {
+      setBusy(false);
+      alert(err instanceof Error ? err.message : "Extraction failed. Try again.");
+      return;
+    }
     const canvases: { kind: ArtifactKind; model: ArtifactModel }[] = [];
     for (const kind of project.kinds) {
       const models: ArtifactModel[] = [];
@@ -302,7 +309,9 @@ function AddSourceDialog({ project }: { project: StoredProject }) {
       }
       if (models.length === 0) continue;
       const merged = mergeByKind(models, labels);
-      if (merged) canvases.push({ kind, model: merged });
+      if (!merged) continue;
+      if (checkRefusal(merged).refuse) continue;
+      canvases.push({ kind, model: merged });
     }
     // Preserve any existing canvas whose kind didn't get produced by extraction.
     for (const existing of project.canvases) {
