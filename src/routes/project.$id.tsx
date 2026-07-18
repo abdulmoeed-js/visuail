@@ -310,8 +310,8 @@ function AddSourceDialog({ project }: { project: StoredProject }) {
             flagging conflicts when they don't.
           </DialogDescription>
         </DialogHeader>
-        <div className="rounded-lg border border-amber/30 bg-amber/[0.06] p-2.5 text-[11px] flex items-start gap-2">
-          <AlertTriangle className="size-3.5 text-amber shrink-0 mt-0.5" />
+        <div className="rounded-lg border border-drift/30 bg-drift/[0.06] p-2.5 text-[11px] flex items-start gap-2">
+          <AlertTriangle className="size-3.5 text-drift shrink-0 mt-0.5" />
           <span className="text-muted-foreground">
             Adding a source regenerates the canvases from all sources. Manual edits to the current canvas will be replaced.
           </span>
