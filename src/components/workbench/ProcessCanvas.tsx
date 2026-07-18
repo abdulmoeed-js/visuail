@@ -447,7 +447,7 @@ function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: 
     <div
       onPointerDown={onPointerDown}
       data-no-pan
-      className="absolute -bottom-1 -right-1 w-3 h-3 rounded-sm border border-primary/60 bg-card cursor-nwse-resize opacity-0 group-hover:opacity-100 transition z-10"
+      className="absolute bottom-0 right-0 w-3 h-3 rounded-sm border border-primary/60 bg-card cursor-nwse-resize opacity-0 group-hover:opacity-100 transition z-10"
       title="Resize"
     />
   );
