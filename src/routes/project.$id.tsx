@@ -233,7 +233,14 @@ function CanvasPaneMount({
 }) {
   const editing = useArtifactEditing(pane.initial);
   const st = stats(editing.model);
-  useEffect(() => { onModelChange(editing.model); }, [editing.model, onModelChange]);
+  const changeRef = useRef(onModelChange);
+  useEffect(() => { changeRef.current = onModelChange; });
+  const lastModelRef = useRef<ArtifactModel | null>(null);
+  useEffect(() => {
+    if (lastModelRef.current === editing.model) return;
+    lastModelRef.current = editing.model;
+    changeRef.current(editing.model);
+  }, [editing.model]);
   return (
     <div
       className={cn("rounded-xl border bg-card min-h-[560px] flex flex-col", !visible && "hidden")}
