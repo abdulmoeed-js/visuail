@@ -114,7 +114,11 @@ export function Workbench() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <IntakeWizard onComplete={setProject} />
+          <Link to="/new">
+            <Button variant="default" size="sm" className="h-8 gap-1.5">
+              <FolderPlus className="size-3.5" /> New project
+            </Button>
+          </Link>
           <TemplateGallery onPick={loadSample} />
           <span className="mx-1 h-4 w-px bg-border" aria-hidden />
           {SAMPLES.map((sm) => (
