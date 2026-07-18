@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { Moon, Sun } from "lucide-react";
+import { Link, useRouter } from "@tanstack/react-router";
+import { Moon, Sun, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { scrollToId } from "@/lib/scroll";
+import { useSession } from "@/lib/session";
 
 export function Nav() {
   const [dark, setDark] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const router = useRouter();
+  const session = useSession();
+  const onDashboard = router.state.location.pathname.startsWith("/dashboard");
+  const onHome = router.state.location.pathname === "/";
 
   useEffect(() => {
     const el = document.documentElement;
@@ -19,13 +24,19 @@ export function Nav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const scrollTo = (id: string) => scrollToId(id);
+  const scrollTo = (id: string) => {
+    if (!onHome) {
+      router.navigate({ to: "/", hash: id });
+      return;
+    }
+    scrollToId(id);
+  };
 
   return (
     <header
       className={cn(
         "sticky top-0 z-40 w-full backdrop-blur transition-all",
-        scrolled ? "bg-background/85 border-b" : "bg-transparent",
+        scrolled || !onHome ? "bg-background/85 border-b" : "bg-transparent",
       )}
     >
       <div className="mx-auto max-w-[1400px] px-4 h-14 flex items-center justify-between">
@@ -40,6 +51,11 @@ export function Nav() {
           <button onClick={() => scrollTo("workbench")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Workbench</button>
           <button onClick={() => scrollTo("why-not-miro")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Why not Miro</button>
           <button onClick={() => scrollTo("pricing")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Pricing</button>
+          {session.signedIn && !onDashboard && (
+            <Link to="/dashboard" className="px-3 py-1.5 rounded-md hover:bg-muted transition inline-flex items-center gap-1.5">
+              <LayoutDashboard className="size-3.5" /> Dashboard
+            </Link>
+          )}
         </nav>
 
         <div className="flex items-center gap-2">
@@ -50,12 +66,21 @@ export function Nav() {
           >
             {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </button>
-          <button
-            onClick={() => scrollTo("workbench")}
-            className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
-          >
-            Try the workbench
-          </button>
+          {session.signedIn ? (
+            <Link
+              to="/dashboard"
+              className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition inline-flex items-center gap-1.5"
+            >
+              <LayoutDashboard className="size-3.5" /> Dashboard
+            </Link>
+          ) : (
+            <Link
+              to="/dashboard"
+              className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
+            >
+              Try the workbench
+            </Link>
+          )}
         </div>
       </div>
     </header>
