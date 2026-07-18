@@ -943,7 +943,7 @@ function DecisionNode({
 
 function ExceptionNode({
   node, e, model, autoHeight, onMeasure,
-  onDelete, onUpdate, onDrag, onResize, onRefine,
+  onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
 }: {
   node: RightNode; e: Exception; model: ProcessModel;
   autoHeight: boolean;
@@ -953,6 +953,7 @@ function ExceptionNode({
   onDrag: (d: { dx: number; dy: number }) => void;
   onResize: (w: number, h: number) => void;
   onRefine: (p: Proposal) => void;
+  onStartConnect?: (e: React.PointerEvent) => void;
 }) {
   const drag = useNodeDrag(onDrag);
   const ref = useMeasure(onMeasure);
