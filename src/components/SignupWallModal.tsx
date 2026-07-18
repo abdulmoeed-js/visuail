@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Check, Sparkles } from "lucide-react";
+import { sessionStore } from "@/lib/session";
 
 interface Props {
   open: boolean;
