@@ -366,28 +366,30 @@ export function ArtifactView({
           {tab === "artifact" && (
             <div className="h-full p-4">
               <div className="h-[640px]">
-                {model.kind === "process" ? (
-                  <ProcessCanvas
-                    model={model}
-                    onAddStep={editing.onAddStep}
-                    onAddDecision={editing.onAddDecision}
-                    onAddException={editing.onAddException}
-                    onAddConnection={editing.onAddConnection}
-                    onDeleteConnection={editing.onDeleteConnection}
-                    onUpdateConnection={editing.onUpdateConnection}
+                <CanvasErrorBoundary onRemoveLastAdded={editing.onRemoveLastAdded}>
+                  {model.kind === "process" ? (
+                    <ProcessCanvas
+                      model={model}
+                      onAddStep={editing.onAddStep}
+                      onAddDecision={editing.onAddDecision}
+                      onAddException={editing.onAddException}
+                      onAddConnection={editing.onAddConnection}
+                      onDeleteConnection={editing.onDeleteConnection}
+                      onUpdateConnection={editing.onUpdateConnection}
 
-                    onDeleteAny={editing.onDeleteAny}
-                    onUpdateItem={editing.onUpdateItem}
-                    onApplyRefinement={editing.onApplyRefinement}
-                  />
-                ) : (
-                  <BMCCanvas
-                    model={model}
-                    onAdd={editing.onAddBMC}
-                    onDelete={(_, id) => editing.onDeleteAny(id)}
-                    onUpdate={editing.onUpdateItem}
-                  />
-                )}
+                      onDeleteAny={editing.onDeleteAny}
+                      onUpdateItem={editing.onUpdateItem}
+                      onApplyRefinement={editing.onApplyRefinement}
+                    />
+                  ) : (
+                    <BMCCanvas
+                      model={model}
+                      onAdd={editing.onAddBMC}
+                      onDelete={(_, id) => editing.onDeleteAny(id)}
+                      onUpdate={editing.onUpdateItem}
+                    />
+                  )}
+                </CanvasErrorBoundary>
               </div>
             </div>
           )}
