@@ -125,43 +125,6 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
-  // TEMPORARY — connectivity smoke test for the Supabase integration.
-  // Remove once real auth (src/lib/session.ts) is wired in; that will be
-  // the permanent, real verification that the connection works.
-  useEffect(() => {
-    import("@/integrations/supabase/client").then(({ supabase }) => {
-      // Exposed only for this temporary diagnostic — remove alongside it.
-      (window as unknown as Record<string, unknown>).__supabaseDebug = supabase;
-      supabase
-        .from("profiles")
-        .select("id", { count: "exact", head: true })
-        .then(({ error, status, statusText, count }) => {
-          if (error) {
-            // eslint-disable-next-line no-console
-            console.error(
-              "[supabase smoke test] FAILED status=" +
-                status +
-                " statusText=" +
-                statusText +
-                " code=" +
-                error.code +
-                " message=" +
-                error.message +
-                " details=" +
-                error.details +
-                " hint=" +
-                error.hint,
-            );
-          } else {
-            // eslint-disable-next-line no-console
-            console.log(
-              "[supabase smoke test] OK status=" + status + " count=" + count,
-            );
-          }
-        });
-    });
-  }, []);
-
   return (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
