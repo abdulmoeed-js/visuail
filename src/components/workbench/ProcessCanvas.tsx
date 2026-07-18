@@ -538,6 +538,26 @@ export function ProcessCanvas({
             onStartConnect={onAddConnection ? (e) => startConnDrag(n.ref.id, e) : undefined}
           />
         );
+      {/* Manual connector delete buttons — HTML overlays at midpoints */}
+      {manualConnections.map((c) => {
+        const a = geomById.get(c.fromId);
+        const b = geomById.get(c.toId);
+        if (!a || !b) return null;
+        const mx = (a.cx + b.cx) / 2;
+        const my = (a.cy + b.cy) / 2;
+        return (
+          <button
+            key={`del-${c.id}`}
+            data-no-pan
+            data-conn-delete={c.id}
+            onClick={(e) => { e.stopPropagation(); onDeleteConnection?.(c.id); }}
+            title="Delete connector"
+            className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/60 bg-card text-primary shadow-sm opacity-70 hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition flex items-center justify-center"
+            style={{ left: mx, top: my }}
+          >
+            <X className="size-3" />
+          </button>
+        );
       })}
     </CanvasShell>
   );
