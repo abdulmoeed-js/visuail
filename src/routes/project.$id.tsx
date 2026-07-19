@@ -30,6 +30,7 @@ import { mergeByKind } from "@/lib/merge";
 import { checkRefusal } from "@/lib/refusal";
 import { diffModels } from "@/lib/diff";
 import { DriftNotifier } from "@/components/workbench/DriftNotifier";
+import { buildAuditTrail, type AuditEvent } from "@/lib/audit";
 
 export const Route = createFileRoute("/project/$id")({
   head: () => ({
@@ -456,17 +457,22 @@ function fmtVersionTime(ts: number) {
 
 function VersionHistoryDialog({ project }: { project: StoredProject }) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<"versions" | "activity">("versions");
   const [loading, setLoading] = useState(false);
   const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([]);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const navigate = useNavigate();
   const session = useSession();
 
   const load = () => {
     setLoading(true);
-    sessionStore.listSnapshots(project.id)
-      .then(setSnapshots)
-      .catch(() => setSnapshots([]))
+    Promise.all([
+      sessionStore.listSnapshots(project.id),
+      sessionStore.listSnapshotsWithCanvases(project.id).then(buildAuditTrail),
+    ])
+      .then(([s, e]) => { setSnapshots(s); setEvents(e); })
+      .catch(() => { setSnapshots([]); setEvents([]); })
       .finally(() => setLoading(false));
   };
 
@@ -495,38 +501,69 @@ function VersionHistoryDialog({ project }: { project: StoredProject }) {
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Version history</DialogTitle>
+          <DialogTitle>{tab === "versions" ? "Version history" : "Activity"}</DialogTitle>
           <DialogDescription>
-            Checkpoints from project creation, re-extraction, and manual saves. Restoring keeps
-            what you had before as its own version too.
+            {tab === "versions"
+              ? "Checkpoints from project creation, re-extraction, and manual saves. Restoring keeps what you had before as its own version too."
+              : "Per-item changes between checkpoints, derived from the same versions."}
           </DialogDescription>
         </DialogHeader>
+        <div className="flex gap-1 rounded-md border bg-muted/40 p-0.5 w-fit">
+          <button
+            onClick={() => setTab("versions")}
+            className={cn("px-2.5 py-1 rounded text-xs font-medium transition", tab === "versions" ? "bg-card shadow-sm" : "text-muted-foreground")}
+          >
+            Versions
+          </button>
+          <button
+            onClick={() => setTab("activity")}
+            className={cn("px-2.5 py-1 rounded text-xs font-medium transition", tab === "activity" ? "bg-card shadow-sm" : "text-muted-foreground")}
+          >
+            Activity
+          </button>
+        </div>
+
         {loading ? (
           <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
-        ) : snapshots.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">No versions saved yet.</p>
-        ) : (
-          <div className="max-h-[50vh] overflow-y-auto space-y-1.5">
-            {snapshots.map((s, i) => (
-              <div key={s.id} className="flex items-center justify-between gap-3 rounded-lg border bg-card p-2.5">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium flex items-center gap-1.5">
-                    <Clock className="size-3.5 text-muted-foreground shrink-0" />
-                    {TRIGGER_LABEL[s.trigger]}
-                    {i === 0 && <span className="text-[10px] font-mono-tight uppercase text-muted-foreground">latest</span>}
+        ) : tab === "versions" ? (
+          snapshots.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">No versions saved yet.</p>
+          ) : (
+            <div className="max-h-[50vh] overflow-y-auto space-y-1.5">
+              {snapshots.map((s, i) => (
+                <div key={s.id} className="flex items-center justify-between gap-3 rounded-lg border bg-card p-2.5">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium flex items-center gap-1.5">
+                      <Clock className="size-3.5 text-muted-foreground shrink-0" />
+                      {TRIGGER_LABEL[s.trigger]}
+                      {i === 0 && <span className="text-[10px] font-mono-tight uppercase text-muted-foreground">latest</span>}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                      {fmtVersionTime(s.createdAt)}{s.createdByEmail ? ` · ${s.createdByEmail}` : ""}
+                    </div>
                   </div>
-                  <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                    {fmtVersionTime(s.createdAt)}{s.createdByEmail ? ` · ${s.createdByEmail}` : ""}
-                  </div>
+                  <Button
+                    size="sm" variant="ghost" disabled={restoringId === s.id}
+                    onClick={() => restore(s.id)}
+                  >
+                    {restoringId === s.id
+                      ? <Loader2 className="size-3.5 animate-spin" />
+                      : <><RotateCcw className="size-3.5" /> Restore</>}
+                  </Button>
                 </div>
-                <Button
-                  size="sm" variant="ghost" disabled={restoringId === s.id}
-                  onClick={() => restore(s.id)}
-                >
-                  {restoringId === s.id
-                    ? <Loader2 className="size-3.5 animate-spin" />
-                    : <><RotateCcw className="size-3.5" /> Restore</>}
-                </Button>
+              ))}
+            </div>
+          )
+        ) : events.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">No activity yet.</p>
+        ) : (
+          <div className="max-h-[50vh] overflow-y-auto space-y-2">
+            {events.map((e, i) => (
+              <div key={i} className="text-sm border-b pb-2 last:border-0">
+                <p className="text-foreground/90">{e.description}</p>
+                <div className="text-[11px] text-muted-foreground mt-0.5">
+                  {fmtVersionTime(e.timestamp)} · {TRIGGER_LABEL[e.trigger]}
+                </div>
               </div>
             ))}
           </div>

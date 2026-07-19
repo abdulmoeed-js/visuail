@@ -351,6 +351,22 @@ export const sessionStore = {
     return (data as { canvases: StoredCanvas[] }).canvases;
   },
 
+  /** Full snapshot history (canvases included) oldest-first, for the audit
+   *  trail (src/lib/audit.ts) -- the only consumer that needs every
+   *  snapshot's full payload at once rather than one at a time. */
+  async listSnapshotsWithCanvases(
+    projectId: string,
+  ): Promise<{ canvases: StoredCanvas[]; trigger: SnapshotTrigger; createdAt: number }[]> {
+    const { data, error } = await supabase
+      .from("project_snapshots")
+      .select("canvases, trigger, created_at")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return ((data as { canvases: StoredCanvas[]; trigger: SnapshotTrigger; created_at: string }[] | null) ?? [])
+      .map((r) => ({ canvases: r.canvases, trigger: r.trigger, createdAt: new Date(r.created_at).getTime() }));
+  },
+
   async listMembers(orgId: string): Promise<OrgMember[]> {
     const { data, error } = await supabase
       .from("organization_members")
