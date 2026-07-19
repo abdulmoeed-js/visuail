@@ -17,11 +17,10 @@ import { verifyGrounding } from "@/lib/grounding";
 
 export type ArtifactKind = "process" | "bmc";
 
-// Off until the extract-artifact edge function is deployed and the
-// ANTHROPIC_API_KEY secret is set — until then this must stay false, or
-// every project-creation call on the live site breaks. Flip to true once
-// both are confirmed working (see supabase/functions/extract-artifact).
-export const REAL_EXTRACTION_ENABLED = false;
+// extract-artifact is deployed (confirmed ACTIVE via Supabase) and the
+// ANTHROPIC_API_KEY secret has been set. Real, Claude-backed extraction is
+// now live. Flip back to false to fall back to the deterministic mock.
+export const REAL_EXTRACTION_ENABLED = true;
 
 export interface ExtractionInput {
   label: string;         // source label (e.g. "Source 1", or filename)
