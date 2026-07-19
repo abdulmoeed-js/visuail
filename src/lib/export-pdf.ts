@@ -1,9 +1,8 @@
-// Combined "Export all to PDF" — snapshots one or more DOM nodes and
-// stitches them into a single multi-page PDF. Runs entirely in the browser.
-// Uses html-to-image (svg foreignObject) because html2canvas can't parse
-// modern CSS color functions like oklch().
+// Export a canvas DOM node to PDF, PNG, or SVG. Runs entirely in the
+// browser. Uses html-to-image (svg foreignObject) because html2canvas
+// can't parse modern CSS color functions like oklch().
 
-import { toPng } from "html-to-image";
+import { toPng, toSvg } from "html-to-image";
 import jsPDF from "jspdf";
 
 export interface ExportSection {
@@ -13,37 +12,39 @@ export interface ExportSection {
   getElement: () => Promise<HTMLElement | null> | HTMLElement | null;
 }
 
-async function snapshot(el: HTMLElement): Promise<{ dataUrl: string; w: number; h: number }> {
-  // If this is a pan/zoom canvas outer container, snapshot the inner untransformed
-  // content layer instead — otherwise html-to-image captures whatever the user's
-  // current pan/zoom happens to be.
+/** Neutralizes a canvas's pan/zoom transform for the duration of `fn`, so
+ *  export always captures the natural, untransformed layout regardless of
+ *  the viewer's current pan/zoom position. Shared by every export format. */
+async function withNeutralizedTransform<T>(
+  el: HTMLElement,
+  fn: (inner: HTMLElement, width: number, height: number) => Promise<T>,
+): Promise<T> {
   const inner = el.querySelector<HTMLElement>("[data-canvas-content]") ?? el;
-
-  // Temporarily neutralize the pan/zoom transform so the snapshot uses the
-  // element's natural layout size and position.
   const prevTransform = inner.style.transform;
   const prevTransition = inner.style.transition;
   inner.style.transition = "none";
   inner.style.transform = "none";
-
-  // Force layout so getBoundingClientRect reflects the untransformed size.
   const width = inner.offsetWidth;
   const height = inner.offsetHeight;
-
-  let dataUrl: string;
   try {
-    dataUrl = await toPng(inner, {
+    return await fn(inner, width, height);
+  } finally {
+    inner.style.transform = prevTransform;
+    inner.style.transition = prevTransition;
+  }
+}
+
+async function snapshot(el: HTMLElement): Promise<{ dataUrl: string; w: number; h: number }> {
+  const dataUrl = await withNeutralizedTransform(el, (inner, width, height) =>
+    toPng(inner, {
       backgroundColor: "#ffffff",
       pixelRatio: 2,
       cacheBust: true,
       width,
       height,
       style: { transform: "none", transformOrigin: "top left", left: "0", top: "0" },
-    });
-  } finally {
-    inner.style.transform = prevTransform;
-    inner.style.transition = prevTransition;
-  }
+    }),
+  );
 
   const img = new Image();
   img.src = dataUrl;
@@ -52,6 +53,33 @@ async function snapshot(el: HTMLElement): Promise<{ dataUrl: string; w: number; 
     img.onerror = () => rej(new Error("failed to load rendered snapshot"));
   });
   return { dataUrl, w: img.width, h: img.height };
+}
+
+function downloadDataUrl(filename: string, dataUrl: string) {
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename;
+  a.click();
+}
+
+/** Downloads a single canvas as a PNG. */
+export async function exportElementToPng(filename: string, el: HTMLElement): Promise<void> {
+  const { dataUrl } = await snapshot(el);
+  downloadDataUrl(filename, dataUrl);
+}
+
+/** Downloads a single canvas as an SVG (vector, not rasterized). */
+export async function exportElementToSvg(filename: string, el: HTMLElement): Promise<void> {
+  const dataUrl = await withNeutralizedTransform(el, (inner, width, height) =>
+    toSvg(inner, {
+      backgroundColor: "#ffffff",
+      cacheBust: true,
+      width,
+      height,
+      style: { transform: "none", transformOrigin: "top left", left: "0", top: "0" },
+    }),
+  );
+  downloadDataUrl(filename, dataUrl);
 }
 
 export async function exportSectionsToPdf(

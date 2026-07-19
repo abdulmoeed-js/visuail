@@ -9,15 +9,18 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft, FileDown, Loader2, Workflow, LayoutGrid, Users2,
-  ShieldCheck, Plus, AlertTriangle, History, RotateCcw, Clock,
+  ShieldCheck, Plus, AlertTriangle, History, RotateCcw, Clock, ImageDown,
 } from "lucide-react";
 import { ArtifactView } from "@/components/Workbench";
 import { useArtifactEditing } from "@/lib/artifact-editing";
 import { stats, allItems, type ArtifactModel } from "@/data/samples";
-import { exportSectionsToPdf, type ExportSection } from "@/lib/export-pdf";
+import { exportSectionsToPdf, exportElementToPng, exportElementToSvg, type ExportSection } from "@/lib/export-pdf";
 import {
   sessionStore, useSession, type StoredProject, type SnapshotSummary, type SnapshotTrigger,
 } from "@/lib/session";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { SignupWallModal } from "@/components/SignupWallModal";
 import { SourceIntake, makeSource, type SourceDraft } from "@/components/workbench/SourceIntake";
 import { extractFromSource, type ArtifactKind } from "@/lib/extract";
@@ -129,6 +132,24 @@ function ProjectShell({ project }: { project: StoredProject }) {
     setSignupOpen(true);
   };
 
+  const [exportingImage, setExportingImage] = useState(false);
+  const exportActiveImage = async (format: "png" | "svg") => {
+    const el = paneRefs.current[active];
+    if (!el) return;
+    setExportingImage(true);
+    const safe = project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+    const activeKind = panes.find(p => p.key === active)?.kind;
+    const suffix = activeKind === "process" ? "process-map" : "bmc";
+    try {
+      if (format === "png") await exportElementToPng(`${safe || "visuail"}-${suffix}.png`, el);
+      else await exportElementToSvg(`${safe || "visuail"}-${suffix}.svg`, el);
+    } catch (e) {
+      console.error(e); alert(`${format.toUpperCase()} export failed. See console for details.`);
+    } finally {
+      setExportingImage(false);
+    }
+  };
+
   const exportAll = async () => {
     if (project.canvases.length === 0) return;
     setExporting(true);
@@ -188,6 +209,19 @@ function ProjectShell({ project }: { project: StoredProject }) {
                 ? <><Loader2 className="size-3.5 animate-spin" /> Saving…</>
                 : <><History className="size-3.5" /> Save version</>}
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" disabled={exportingImage || panes.length === 0}>
+                  {exportingImage
+                    ? <><Loader2 className="size-3.5 animate-spin" /> Exporting…</>
+                    : <><ImageDown className="size-3.5" /> Export this canvas</>}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => exportActiveImage("png")}>PNG</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportActiveImage("svg")}>SVG (vector)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button size="sm" onClick={exportAll} disabled={exporting || panes.length === 0}>
               {exporting
                 ? <><Loader2 className="size-3.5 animate-spin" /> Building PDF…</>
