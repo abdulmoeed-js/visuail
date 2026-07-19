@@ -1,8 +1,22 @@
 // Shared editing/state hook for an artifact model. Both the single-source
 // workbench and the project (multi-canvas) view use this so behaviour stays
 // identical across entry points.
+//
+// Real-time co-editing: when a `collabChannel` is passed, every mutation
+// still gets computed by the exact same action functions below (they just
+// compute a plain "next model" from a plain "current model", unchanged) --
+// only what `mutate()` DOES with that result differs. Instead of calling
+// setModel directly, it diffs prev/next into a Yjs document
+// (applyModelDiffToYDoc, src/lib/yjs-model.ts), which is what's actually
+// synced across peers; a Yjs observer then re-derives the plain model
+// (locally-caused or from a remote peer, same code path either way) and
+// that's what becomes `model` here. Without collabChannel, this hook
+// behaves exactly as it always has -- plain local useState, no Yjs, no
+// realtime, zero behavior change for the marketing demo or any other
+// caller that doesn't opt in.
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import * as Y from "yjs";
 import {
   type ArtifactModel, type BaseItem, type BMCBlock, type Connection,
   type Step, type Decision,
@@ -10,6 +24,8 @@ import {
 import { applyProposal, type Proposal } from "@/lib/refine";
 import { diffModels } from "@/lib/diff";
 import { perturb } from "@/lib/extract";
+import { modelToYDoc, yDocToModel, applyModelDiffToYDoc } from "@/lib/yjs-model";
+import { connectYjsProvider, type YjsProviderHandle } from "@/lib/yjs-provider";
 
 let uid = 1000;
 
@@ -64,28 +80,85 @@ export interface ArtifactEditing {
   onRemoveLastAdded: () => void;
 }
 
-export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
+export interface CollabOptions {
+  /** Unique per canvas -- e.g. `project:{projectId}:{kind}`. Everyone with
+   *  the same channel name sees each other's live edits. */
+  channelName: string;
+}
+
+export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOptions): ArtifactEditing {
   const [model, setModel] = useState<ArtifactModel>(() => { bumpUidPast(initial); return initial; });
   const [drifted, setDrifted] = useState(false);
   const [pristine, setPristine] = useState<ArtifactModel>(initial);
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
 
-  const mutate = (fn: (m: ArtifactModel) => ArtifactModel) =>
-    setModel(cur => fn(cur));
+  // Always current, synchronously -- both the plain-state and collab paths
+  // need to diff/mutate against the LATEST model, not a stale closure.
+  const modelRef = useRef(model);
+  useEffect(() => { modelRef.current = model; }, [model]);
+
+  const ydocRef = useRef<Y.Doc | null>(null);
+  const providerRef = useRef<YjsProviderHandle | null>(null);
+
+  useEffect(() => {
+    if (!collab) return;
+    const ydoc = modelToYDoc(modelRef.current);
+    ydocRef.current = ydoc;
+
+    const applyFromDoc = () => {
+      const next = yDocToModel(ydoc);
+      modelRef.current = next;
+      setModel(next);
+    };
+    ydoc.getMap("root").observeDeep(applyFromDoc);
+    providerRef.current = connectYjsProvider(ydoc, collab.channelName);
+
+    return () => {
+      ydoc.getMap("root").unobserveDeep(applyFromDoc);
+      providerRef.current?.destroy();
+      providerRef.current = null;
+      ydocRef.current = null;
+    };
+    // Only (re)connect if the channel itself changes -- not on every model
+    // update, which would tear down and recreate the whole session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab?.channelName]);
+
+  const mutate = (fn: (m: ArtifactModel) => ArtifactModel) => {
+    const current = modelRef.current;
+    const next = fn(current);
+    if (collab && ydocRef.current) {
+      // Patches the Y.Doc; the observer above derives the new plain model
+      // and calls setModel -- local edits and remote peer edits both flow
+      // through that one path, so they can never disagree with each other.
+      applyModelDiffToYDoc(ydocRef.current, current, next);
+    } else {
+      modelRef.current = next;
+      setModel(next);
+    }
+  };
 
   const reset = useCallback((m: ArtifactModel) => {
     bumpUidPast(m);
+    modelRef.current = m;
     setModel(m); setPristine(m); setDrifted(false);
-  }, []);
+    if (collab && ydocRef.current) {
+      // Not exercised on the real collaborative project page today (only
+      // the single-source demo calls reset, which never passes `collab`),
+      // but kept correct rather than silently broken for any future caller.
+      applyModelDiffToYDoc(ydocRef.current, yDocToModel(ydocRef.current), m);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab]);
 
   // Re-checking the source: run the same deterministic extractor again
   // (index 1, same source position but a fresh look), then diff the result
   // against the pristine baseline for real -- not a hardcoded set of ids.
   const onSimulateDrift = () => {
-    setModel(() => diffModels(pristine, perturb(pristine, 1)));
+    mutate(() => diffModels(pristine, perturb(pristine, 1)));
     setDrifted(true);
   };
-  const onClearDrift = () => { setModel(pristine); setDrifted(false); };
+  const onClearDrift = () => { mutate(() => pristine); setDrifted(false); };
 
   const onDeleteAny = (id: string) => mutate(m => {
     if (m.kind === "process") {
@@ -127,7 +200,7 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.map(apply) })) };
   });
 
-  const addWithId = <T,>(mk: () => { id: string; run: (m: ArtifactModel) => ArtifactModel }) => {
+  const addWithId = (mk: () => { id: string; run: (m: ArtifactModel) => ArtifactModel }) => {
     const { id, run } = mk();
     mutate(run);
     setLastAddedId(id);
@@ -138,7 +211,7 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     setLastAddedId(id => {
       if (!id) return null;
       // Reuse onDeleteAny's model-shape-aware removal.
-      setModel(m => {
+      mutate(m => {
         if (m.kind === "process") {
           return {
             ...m,
@@ -154,6 +227,7 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
       });
       return null;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onAddActor = (t: string) => addWithId(() => {
@@ -209,4 +283,3 @@ export function useArtifactEditing(initial: ArtifactModel): ArtifactEditing {
     onRemoveLastAdded,
   };
 }
-

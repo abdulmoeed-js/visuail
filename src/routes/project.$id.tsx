@@ -31,6 +31,7 @@ import { checkRefusal } from "@/lib/refusal";
 import { diffModels } from "@/lib/diff";
 import { DriftNotifier } from "@/components/workbench/DriftNotifier";
 import { buildAuditTrail, type AuditEvent } from "@/lib/audit";
+import { useProjectPresence } from "@/lib/presence";
 
 export const Route = createFileRoute("/project/$id")({
   head: () => ({
@@ -287,6 +288,8 @@ function ProjectShell({ project }: { project: StoredProject }) {
     setCommentCounts((cur) => ({ ...cur, [itemId]: Math.max(0, (cur[itemId] ?? 0) + delta) }));
   }, []);
 
+  const presentUsers = useProjectPresence(project.id, session.userId, session.email);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Nav />
@@ -302,6 +305,23 @@ function ProjectShell({ project }: { project: StoredProject }) {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {presentUsers.length > 0 && (
+              <div className="flex items-center -space-x-2 mr-1" title={presentUsers.map(u => u.email).join(", ")}>
+                {presentUsers.slice(0, 4).map((u) => (
+                  <div
+                    key={u.userId}
+                    className="h-7 w-7 rounded-full border-2 border-background bg-primary/15 text-primary text-[11px] font-medium grid place-items-center"
+                  >
+                    {u.email.slice(0, 1).toUpperCase()}
+                  </div>
+                ))}
+                {presentUsers.length > 4 && (
+                  <div className="h-7 w-7 rounded-full border-2 border-background bg-muted text-muted-foreground text-[10px] font-medium grid place-items-center">
+                    +{presentUsers.length - 4}
+                  </div>
+                )}
+              </div>
+            )}
             <DriftNotifier
               drifted={driftInfo.drifted} driftedNames={driftInfo.driftedNames}
               artifactTitle={project.name}
@@ -438,7 +458,7 @@ function CanvasPaneMount({
   commentCounts: Record<string, number>;
   onCommentCountChange: (itemId: string, delta: number) => void;
 }) {
-  const editing = useArtifactEditing(pane.initial);
+  const editing = useArtifactEditing(pane.initial, { channelName: `project:${projectId}:${pane.kind}` });
   const st = stats(editing.model);
   const changeRef = useRef(onModelChange);
   useEffect(() => { changeRef.current = onModelChange; });
