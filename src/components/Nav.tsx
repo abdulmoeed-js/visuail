@@ -1,9 +1,39 @@
 import { useEffect, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
-import { Moon, Sun, LayoutDashboard, LogOut } from "lucide-react";
+import { Moon, Sun, LayoutDashboard, LogOut, Building2, Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { scrollToId } from "@/lib/scroll";
-import { sessionStore, useSession } from "@/lib/session";
+import { sessionStore, useSession, type Session } from "@/lib/session";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+
+function OrgSwitcher({ session }: { session: Session }) {
+  // Only a decision worth surfacing once there's more than one workspace to pick from.
+  if (session.orgs.length < 2) return null;
+  const current = session.orgs.find((o) => o.id === session.currentOrgId);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="h-8 px-2.5 rounded-md border text-sm inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition max-w-[160px]">
+          <Building2 className="size-3.5 shrink-0" />
+          <span className="truncate">{current?.name ?? "Workspace"}</span>
+          <ChevronDown className="size-3.5 shrink-0" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {session.orgs.map((o) => (
+          <DropdownMenuItem key={o.id} onClick={() => session.switchOrg(o.id)} className="justify-between">
+            <span className="truncate">{o.name}</span>
+            {o.id === session.currentOrgId && <Check className="size-3.5 shrink-0" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export function Nav() {
   const [dark, setDark] = useState(false);
@@ -56,6 +86,7 @@ export function Nav() {
         </nav>
 
         <div className="flex items-center gap-2">
+          {session.signedIn && <OrgSwitcher session={session} />}
           <button
             onClick={() => setDark((d) => !d)}
             className="h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition"

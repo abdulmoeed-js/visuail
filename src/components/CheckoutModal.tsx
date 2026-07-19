@@ -57,12 +57,12 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
     if (cvc.replace(/\D/g, "").length < 3) return setErr("CVC must be 3–4 digits.");
     if (!name.trim()) return setErr("Cardholder name required.");
     if (zip.trim().length < 3) return setErr("Billing ZIP required.");
-    if (!session.userId) return setErr("Sign in first, then come back to upgrade.");
+    if (!session.currentOrgId) return setErr("Sign in first, then come back to upgrade.");
     setErr(null);
     setPhase("processing");
     setTimeout(async () => {
       try {
-        if (tier && session.userId) await sessionStore.setTier(session.userId, tier === "Pro" ? "pro" : "team");
+        if (tier && session.currentOrgId) await sessionStore.setTier(session.currentOrgId, tier === "Pro" ? "pro" : "team");
         setPhase("done");
       } catch (e) {
         setPhase("form");

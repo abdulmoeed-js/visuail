@@ -1,10 +1,12 @@
 // Real session + project persistence, backed by Supabase Auth (magic link)
-// and the `profiles` / `projects` tables. Mirrors the shape of the old
-// localStorage-only version as closely as real async data allows -- reads
-// stay a flat `Session` object (`signedIn`, `tier`, `projects`, ...), and
-// writes are async functions on `sessionStore` that notify every mounted
-// `useSession()` instance to refetch, the same cross-component refresh
-// pattern the old version used for cross-tab localStorage updates.
+// and the `profiles` / `organizations` / `organization_members` / `projects`
+// tables. A user can belong to multiple orgs (their personal org, plus any
+// Team org they're invited into); `currentOrgId` tracks which one is active
+// in this browser tab, persisted to localStorage per-user so it survives
+// reloads. Reads stay a flat `Session` object; writes are async functions on
+// `sessionStore` that notify every mounted `useSession()` instance to
+// refetch -- the same cross-component refresh pattern the app has used
+// since the localStorage-only version.
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,6 +14,15 @@ import type { ArtifactModel } from "@/data/samples";
 import type { ArtifactKind } from "@/lib/extract";
 
 export type Tier = "free" | "pro" | "team";
+export type OrgRole = "owner" | "member";
+
+export interface Org {
+  id: string;
+  name: string;
+  tier: Tier;
+  isPersonal: boolean;
+  role: OrgRole;
+}
 
 export interface StoredSource {
   label: string;
@@ -42,8 +53,12 @@ export interface Session {
   loading: boolean;
   email?: string;
   userId?: string;
+  orgs: Org[];
+  currentOrgId?: string;
+  /** Tier of the currently active org -- what the rest of the app should gate on. */
   tier: Tier;
   projects: StoredProject[];
+  switchOrg: (orgId: string) => void;
 }
 
 const EVENT = "visuail:session";
@@ -52,6 +67,24 @@ export const FREE_LIMIT = FREE_PROJECT_CAP;
 
 function notify() {
   window.dispatchEvent(new CustomEvent(EVENT));
+}
+
+const activeOrgKey = (userId: string) => `visuail:activeOrg:${userId}`;
+
+function getStoredOrgId(userId: string): string | null {
+  try {
+    return localStorage.getItem(activeOrgKey(userId));
+  } catch {
+    return null;
+  }
+}
+
+function setStoredOrgId(userId: string, orgId: string) {
+  try {
+    localStorage.setItem(activeOrgKey(userId), orgId);
+  } catch {
+    // ignore -- private browsing / storage disabled, falls back to session-only state
+  }
 }
 
 interface ProjectRow {
@@ -80,15 +113,44 @@ function fromRow(row: ProjectRow): StoredProject {
   };
 }
 
-async function fetchTierAndProjects(userId: string): Promise<{ tier: Tier; projects: StoredProject[] }> {
-  const [{ data: profile }, { data: rows }] = await Promise.all([
-    supabase.from("profiles").select("tier").eq("id", userId).single(),
-    supabase.from("projects").select("*").eq("user_id", userId).order("updated_at", { ascending: false }),
-  ]);
-  return {
-    tier: (profile?.tier as Tier) ?? "free",
-    projects: ((rows as ProjectRow[] | null) ?? []).map(fromRow),
-  };
+interface OrgMemberRow {
+  role: OrgRole;
+  organizations: { id: string; name: string; tier: Tier; is_personal: boolean } | null;
+}
+
+async function fetchOrgs(userId: string): Promise<Org[]> {
+  const { data, error } = await supabase
+    .from("organization_members")
+    .select("role, organizations(id, name, tier, is_personal)")
+    .eq("user_id", userId);
+  if (error) throw error;
+  return ((data as unknown as OrgMemberRow[] | null) ?? [])
+    .filter((r) => r.organizations)
+    .map((r) => ({
+      id: r.organizations!.id,
+      name: r.organizations!.name,
+      tier: r.organizations!.tier,
+      isPersonal: r.organizations!.is_personal,
+      role: r.role,
+    }));
+}
+
+/** Picks the active org: prior stored choice if it's still valid, else the personal org, else the first available. */
+function resolveActiveOrgId(userId: string, orgs: Org[]): string | undefined {
+  if (orgs.length === 0) return undefined;
+  const stored = getStoredOrgId(userId);
+  if (stored && orgs.some((o) => o.id === stored)) return stored;
+  return (orgs.find((o) => o.isPersonal) ?? orgs[0]).id;
+}
+
+async function fetchProjects(orgId: string): Promise<StoredProject[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("org_id", orgId)
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return ((data as ProjectRow[] | null) ?? []).map(fromRow);
 }
 
 // Debounced writer for high-frequency updates (canvas autosave on every
@@ -111,11 +173,11 @@ export const sessionStore = {
     notify();
   },
 
-  async setTier(userId: string, tier: Tier): Promise<void> {
+  async setTier(orgId: string, tier: Tier): Promise<void> {
     const { error } = await supabase
-      .from("profiles")
+      .from("organizations")
       .update({ tier, updated_at: new Date().toISOString() })
-      .eq("id", userId);
+      .eq("id", orgId);
     if (error) throw error;
     notify();
   },
@@ -135,13 +197,15 @@ export const sessionStore = {
   },
 
   async createProject(
-    userId: string,
+    orgId: string,
+    createdBy: string,
     p: Omit<StoredProject, "id" | "createdAt" | "updatedAt">,
   ): Promise<StoredProject> {
     const { data, error } = await supabase
       .from("projects")
       .insert({
-        user_id: userId,
+        org_id: orgId,
+        created_by: createdBy,
         name: p.name,
         description: p.description ?? null,
         kinds: p.kinds,
@@ -201,10 +265,9 @@ export function useSession(): Session {
   const [auth, setAuth] = useState<{ userId?: string; email?: string; initializing: boolean }>({
     initializing: true,
   });
-  const [data, setData] = useState<{ tier: Tier; projects: StoredProject[] }>({
-    tier: "free",
-    projects: [],
-  });
+  const [orgs, setOrgs] = useState<Org[]>([]);
+  const [currentOrgId, setCurrentOrgId] = useState<string | undefined>(undefined);
+  const [projects, setProjects] = useState<StoredProject[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
 
   useEffect(() => {
@@ -221,12 +284,25 @@ export function useSession(): Session {
 
   const refetch = useCallback(() => {
     if (!auth.userId) {
-      setData({ tier: "free", projects: [] });
+      setOrgs([]);
+      setCurrentOrgId(undefined);
+      setProjects([]);
       return;
     }
+    const userId = auth.userId;
     setDataLoading(true);
-    fetchTierAndProjects(auth.userId)
-      .then(setData)
+    fetchOrgs(userId)
+      .then(async (fetchedOrgs) => {
+        setOrgs(fetchedOrgs);
+        const activeId = resolveActiveOrgId(userId, fetchedOrgs);
+        setCurrentOrgId(activeId);
+        if (activeId) {
+          setStoredOrgId(userId, activeId);
+          setProjects(await fetchProjects(activeId));
+        } else {
+          setProjects([]);
+        }
+      })
       .finally(() => setDataLoading(false));
   }, [auth.userId]);
 
@@ -237,12 +313,27 @@ export function useSession(): Session {
     return () => window.removeEventListener(EVENT, refetch);
   }, [refetch]);
 
+  const switchOrg = useCallback((orgId: string) => {
+    if (!auth.userId || orgId === currentOrgId) return;
+    setStoredOrgId(auth.userId, orgId);
+    setCurrentOrgId(orgId);
+    setDataLoading(true);
+    fetchProjects(orgId)
+      .then(setProjects)
+      .finally(() => setDataLoading(false));
+  }, [auth.userId, currentOrgId]);
+
+  const currentOrg = orgs.find((o) => o.id === currentOrgId);
+
   return {
     signedIn: !!auth.userId,
     loading: auth.initializing || dataLoading,
     email: auth.email,
     userId: auth.userId,
-    tier: data.tier,
-    projects: data.projects,
+    orgs,
+    currentOrgId,
+    tier: currentOrg?.tier ?? "free",
+    projects,
+    switchOrg,
   };
 }

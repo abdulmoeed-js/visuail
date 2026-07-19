@@ -155,13 +155,13 @@ function NewProjectPage() {
       storedSources = [];
     }
 
-    if (!session.userId) {
+    if (!session.userId || !session.currentOrgId) {
       setCreating(false);
       setError("You need to be signed in to create a project.");
       return;
     }
     try {
-      const project = await sessionStore.createProject(session.userId, {
+      const project = await sessionStore.createProject(session.currentOrgId, session.userId, {
         name: name.trim(),
         description: desc.trim() || undefined,
         kinds,
