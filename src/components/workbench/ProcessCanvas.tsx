@@ -39,15 +39,45 @@ const DEC_W = 260;
 const DEC_H = 130;
 const EX_W = 240;
 const EX_H = 84;
-const V_GAP = 56;
-const TOP_PAD = 40;
-const RIGHT_CORRIDOR_X = CENTER_X + STEP_W / 2 + 90;
-const LANE_GAP = 28;
+// More breathing room between stacked nodes and between the main spine and
+// the exception corridor -- Miro-style diagrams give connectors room to
+// curve rather than packing shapes edge-to-edge.
+const V_GAP = 88;
+const TOP_PAD = 48;
+const RIGHT_CORRIDOR_X = CENTER_X + STEP_W / 2 + 120;
+const LANE_GAP = 40;
 const GRID = 20;
 
 const MIN_W = 160, MIN_H = 70, MAX_W = 640, MAX_H = 600;
 
 const snap = (v: number) => Math.round(v / GRID) * GRID;
+
+// Corner radius for orthogonal connector paths -- the single biggest lever
+// for a Miro-like feel. A sharp 90-degree elbow reads as "generated
+// wireframe"; the same route with rounded corners reads as a designed
+// diagram. Clamped per-corner to half the shorter adjacent segment so it
+// never overshoots on a tight turn.
+const CONNECTOR_RADIUS = 14;
+
+function roundedPath(points: { x: number; y: number }[], radius: number = CONNECTOR_RADIUS): string {
+  if (points.length < 2) return "";
+  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1], cur = points[i], next = points[i + 1];
+    const inLen = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+    const outLen = Math.hypot(next.x - cur.x, next.y - cur.y);
+    const r = Math.min(radius, inLen / 2, outLen / 2);
+    const inRatio = inLen === 0 ? 0 : r / inLen;
+    const outRatio = outLen === 0 ? 0 : r / outLen;
+    const p1 = { x: cur.x - (cur.x - prev.x) * inRatio, y: cur.y - (cur.y - prev.y) * inRatio };
+    const p2 = { x: cur.x + (next.x - cur.x) * outRatio, y: cur.y + (next.y - cur.y) * outRatio };
+    d += ` L ${p1.x} ${p1.y} Q ${cur.x} ${cur.y} ${p2.x} ${p2.y}`;
+  }
+  const last = points[points.length - 1];
+  d += ` L ${last.x} ${last.y}`;
+  return d;
+}
 
 export type NodeOverride = { cx?: number; cy?: number; w?: number; h?: number; z?: number };
 export type Overrides = Record<string, NodeOverride>;
@@ -413,7 +443,7 @@ export function ProcessCanvas({
     const fromRight = { x: a.cx + a.w / 2, y: a.cy };
     const toLeft = { x: b.cx - b.w / 2, y: b.cy };
     const laneX = Math.max(fromRight.x, toLeft.x) + 40;
-    return `M ${fromRight.x} ${fromRight.y} H ${laneX} V ${toLeft.y} H ${toLeft.x}`;
+    return roundedPath([fromRight, { x: laneX, y: fromRight.y }, { x: laneX, y: toLeft.y }, toLeft]);
   };
 
   const startConnDrag = (fromId: string, e: React.PointerEvent) => {
@@ -547,12 +577,15 @@ export function ProcessCanvas({
           const midY = (from.y + to.y) / 2;
           const path = Math.abs(from.x - to.x) < 4
             ? `M ${from.x} ${from.y} L ${to.x} ${to.y}`
-            : `M ${from.x} ${from.y} V ${midY} H ${to.x} V ${to.y}`;
+            : roundedPath([from, { x: from.x, y: midY }, { x: to.x, y: midY }, to]);
           return (
             <g key={`spine-${i}`}>
-              <path d={path} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.4} markerEnd="url(#arrow)" />
+              <path
+                d={path} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75}
+                strokeLinecap="round" markerEnd="url(#arrow)"
+              />
               {yesLabel && (
-                <text x={from.x + 10} y={midY + 3} fill="var(--color-confident)" fontSize="11" fontFamily="var(--font-mono)">
+                <text x={from.x + 10} y={midY + 4} fill="var(--color-confident)" fontSize="11" fontFamily="var(--font-mono)">
                   {yesLabel}
                 </text>
               )}
@@ -565,11 +598,14 @@ export function ProcessCanvas({
           const stroke = isException ? "var(--color-unresolved)" : "var(--color-drift)";
           const dash = isException ? "4 3" : undefined;
           const marker = isException ? "url(#arrow-dashed)" : "url(#arrow)";
-          const path = `M ${r.from.x} ${r.from.y} H ${r.laneX} V ${r.to.y} H ${r.to.x}`;
+          const path = roundedPath([r.from, { x: r.laneX, y: r.from.y }, { x: r.laneX, y: r.to.y }, r.to]);
           const labelY = (r.from.y + r.to.y) / 2;
           return (
             <g key={r.id}>
-              <path d={path} fill="none" stroke={stroke} strokeWidth={1.4} strokeDasharray={dash} markerEnd={marker} />
+              <path
+                d={path} fill="none" stroke={stroke} strokeWidth={1.75} strokeLinecap="round"
+                strokeDasharray={dash} markerEnd={marker}
+              />
               {r.label && (
                 <text x={r.laneX + 6} y={labelY} fill={stroke} fontSize="10" fontFamily="var(--font-mono)">
                   {r.label}
@@ -590,7 +626,8 @@ export function ProcessCanvas({
               d={d}
               fill="none"
               stroke="var(--color-verified)"
-              strokeWidth={1.6}
+              strokeWidth={1.9}
+              strokeLinecap="round"
               markerStart={startMk ?? undefined}
               markerEnd={endMk}
             />
@@ -601,7 +638,7 @@ export function ProcessCanvas({
         {pendingConn && (
           <path
             d={`M ${pendingConn.fromX} ${pendingConn.fromY} L ${pendingConn.toX} ${pendingConn.toY}`}
-            fill="none" stroke="var(--color-verified)" strokeWidth={1.6}
+            fill="none" stroke="var(--color-verified)" strokeWidth={1.9} strokeLinecap="round"
             strokeDasharray="4 3" opacity={0.8}
           />
         )}
@@ -1374,12 +1411,14 @@ function StepNode({
     : shape === "terminator" ? "px-6 py-2 items-center justify-center text-center"
     : "px-3 py-2";
 
-  // For the default (non-shaped) rendering keep the current bordered card look
-  // exactly as before to preserve the extracted-artifact aesthetic.
+  // Softer, Miro-style card: a thinner border (color still carries meaning)
+  // with a real drop shadow doing the visual-weight work instead, plus a
+  // gentle hover lift so the canvas feels responsive rather than static.
   const baseClass = isShaped
     ? "relative bg-transparent"
     : cn(
-        "relative rounded-lg border-2 bg-card shadow-sm",
+        "relative rounded-xl border bg-card shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.06)]",
+        "transition-shadow hover:shadow-[0_4px_14px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.06)]",
         step.drift && "border-drift animate-drift bg-drift/5",
         lowConf && "border-dashed border-unresolved bg-unresolved/5",
         !step.drift && !lowConf && !step.userAdded && "border-primary/40",
@@ -1761,7 +1800,9 @@ function ExceptionNode({
       data-node-id={e.id}
       onPointerDown={() => onSelect()}
       className={cn(
-        "group absolute rounded-md border border-dashed bg-unresolved/5 border-unresolved/70 px-2.5 py-2 shadow-sm flex flex-col gap-1 animate-item-in",
+        "group absolute rounded-xl border border-dashed bg-unresolved/5 border-unresolved/70 px-2.5 py-2",
+        "shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-shadow hover:shadow-[0_4px_14px_rgba(0,0,0,0.10)]",
+        "flex flex-col gap-1 animate-item-in",
         e.userAdded && "user-added !border-verified border-solid",
       )}
       style={{
