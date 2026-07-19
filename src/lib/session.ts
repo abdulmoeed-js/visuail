@@ -36,6 +36,13 @@ export interface SlackIntegration {
   installedAt: number;
 }
 
+export interface Subscription {
+  status: "active" | "past_due" | "cancelled" | "expired" | "paused";
+  tier: "pro" | "team";
+  portalUrl: string | null;
+  currentPeriodEnd: string | null;
+}
+
 export interface StoredSource {
   label: string;
   text: string;
@@ -581,6 +588,24 @@ export const sessionStore = {
       counts[row.event_type] = (counts[row.event_type] ?? 0) + 1;
     }
     return counts;
+  },
+
+  async getSubscription(orgId: string): Promise<Subscription | null> {
+    const { data, error } = await supabase
+      .from("subscriptions")
+      .select("status, tier, portal_url, current_period_end")
+      .eq("org_id", orgId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      status: data.status as Subscription["status"],
+      tier: data.tier as Subscription["tier"],
+      portalUrl: data.portal_url,
+      currentPeriodEnd: data.current_period_end,
+    };
   },
 
   async getSlackIntegration(orgId: string): Promise<SlackIntegration | null> {

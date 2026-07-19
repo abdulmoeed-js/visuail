@@ -123,6 +123,7 @@ Deno.serve(async (req: Request) => {
 
   const status = mapStatus(String(attrs.status ?? ""));
   const tier = tierForVariant(attrs.variant_id) ?? "pro";
+  const urls = (attrs.urls ?? {}) as { customer_portal?: string };
 
   const { error: upsertErr } = await supabase.from("subscriptions").upsert(
     {
@@ -130,6 +131,7 @@ Deno.serve(async (req: Request) => {
       provider: "lemonsqueezy",
       provider_subscription_id: providerSubscriptionId,
       provider_customer_id: attrs.customer_id != null ? String(attrs.customer_id) : null,
+      portal_url: urls.customer_portal ?? null,
       status,
       tier,
       current_period_end: attrs.renews_at ?? attrs.ends_at ?? null,

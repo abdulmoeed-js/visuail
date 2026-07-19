@@ -9,9 +9,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Loader2, UserPlus, X, Crown, Sparkles, BarChart3, Slack, Mail, Check } from "lucide-react";
+import { Loader2, UserPlus, X, Crown, Sparkles, BarChart3, Slack, Mail, Check, CreditCard, AlertTriangle } from "lucide-react";
 import {
-  sessionStore, useSession, type Org, type OrgMember, type PendingInvite, type SlackIntegration,
+  sessionStore, useSession, type Org, type OrgMember, type PendingInvite, type SlackIntegration, type Subscription,
 } from "@/lib/session";
 
 const EVENT_LABEL: Record<string, string> = {
@@ -40,6 +40,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState<Record<string, number> | null>(null);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [slack, setSlack] = useState<SlackIntegration | null>(null);
   const [connectingSlack, setConnectingSlack] = useState(false);
   const [notifyEmail, setNotifyEmail] = useState(org.notificationEmail ?? "");
@@ -54,6 +55,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
       .finally(() => setLoading(false));
     sessionStore.getUsageSummary(org.id).then(setUsage).catch(() => setUsage({}));
     sessionStore.getSlackIntegration(org.id).then(setSlack).catch(() => setSlack(null));
+    sessionStore.getSubscription(org.id).then(setSubscription).catch(() => setSubscription(null));
   };
 
   const connectSlack = async () => {
@@ -127,6 +129,33 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
               : "Shared workspaces are a Team-tier feature."}
           </DialogDescription>
         </DialogHeader>
+
+        {org.tier !== "free" && subscription && (
+          <div className="space-y-2 mb-1">
+            {subscription.status === "past_due" && (
+              <div className="rounded-lg border border-drift/40 bg-drift/10 p-3 flex items-start gap-2 text-sm">
+                <AlertTriangle className="size-4 text-drift shrink-0 mt-0.5" />
+                <span>
+                  Your last payment failed. {org.name} stays on {subscription.tier === "team" ? "Team" : "Pro"} for now,
+                  but update your payment method soon to avoid losing access.
+                </span>
+              </div>
+            )}
+            {subscription.portalUrl && (
+              <a
+                href={subscription.portalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between gap-2 rounded-lg border bg-card p-3 text-sm hover:border-primary/40 transition"
+              >
+                <span className="flex items-center gap-1.5">
+                  <CreditCard className="size-3.5 text-muted-foreground" /> Manage billing
+                </span>
+                <span className="text-muted-foreground text-xs">Invoices, card, cancel</span>
+              </a>
+            )}
+          </div>
+        )}
 
         {usage && Object.keys(usage).length > 0 && (
           <div className="rounded-lg border bg-card p-3 mb-1">
