@@ -247,13 +247,19 @@ export const sessionStore = {
     notify();
   },
 
-  async setTier(orgId: string, tier: Tier): Promise<void> {
-    const { error } = await supabase
-      .from("organizations")
-      .update({ tier, updated_at: new Date().toISOString() })
-      .eq("id", orgId);
-    if (error) throw error;
-    notify();
+  /** Real checkout, replacing the old client-side setTier() fake-upgrade path.
+   *  organizations.tier is no longer writable by the authenticated role at
+   *  all (see the payments_subscriptions migration) -- it only changes via
+   *  lemonsqueezy-webhook on a verified payment event. This just kicks off
+   *  a real LemonSqueezy hosted checkout and redirects to it. */
+  async startCheckout(orgId: string, tier: "pro" | "team"): Promise<void> {
+    const { data, error } = await supabase.functions.invoke<{ url?: string; error?: string }>("create-checkout", {
+      body: { orgId, tier },
+    });
+    if (error) throw new Error(error.message || "Couldn't start checkout.");
+    if (data?.error) throw new Error(data.error);
+    if (!data?.url) throw new Error("Checkout didn't return a payment URL.");
+    window.location.href = data.url;
   },
 
   /** Pure check against already-loaded session data -- the database trigger
