@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
   Sparkles, RotateCcw, AlertOctagon, Share2, FileDown,
-  ExternalLink, LayoutList, Shuffle, ShieldCheck, Loader2, Info,
+  LayoutList, Shuffle, ShieldCheck, Loader2, Info,
   FolderOpen, X as XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -446,12 +446,6 @@ export function ArtifactView({
           <span className="text-[10px] font-mono-tight text-muted-foreground mr-1">PUBLISH</span>
           <Button size="sm" variant="outline" onClick={() => onPublish("Share link")}>
             <Share2 className="size-3.5" /> Share link
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => onPublish("Push to Confluence")}>
-            <ExternalLink className="size-3.5" /> Push to Confluence
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => onPublish("Push to Jira")}>
-            <ExternalLink className="size-3.5" /> Push to Jira
           </Button>
           <Button size="sm" onClick={() => onPublish("Export")}>
             <FileDown className="size-3.5" /> Export

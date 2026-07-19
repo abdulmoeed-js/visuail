@@ -36,7 +36,7 @@ export function SignupWallModal({ open, onOpenChange, action }: Props) {
               </DialogTitle>
               <DialogDescription className="text-sm">
                 No signup wall before value — that's a rule. Now that you've built a real artifact,
-                drop an email to unlock exports, sharing, and the Jira/Confluence round-trip.
+                drop an email to unlock exports and sharing.
               </DialogDescription>
             </DialogHeader>
             <form

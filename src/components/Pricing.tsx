@@ -62,12 +62,11 @@ const tiers: Array<{
     name: "Team",
     price: "$15",
     period: "mo · 3 seats",
-    tagline: "Flat rate for a squad. Round-trip to the tools you already use.",
+    tagline: "Flat rate for a squad, all seeing the same workspace.",
     features: [
       "Everything in Pro",
       "Up to 3 seats bundled (flat rate)",
       "Shared workspaces & commenting",
-      "Jira / Confluence round-trip",
       "Additional seats — contact us",
     ],
     cta: "Upgrade to Team",
@@ -75,7 +74,6 @@ const tiers: Array<{
     unlocks: [
       "3 bundled seats on one workspace",
       "Shared workspaces & commenting",
-      "Jira / Confluence round-trip",
       "Everything in Pro",
     ],
   },
