@@ -61,6 +61,14 @@ export interface PendingInvite {
   createdAt: number;
 }
 
+export interface ProjectComment {
+  id: string;
+  authorEmail: string;
+  authorId: string;
+  body: string;
+  createdAt: number;
+}
+
 export type SnapshotTrigger = "manual_save" | "source_added" | "drift_recheck" | "manual_edit";
 
 /** Lightweight summary for the history list -- no canvases payload, so listing stays cheap. */
@@ -369,6 +377,35 @@ export const sessionStore = {
       .delete()
       .eq("org_id", orgId)
       .eq("user_id", userId);
+    if (error) throw error;
+    notify();
+  },
+
+  async listComments(projectId: string): Promise<ProjectComment[]> {
+    const { data, error } = await supabase
+      .from("project_comments")
+      .select("id, body, created_at, user_id, profiles(email)")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return ((data as unknown as { id: string; body: string; created_at: string; user_id: string; profiles: { email: string } | null }[] | null) ?? [])
+      .map((r) => ({
+        id: r.id, body: r.body, authorId: r.user_id,
+        authorEmail: r.profiles?.email ?? "(unknown)",
+        createdAt: new Date(r.created_at).getTime(),
+      }));
+  },
+
+  async addComment(projectId: string, userId: string, body: string): Promise<void> {
+    const { error } = await supabase
+      .from("project_comments")
+      .insert({ project_id: projectId, user_id: userId, body: body.trim() });
+    if (error) throw error;
+    notify();
+  },
+
+  async deleteComment(commentId: string): Promise<void> {
+    const { error } = await supabase.from("project_comments").delete().eq("id", commentId);
     if (error) throw error;
     notify();
   },

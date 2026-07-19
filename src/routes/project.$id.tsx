@@ -21,6 +21,7 @@ import {
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import { CommentsDialog } from "@/components/CommentsDialog";
 import { SignupWallModal } from "@/components/SignupWallModal";
 import { SourceIntake, makeSource, type SourceDraft } from "@/components/workbench/SourceIntake";
 import { extractFromSource, type ArtifactKind } from "@/lib/extract";
@@ -203,6 +204,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
           </div>
           <div className="flex items-center gap-2">
             <AddSourceDialog project={project} />
+            <CommentsDialog projectId={project.id} />
             <VersionHistoryDialog project={project} />
             <Button size="sm" variant="outline" onClick={saveVersion} disabled={savingVersion || panes.length === 0}>
               {savingVersion
