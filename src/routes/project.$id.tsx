@@ -28,6 +28,8 @@ import { SourceIntake, makeSource, type SourceDraft } from "@/components/workben
 import { extractFromSource, type ArtifactKind } from "@/lib/extract";
 import { mergeByKind } from "@/lib/merge";
 import { checkRefusal } from "@/lib/refusal";
+import { diffModels } from "@/lib/diff";
+import { DriftNotifier } from "@/components/workbench/DriftNotifier";
 
 export const Route = createFileRoute("/project/$id")({
   head: () => ({
@@ -85,6 +87,19 @@ function ProjectPage() {
 
 interface CanvasPane { key: string; kind: ArtifactKind; initial: ArtifactModel; }
 
+/** Scans every canvas for items flagged `drift: true` by diffModels(). Derived
+ *  fresh from stored data on every render rather than kept in local state, so
+ *  it survives the remount recheckDrift() triggers after saving. */
+function collectDrift(canvases: StoredProject["canvases"]): { drifted: boolean; driftedNames: string[] } {
+  const names: string[] = [];
+  for (const c of canvases) {
+    for (const item of allItems(c.model)) {
+      if (item.drift) names.push(item.text);
+    }
+  }
+  return { drifted: names.length > 0, driftedNames: names };
+}
+
 function ProjectShell({ project }: { project: StoredProject }) {
   const [signupOpen, setSignupOpen] = useState(false);
   const [signupAction, setSignupAction] = useState("Export");
@@ -126,6 +141,66 @@ function ProjectShell({ project }: { project: StoredProject }) {
       alert(e instanceof Error ? e.message : "Couldn't save this version. Try again.");
     } finally {
       setSavingVersion(false);
+    }
+  };
+
+  const navigateDrift = useNavigate();
+  const [checkingDrift, setCheckingDrift] = useState(false);
+  const recheckDrift = async () => {
+    if (!session.userId || project.sources.length === 0) return;
+    setCheckingDrift(true);
+    try {
+      // Re-extract from the same stored sources. Real LLM calls aren't
+      // perfectly deterministic, so a re-check on genuinely unchanged text
+      // can occasionally surface trivial rephrasing as "drift" -- that's an
+      // honest limitation of re-checking via re-extraction rather than a bug
+      // to paper over, and it's also useful diagnostic signal on its own.
+      const perSource = await Promise.all(project.sources.map(async (s, i) => ({
+        label: s.label,
+        results: await extractFromSource({ label: s.label, text: s.text, index: i }, project.kinds),
+      })));
+
+      const latest = await sessionStore.listSnapshots(project.id);
+      const baseline = latest.length > 0 ? await sessionStore.getSnapshotCanvases(latest[0].id) : project.canvases;
+
+      const nextCanvases: { kind: ArtifactKind; model: ArtifactModel }[] = [];
+      for (const kind of project.kinds) {
+        const freshModels: ArtifactModel[] = [];
+        const freshLabels: string[] = [];
+        for (const { label, results } of perSource) {
+          const hit = results.find(r => r.kind === kind);
+          if (hit) { freshModels.push(hit.model); freshLabels.push(label); }
+        }
+        if (freshModels.length === 0) continue;
+        const fresh = mergeByKind(freshModels, freshLabels);
+        if (!fresh || checkRefusal(fresh).refuse) continue;
+
+        // Current (possibly hand-edited) canvas goes FIRST so mergeByKind
+        // keeps it as canonical text and flags any real discrepancy from
+        // the fresh re-check as a conflict, rather than silently
+        // overwriting a manual edit -- same reconciliation logic already
+        // used to merge multiple sources, just applied to "live state" vs
+        // "re-checked state" as the two inputs.
+        const currentModel = editingModelsRef.current[kind] ?? panes.find(p => p.kind === kind)?.initial;
+        const reconciled = currentModel ? mergeByKind([currentModel, fresh], ["Current", "Re-checked source"]) : fresh;
+        if (!reconciled) continue;
+
+        const baselineModel = baseline.find(c => c.kind === kind)?.model;
+        const withDrift = baselineModel ? diffModels(baselineModel, reconciled) : reconciled;
+        nextCanvases.push({ kind, model: withDrift });
+      }
+      // Preserve any canvas kind the re-check didn't produce anything for.
+      for (const existing of project.canvases) {
+        if (!nextCanvases.find(c => c.kind === existing.kind)) nextCanvases.push(existing);
+      }
+
+      await sessionStore.updateProject(project.id, { canvases: nextCanvases });
+      await sessionStore.saveSnapshot(project.id, nextCanvases, "drift_recheck", session.userId);
+      navigateDrift({ to: "/project/$id", params: { id: project.id }, replace: true });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Couldn't re-check for drift. Try again.");
+    } finally {
+      setCheckingDrift(false);
     }
   };
 
@@ -196,6 +271,8 @@ function ProjectShell({ project }: { project: StoredProject }) {
     return { confirmed, conflict, total };
   }, [project]);
 
+  const driftInfo = useMemo(() => collectDrift(project.canvases), [project]);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Nav />
@@ -211,6 +288,19 @@ function ProjectShell({ project }: { project: StoredProject }) {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <DriftNotifier
+              drifted={driftInfo.drifted} driftedNames={driftInfo.driftedNames}
+              artifactTitle={project.name}
+            />
+            <Button
+              size="sm" variant="outline" onClick={recheckDrift}
+              disabled={checkingDrift || project.sources.length === 0}
+              title={project.sources.length === 0 ? "No sources to re-check against" : undefined}
+            >
+              {checkingDrift
+                ? <><Loader2 className="size-3.5 animate-spin" /> Re-checking…</>
+                : <><AlertTriangle className="size-3.5" /> Re-check for drift</>}
+            </Button>
             <AddSourceDialog project={project} />
             <CommentsDialog projectId={project.id} />
             <VersionHistoryDialog project={project} />
