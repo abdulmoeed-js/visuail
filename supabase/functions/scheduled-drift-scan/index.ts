@@ -13,11 +13,12 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { callAnthropicExtraction, MIN_TEXT_CHARS } from "../_shared/extraction.ts";
 import { diffChangedTexts, mergeForScan } from "../_shared/model-diff.ts";
+import { sendSlackDrift, sendEmailDrift } from "../_shared/notify.ts";
 
 interface StoredSource { label: string; text: string }
 interface StoredCanvas { kind: "process" | "bmc"; model: Record<string, unknown> }
 interface ProjectRow {
-  id: string; created_by: string; kinds: string[]; sources: StoredSource[];
+  id: string; name: string; org_id: string; created_by: string; kinds: string[]; sources: StoredSource[];
 }
 
 Deno.serve(async (req: Request) => {
@@ -43,9 +44,12 @@ Deno.serve(async (req: Request) => {
 
   const { data: projects, error: projErr } = await supabase
     .from("projects")
-    .select("id, created_by, kinds, sources")
+    .select("id, name, org_id, created_by, kinds, sources")
     .in("org_id", orgIds);
   if (projErr) return new Response(JSON.stringify({ error: projErr.message }), { status: 500 });
+
+  const appOrigin = Deno.env.get("APP_ORIGIN") ?? "https://id-preview--af93f212-53f2-471a-b865-406fc0935f89.lovable.app";
+  const resendApiKey = Deno.env.get("RESEND_API_KEY");
 
   let scanned = 0;
   let drifted = 0;
@@ -94,6 +98,21 @@ Deno.serve(async (req: Request) => {
     if (summary.length > 0) {
       drifted++;
       await supabase.from("drift_alerts").insert({ project_id: project.id, drifted_summary: summary });
+
+      const itemCount = summary.reduce((n, s) => n + s.changed.length + s.added.length + s.removed.length, 0);
+      const [{ data: slack }, { data: org }] = await Promise.all([
+        supabase.from("org_slack_integration").select("webhook_url").eq("org_id", project.org_id).maybeSingle(),
+        supabase.from("organizations").select("notification_email").eq("id", project.org_id).single(),
+      ]);
+      // Best-effort -- a failed notification doesn't undo the already-recorded alert.
+      if (slack?.webhook_url) {
+        try { await sendSlackDrift(slack.webhook_url, project.name, itemCount, appOrigin, project.id); }
+        catch (e) { console.error(`[scheduled-drift-scan] Slack notify failed for ${project.id}`, e); }
+      }
+      if (resendApiKey && org?.notification_email) {
+        try { await sendEmailDrift(resendApiKey, org.notification_email, project.name, itemCount, appOrigin, project.id); }
+        catch (e) { console.error(`[scheduled-drift-scan] Email notify failed for ${project.id}`, e); }
+      }
     }
   }
 

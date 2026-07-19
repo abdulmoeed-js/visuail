@@ -9,8 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Loader2, UserPlus, X, Crown, Sparkles, BarChart3 } from "lucide-react";
-import { sessionStore, useSession, type Org, type OrgMember, type PendingInvite } from "@/lib/session";
+import { Loader2, UserPlus, X, Crown, Sparkles, BarChart3, Slack, Mail, Check } from "lucide-react";
+import {
+  sessionStore, useSession, type Org, type OrgMember, type PendingInvite, type SlackIntegration,
+} from "@/lib/session";
 
 const EVENT_LABEL: Record<string, string> = {
   project_created: "Projects created",
@@ -38,6 +40,11 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState<Record<string, number> | null>(null);
+  const [slack, setSlack] = useState<SlackIntegration | null>(null);
+  const [connectingSlack, setConnectingSlack] = useState(false);
+  const [notifyEmail, setNotifyEmail] = useState(org.notificationEmail ?? "");
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailSaved, setEmailSaved] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -46,6 +53,36 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
       .catch(() => { setMembers([]); setInvites([]); })
       .finally(() => setLoading(false));
     sessionStore.getUsageSummary(org.id).then(setUsage).catch(() => setUsage({}));
+    sessionStore.getSlackIntegration(org.id).then(setSlack).catch(() => setSlack(null));
+  };
+
+  const connectSlack = async () => {
+    setConnectingSlack(true);
+    try {
+      await sessionStore.connectSlack(org.id); // redirects the page on success
+    } catch (err) {
+      setConnectingSlack(false);
+      alert(err instanceof Error ? err.message : "Couldn't connect Slack. Try again.");
+    }
+  };
+
+  const disconnectSlack = async () => {
+    if (!confirm("Disconnect Slack? Drift alerts will stop posting there.")) return;
+    try { await sessionStore.disconnectSlack(org.id); setSlack(null); }
+    catch (err) { alert(err instanceof Error ? err.message : "Couldn't disconnect Slack."); }
+  };
+
+  const saveEmail = async () => {
+    setSavingEmail(true);
+    try {
+      await sessionStore.setNotificationEmail(org.id, notifyEmail.trim() || null);
+      setEmailSaved(true);
+      setTimeout(() => setEmailSaved(false), 1500);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Couldn't save that email.");
+    } finally {
+      setSavingEmail(false);
+    }
   };
 
   const invite = async (e: React.FormEvent) => {
@@ -103,6 +140,37 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
                   <span className="font-mono-tight font-medium">{count}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {org.tier !== "free" && (
+          <div className="rounded-lg border bg-card p-3 mb-1 space-y-3">
+            <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+              Drift alert notifications
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-sm">
+                <Slack className="size-3.5 text-muted-foreground" />
+                {slack ? `Connected to #${slack.channelName} (${slack.slackTeamName})` : "Not connected"}
+              </span>
+              {slack ? (
+                <Button size="sm" variant="ghost" onClick={disconnectSlack}>Disconnect</Button>
+              ) : (
+                <Button size="sm" variant="outline" disabled={connectingSlack} onClick={connectSlack}>
+                  {connectingSlack ? <Loader2 className="size-3.5 animate-spin" /> : "Connect Slack"}
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Mail className="size-3.5 text-muted-foreground shrink-0" />
+              <Input
+                type="email" placeholder="alerts@yourcompany.com" value={notifyEmail}
+                onChange={(e) => setNotifyEmail(e.target.value)} className="h-8 text-sm"
+              />
+              <Button size="sm" variant="outline" onClick={saveEmail} disabled={savingEmail} className="shrink-0">
+                {savingEmail ? <Loader2 className="size-3.5 animate-spin" /> : emailSaved ? <Check className="size-3.5" /> : "Save"}
+              </Button>
             </div>
           </div>
         )}

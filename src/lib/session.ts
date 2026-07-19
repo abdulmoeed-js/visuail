@@ -13,6 +13,11 @@ import { supabase } from "@/integrations/supabase/client";
 import type { ArtifactModel } from "@/data/samples";
 import type { ArtifactKind } from "@/lib/extract";
 
+// Fixed -- this is the URL Slack redirects back to after the user approves
+// the install, and must exactly match what's registered in the Slack app's
+// own OAuth settings (Redirect URLs).
+const SLACK_CALLBACK_URL = "https://osnpexjxxwwvsjfegmga.supabase.co/functions/v1/slack-oauth-callback";
+
 export type Tier = "free" | "pro" | "team";
 export type OrgRole = "owner" | "member";
 
@@ -22,6 +27,13 @@ export interface Org {
   tier: Tier;
   isPersonal: boolean;
   role: OrgRole;
+  notificationEmail: string | null;
+}
+
+export interface SlackIntegration {
+  slackTeamName: string;
+  channelName: string;
+  installedAt: number;
 }
 
 export interface StoredSource {
@@ -176,13 +188,13 @@ function fromRow(row: ProjectRow): StoredProject {
 
 interface OrgMemberRow {
   role: OrgRole;
-  organizations: { id: string; name: string; tier: Tier; is_personal: boolean } | null;
+  organizations: { id: string; name: string; tier: Tier; is_personal: boolean; notification_email: string | null } | null;
 }
 
 async function fetchOrgs(userId: string): Promise<Org[]> {
   const { data, error } = await supabase
     .from("organization_members")
-    .select("role, organizations(id, name, tier, is_personal)")
+    .select("role, organizations(id, name, tier, is_personal, notification_email)")
     .eq("user_id", userId);
   if (error) throw error;
   return ((data as unknown as OrgMemberRow[] | null) ?? [])
@@ -193,6 +205,7 @@ async function fetchOrgs(userId: string): Promise<Org[]> {
       tier: r.organizations!.tier,
       isPersonal: r.organizations!.is_personal,
       role: r.role,
+      notificationEmail: r.organizations!.notification_email,
     }));
 }
 
@@ -562,6 +575,48 @@ export const sessionStore = {
       counts[row.event_type] = (counts[row.event_type] ?? 0) + 1;
     }
     return counts;
+  },
+
+  async getSlackIntegration(orgId: string): Promise<SlackIntegration | null> {
+    const { data, error } = await supabase
+      .from("org_slack_integration_public")
+      .select("slack_team_name, channel_name, installed_at")
+      .eq("org_id", orgId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      slackTeamName: data.slack_team_name,
+      channelName: data.channel_name,
+      installedAt: new Date(data.installed_at).getTime(),
+    };
+  },
+
+  /** Kicks off the Slack OAuth flow -- redirects the whole page to Slack's
+   *  consent screen, so this never returns under the happy path. */
+  async connectSlack(orgId: string): Promise<void> {
+    const { data, error } = await supabase.functions.invoke<{ url?: string; error?: string }>("slack-oauth-start", {
+      body: { orgId, redirectUri: SLACK_CALLBACK_URL },
+    });
+    if (error) throw new Error(error.message || "Couldn't start the Slack connection.");
+    if (data?.error) throw new Error(data.error);
+    if (!data?.url) throw new Error("Slack didn't return a connection URL.");
+    window.location.href = data.url;
+  },
+
+  async disconnectSlack(orgId: string): Promise<void> {
+    const { error } = await supabase.from("org_slack_integration").delete().eq("org_id", orgId);
+    if (error) throw error;
+    notify();
+  },
+
+  async setNotificationEmail(orgId: string, email: string | null): Promise<void> {
+    const { error } = await supabase
+      .from("organizations")
+      .update({ notification_email: email })
+      .eq("id", orgId);
+    if (error) throw error;
+    notify();
   },
 };
 
