@@ -35,9 +35,15 @@ export const Route = createFileRoute("/project/$id")({
 function ProjectPage() {
   const { id } = Route.useParams();
   const session = useSession();
-  const project = useMemo(() => session.projects.find(p => p.id === id), [session, id]);
+  const project = session.projects.find(p => p.id === id);
 
-  if (session.loading) {
+  // Gate the spinner on "loading AND no project yet" rather than "loading"
+  // alone -- session.loading also flips true->false on every background
+  // refetch (e.g. after an autosave's `notify()`), and once we already have
+  // a project to show, tearing the canvas down and remounting it on every
+  // such refetch would itself re-trigger the canvas's mount-time save,
+  // causing another refetch: a self-sustaining reload loop.
+  if (session.loading && !project) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <Nav />
