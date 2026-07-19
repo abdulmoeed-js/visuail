@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfidenceBadge, IdChip } from "./atoms";
 import { InlineEdit } from "./InlineEdit";
+import { ItemCommentsPopover } from "./ItemCommentsPopover";
 import type { BaseItem } from "@/data/samples";
 
 interface Props {
@@ -16,11 +17,18 @@ interface Props {
   placeholder?: string;
   compact?: boolean;
   showIds?: boolean;
+  /** Only set on the real project page -- the marketing demo has no
+   *  project/comments backend, so these stay undefined there and no
+   *  comment UI renders. */
+  projectId?: string;
+  commentCounts?: Record<string, number>;
+  onCommentCountChange?: (itemId: string, delta: number) => void;
 }
 
 export function EditableList({
   items, onAdd, onDelete, onEdit,
   placeholder = "Add item…", compact, showIds = true,
+  projectId, commentCounts, onCommentCountChange,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -65,6 +73,13 @@ export function EditableList({
             )}
           </div>
           <ConfidenceBadge item={item} />
+          {projectId && (
+            <ItemCommentsPopover
+              projectId={projectId} itemId={item.id}
+              count={commentCounts?.[item.id] ?? 0}
+              onCountChange={onCommentCountChange ?? (() => {})}
+            />
+          )}
           <button
             onClick={() => onDelete(item.id)}
             className="opacity-0 group-hover:opacity-100 transition text-muted-foreground hover:text-destructive"

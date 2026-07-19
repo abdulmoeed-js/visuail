@@ -274,6 +274,16 @@ function ProjectShell({ project }: { project: StoredProject }) {
 
   const driftInfo = useMemo(() => collectDrift(project.canvases), [project]);
 
+  // Fetched once per project, not per canvas -- item ids are unique across
+  // both canvases anyway, and this avoids one query per pane.
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    sessionStore.listCommentCounts(project.id).then(setCommentCounts).catch(() => {});
+  }, [project.id]);
+  const onCommentCountChange = useCallback((itemId: string, delta: number) => {
+    setCommentCounts((cur) => ({ ...cur, [itemId]: Math.max(0, (cur[itemId] ?? 0) + delta) }));
+  }, []);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Nav />
@@ -399,6 +409,9 @@ function ProjectShell({ project }: { project: StoredProject }) {
                   onPublish={onPublish}
                   registerRef={(el) => { paneRefs.current[pane.key] = el; }}
                   onModelChange={(m) => { registerModel(pane.key, m); persist(); }}
+                  projectId={project.id}
+                  commentCounts={commentCounts}
+                  onCommentCountChange={onCommentCountChange}
                 />
               ))}
             </div>
@@ -412,12 +425,15 @@ function ProjectShell({ project }: { project: StoredProject }) {
 }
 
 function CanvasPaneMount({
-  pane, visible, onPublish, registerRef, onModelChange,
+  pane, visible, onPublish, registerRef, onModelChange, projectId, commentCounts, onCommentCountChange,
 }: {
   pane: CanvasPane; visible: boolean;
   onPublish: (action: string) => void;
   registerRef: (el: HTMLDivElement | null) => void;
   onModelChange: (m: ArtifactModel) => void;
+  projectId: string;
+  commentCounts: Record<string, number>;
+  onCommentCountChange: (itemId: string, delta: number) => void;
 }) {
   const editing = useArtifactEditing(pane.initial);
   const st = stats(editing.model);
@@ -434,7 +450,10 @@ function CanvasPaneMount({
       className={cn("rounded-xl border bg-card min-h-[560px] flex flex-col", !visible && "hidden")}
       ref={(el) => { registerRef(el); }}
     >
-      <ArtifactView editing={editing} stats={st} onPublish={onPublish} />
+      <ArtifactView
+        editing={editing} stats={st} onPublish={onPublish}
+        projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange}
+      />
     </div>
   );
 }

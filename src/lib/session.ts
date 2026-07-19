@@ -85,6 +85,8 @@ export interface ProjectComment {
   authorId: string;
   body: string;
   createdAt: number;
+  /** null = the project-wide thread; a value anchors this comment to one canvas item. */
+  itemId: string | null;
 }
 
 export interface DriftAlert {
@@ -445,25 +447,43 @@ export const sessionStore = {
     notify();
   },
 
-  async listComments(projectId: string): Promise<ProjectComment[]> {
-    const { data, error } = await supabase
+  /** itemId omitted = the project-wide thread. Pass it to scope to one canvas item. */
+  async listComments(projectId: string, itemId?: string | null): Promise<ProjectComment[]> {
+    let query = supabase
       .from("project_comments")
-      .select("id, body, created_at, user_id, profiles(email)")
+      .select("id, body, created_at, user_id, item_id, profiles(email)")
       .eq("project_id", projectId)
       .order("created_at", { ascending: true });
+    query = itemId === undefined ? query : itemId === null ? query.is("item_id", null) : query.eq("item_id", itemId);
+    const { data, error } = await query;
     if (error) throw error;
-    return ((data as unknown as { id: string; body: string; created_at: string; user_id: string; profiles: { email: string } | null }[] | null) ?? [])
+    return ((data as unknown as { id: string; body: string; created_at: string; user_id: string; item_id: string | null; profiles: { email: string } | null }[] | null) ?? [])
       .map((r) => ({
-        id: r.id, body: r.body, authorId: r.user_id,
+        id: r.id, body: r.body, authorId: r.user_id, itemId: r.item_id,
         authorEmail: r.profiles?.email ?? "(unknown)",
         createdAt: new Date(r.created_at).getTime(),
       }));
   },
 
-  async addComment(projectId: string, userId: string, body: string): Promise<void> {
+  /** Comment counts per item_id for a whole project, for badge display -- excludes the project-wide thread (item_id null). */
+  async listCommentCounts(projectId: string): Promise<Record<string, number>> {
+    const { data, error } = await supabase
+      .from("project_comments")
+      .select("item_id")
+      .eq("project_id", projectId)
+      .not("item_id", "is", null);
+    if (error) throw error;
+    const counts: Record<string, number> = {};
+    for (const row of (data as { item_id: string }[] | null) ?? []) {
+      counts[row.item_id] = (counts[row.item_id] ?? 0) + 1;
+    }
+    return counts;
+  },
+
+  async addComment(projectId: string, userId: string, body: string, itemId: string | null = null): Promise<void> {
     const { error } = await supabase
       .from("project_comments")
-      .insert({ project_id: projectId, user_id: userId, body: body.trim() });
+      .insert({ project_id: projectId, user_id: userId, body: body.trim(), item_id: itemId });
     if (error) throw error;
     notify();
   },

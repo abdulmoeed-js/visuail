@@ -268,12 +268,17 @@ function RefusedState({ reason, onRetry }: { reason: string; onRetry: () => void
  */
 export function ArtifactView({
   editing, stats: st, onPublish, canvasRef, extraHeaderRight,
+  projectId, commentCounts, onCommentCountChange,
 }: {
   editing: ArtifactEditing;
   stats: ReturnType<typeof stats>;
   onPublish: (action: string) => void;
   canvasRef?: React.RefObject<HTMLDivElement>;
   extraHeaderRight?: ReactNode;
+  /** Only set on the real project page -- omitted in the marketing demo, which has no comments backend. */
+  projectId?: string;
+  commentCounts?: Record<string, number>;
+  onCommentCountChange?: (itemId: string, delta: number) => void;
 }) {
   const { model, drifted } = editing;
   const avgPct = Math.round(st.avg * 100);
@@ -395,11 +400,11 @@ export function ArtifactView({
             <div className="p-4 space-y-4">
               {model.kind === "process" ? (
                 <div className="grid gap-4 md:grid-cols-2">
-                  <ItemGroup title="Actors" items={model.actors} onAdd={editing.onAddActor} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} />
-                  <ItemGroup title="Systems" items={model.systems} onAdd={editing.onAddSystem} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} />
-                  <ItemGroup title="Steps" items={model.steps} onAdd={editing.onAddStep} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} />
-                  <ItemGroup title="Decisions" items={model.decisions} onAdd={editing.onAddDecision} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} />
-                  <ItemGroup title="Exceptions" items={model.exceptions} onAdd={editing.onAddException} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} />
+                  <ItemGroup title="Actors" items={model.actors} onAdd={editing.onAddActor} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} />
+                  <ItemGroup title="Systems" items={model.systems} onAdd={editing.onAddSystem} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} />
+                  <ItemGroup title="Steps" items={model.steps} onAdd={editing.onAddStep} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} />
+                  <ItemGroup title="Decisions" items={model.decisions} onAdd={editing.onAddDecision} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} />
+                  <ItemGroup title="Exceptions" items={model.exceptions} onAdd={editing.onAddException} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} />
                 </div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-3">
@@ -412,6 +417,7 @@ export function ArtifactView({
                         onDelete={(id) => editing.onDeleteAny(id)}
                         onEdit={(id, t) => editing.onUpdateItem(id, { text: t })}
                         compact showIds={false}
+                        projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange}
                       />
                     </div>
                   ))}
@@ -467,11 +473,14 @@ function MetricBlock({ label, value, tone }: { label: string; value: string; ton
   );
 }
 
-function ItemGroup({ title, items, onAdd, onDelete, onEdit }: {
+function ItemGroup({ title, items, onAdd, onDelete, onEdit, projectId, commentCounts, onCommentCountChange }: {
   title: string; items: BaseItem[];
   onAdd: (t: string) => void;
   onDelete: (id: string) => void;
   onEdit?: (id: string, t: string) => void;
+  projectId?: string;
+  commentCounts?: Record<string, number>;
+  onCommentCountChange?: (itemId: string, delta: number) => void;
 }) {
   return (
     <div className="rounded-lg border bg-card p-3">
@@ -479,7 +488,10 @@ function ItemGroup({ title, items, onAdd, onDelete, onEdit }: {
         <h4 className="text-sm font-semibold">{title}</h4>
         <span className="text-[10px] font-mono-tight text-muted-foreground">{items.length}</span>
       </div>
-      <EditableList items={items} onAdd={onAdd} onDelete={onDelete} onEdit={onEdit} compact />
+      <EditableList
+        items={items} onAdd={onAdd} onDelete={onDelete} onEdit={onEdit} compact
+        projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange}
+      />
     </div>
   );
 }
