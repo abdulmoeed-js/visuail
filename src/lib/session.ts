@@ -61,6 +61,24 @@ export interface PendingInvite {
   createdAt: number;
 }
 
+export interface ShareLink {
+  id: string;
+  token: string;
+  includeSources: boolean;
+  createdAt: number;
+  revoked: boolean;
+}
+
+/** What the public, unauthenticated /share/$token route reads via get_shared_project(). */
+export interface SharedProject {
+  id: string;
+  name: string;
+  description?: string;
+  kinds: ArtifactKind[];
+  canvases: StoredCanvas[];
+  sources: StoredSource[];
+}
+
 export interface ProjectComment {
   id: string;
   authorEmail: string;
@@ -409,7 +427,65 @@ export const sessionStore = {
     if (error) throw error;
     notify();
   },
+
+  async listShareLinks(projectId: string): Promise<ShareLink[]> {
+    const { data, error } = await supabase
+      .from("project_share_links")
+      .select("id, token, include_sources, created_at, revoked_at")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return ((data as { id: string; token: string; include_sources: boolean; created_at: string; revoked_at: string | null }[] | null) ?? [])
+      .map((r) => ({
+        id: r.id, token: r.token, includeSources: r.include_sources,
+        createdAt: new Date(r.created_at).getTime(), revoked: r.revoked_at !== null,
+      }));
+  },
+
+  async createShareLink(projectId: string, createdBy: string, includeSources: boolean): Promise<ShareLink> {
+    // 256 bits of randomness -- unguessable, and this is the only thing
+    // standing between "anyone with the link" and the project's data, since
+    // get_shared_project() intentionally has no other access check.
+    const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+    const { data, error } = await supabase
+      .from("project_share_links")
+      .insert({ project_id: projectId, token, created_by: createdBy, include_sources: includeSources })
+      .select()
+      .single();
+    if (error) throw error;
+    const row = data as { id: string; token: string; include_sources: boolean; created_at: string };
+    notify();
+    return { id: row.id, token: row.token, includeSources: row.include_sources, createdAt: new Date(row.created_at).getTime(), revoked: false };
+  },
+
+  async revokeShareLink(id: string): Promise<void> {
+    const { error } = await supabase
+      .from("project_share_links")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+    notify();
+  },
 };
+
+/** Public, unauthenticated read for the /share/$token route. Returns null for
+ *  a missing or revoked token -- the route renders a "link no longer active"
+ *  state rather than a raw error either way. */
+export async function getSharedProject(token: string): Promise<SharedProject | null> {
+  const { data, error } = await supabase.rpc("get_shared_project", { share_token: token });
+  if (error || !data || (Array.isArray(data) && data.length === 0)) return null;
+  const row = (Array.isArray(data) ? data[0] : data) as {
+    id: string; name: string; description: string | null; kinds: string[]; canvases: StoredCanvas[]; sources: StoredSource[];
+  };
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description ?? undefined,
+    kinds: row.kinds as ArtifactKind[],
+    canvases: row.canvases ?? [],
+    sources: row.sources ?? [],
+  };
+}
 
 export function useSession(): Session {
   const [auth, setAuth] = useState<{ userId?: string; email?: string; initializing: boolean }>({

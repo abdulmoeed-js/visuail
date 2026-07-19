@@ -22,6 +22,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { CommentsDialog } from "@/components/CommentsDialog";
+import { ShareLinkDialog } from "@/components/ShareLinkDialog";
 import { SignupWallModal } from "@/components/SignupWallModal";
 import { SourceIntake, makeSource, type SourceDraft } from "@/components/workbench/SourceIntake";
 import { extractFromSource, type ArtifactKind } from "@/lib/extract";
@@ -128,7 +129,14 @@ function ProjectShell({ project }: { project: StoredProject }) {
     }
   };
 
+  const [shareOpen, setShareOpen] = useState(false);
   const onPublish = (action: string) => {
+    // Both real capabilities now exist for this (signed-in, real-data) page
+    // -- route to them directly instead of the generic sign-up wall, which
+    // this component only still uses for actions that genuinely have
+    // nothing built behind them yet.
+    if (action === "Share link") { setShareOpen(true); return; }
+    if (action === "Export") { exportAll(); return; }
     setSignupAction(action);
     setSignupOpen(true);
   };
@@ -305,6 +313,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
         )}
       </main>
       <SignupWallModal open={signupOpen} onOpenChange={setSignupOpen} action={signupAction} />
+      <ShareLinkDialog open={shareOpen} onOpenChange={setShareOpen} projectId={project.id} />
     </div>
   );
 }
