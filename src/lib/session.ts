@@ -48,6 +48,19 @@ export interface StoredProject {
   fromScratch?: boolean;
 }
 
+export interface OrgMember {
+  userId: string;
+  email: string;
+  role: OrgRole;
+  joinedAt: number;
+}
+
+export interface PendingInvite {
+  id: string;
+  email: string;
+  createdAt: number;
+}
+
 export type SnapshotTrigger = "manual_save" | "source_added" | "drift_recheck" | "manual_edit";
 
 /** Lightweight summary for the history list -- no canvases payload, so listing stays cheap. */
@@ -311,6 +324,54 @@ export const sessionStore = {
     if (error) throw error;
     return (data as { canvases: StoredCanvas[] }).canvases;
   },
+
+  async listMembers(orgId: string): Promise<OrgMember[]> {
+    const { data, error } = await supabase
+      .from("organization_members")
+      .select("user_id, role, joined_at, profiles(email)")
+      .eq("org_id", orgId)
+      .order("joined_at", { ascending: true });
+    if (error) throw error;
+    return ((data as unknown as { user_id: string; role: OrgRole; joined_at: string; profiles: { email: string } | null }[] | null) ?? [])
+      .map((r) => ({ userId: r.user_id, email: r.profiles?.email ?? "(unknown)", role: r.role, joinedAt: new Date(r.joined_at).getTime() }));
+  },
+
+  async listPendingInvites(orgId: string): Promise<PendingInvite[]> {
+    const { data, error } = await supabase
+      .from("organization_invites")
+      .select("id, email, created_at")
+      .eq("org_id", orgId)
+      .is("accepted_at", null)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return ((data as { id: string; email: string; created_at: string }[] | null) ?? [])
+      .map((r) => ({ id: r.id, email: r.email, createdAt: new Date(r.created_at).getTime() }));
+  },
+
+  async inviteMember(orgId: string, email: string, invitedBy: string): Promise<void> {
+    const { error } = await supabase
+      .from("organization_invites")
+      .insert({ org_id: orgId, email: email.trim().toLowerCase(), invited_by: invitedBy });
+    if (error) throw error;
+    notify();
+  },
+
+  async cancelInvite(inviteId: string): Promise<void> {
+    const { error } = await supabase.from("organization_invites").delete().eq("id", inviteId);
+    if (error) throw error;
+    notify();
+  },
+
+  /** Owner-only -- enforced by the org_members_owner_manages RLS policy, this is just the client call. */
+  async removeMember(orgId: string, userId: string): Promise<void> {
+    const { error } = await supabase
+      .from("organization_members")
+      .delete()
+      .eq("org_id", orgId)
+      .eq("user_id", userId);
+    if (error) throw error;
+    notify();
+  },
 };
 
 export function useSession(): Session {
@@ -323,14 +384,18 @@ export function useSession(): Session {
   const [dataLoading, setDataLoading] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: s }) => {
-      const u = s.session?.user;
+    // Resolves any pending Team invites for this email into real
+    // memberships before the org list loads -- someone invited while they
+    // already had an account never re-triggers handle_new_user(), so this
+    // is the only place that catches that case. Harmless no-op otherwise.
+    const settle = async (u: { id: string; email?: string } | undefined) => {
+      if (u) {
+        try { await supabase.rpc("accept_pending_invites"); } catch { /* best-effort */ }
+      }
       setAuth({ userId: u?.id, email: u?.email, initializing: false });
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      const u = s?.user;
-      setAuth({ userId: u?.id, email: u?.email, initializing: false });
-    });
+    };
+    supabase.auth.getSession().then(({ data: s }) => settle(s.session?.user));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => { settle(s?.user); });
     return () => sub.subscription.unsubscribe();
   }, []);
 

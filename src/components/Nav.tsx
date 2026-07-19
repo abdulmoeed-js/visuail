@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
-import { Moon, Sun, LayoutDashboard, LogOut, Building2, Check, ChevronDown } from "lucide-react";
+import { Moon, Sun, LayoutDashboard, LogOut, Building2, Check, ChevronDown, Users2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { scrollToId } from "@/lib/scroll";
 import { sessionStore, useSession, type Session } from "@/lib/session";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { TeamSettingsDialog } from "@/components/TeamSettingsDialog";
+import { CheckoutModal } from "@/components/CheckoutModal";
 
 function OrgSwitcher({ session }: { session: Session }) {
   // Only a decision worth surfacing once there's more than one workspace to pick from.
@@ -38,10 +40,13 @@ function OrgSwitcher({ session }: { session: Session }) {
 export function Nav() {
   const [dark, setDark] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const router = useRouter();
   const session = useSession();
   const onDashboard = router.state.location.pathname.startsWith("/dashboard");
   const onHome = router.state.location.pathname === "/";
+  const currentOrg = session.orgs.find((o) => o.id === session.currentOrgId);
 
   useEffect(() => {
     const el = document.documentElement;
@@ -87,6 +92,15 @@ export function Nav() {
 
         <div className="flex items-center gap-2">
           {session.signedIn && <OrgSwitcher session={session} />}
+          {session.signedIn && currentOrg && (
+            <button
+              onClick={() => setTeamOpen(true)}
+              className="h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition"
+              aria-label="Team settings" title="Team settings"
+            >
+              <Users2 className="size-4" />
+            </button>
+          )}
           <button
             onClick={() => setDark((d) => !d)}
             className="h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition"
@@ -120,6 +134,19 @@ export function Nav() {
           )}
         </div>
       </div>
+      {currentOrg && (
+        <>
+          <TeamSettingsDialog
+            open={teamOpen} onOpenChange={setTeamOpen} org={currentOrg}
+            onUpgrade={() => { setTeamOpen(false); setUpgradeOpen(true); }}
+          />
+          <CheckoutModal
+            open={upgradeOpen} onOpenChange={setUpgradeOpen}
+            tier="Team" price="$15/mo"
+            unlocks={["3 bundled seats on one workspace", "Shared workspaces & commenting", "Everything in Pro"]}
+          />
+        </>
+      )}
     </header>
   );
 }
