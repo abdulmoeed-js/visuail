@@ -105,11 +105,37 @@ function collectDrift(canvases: StoredProject["canvases"]): { drifted: boolean; 
 function ProjectShell({ project }: { project: StoredProject }) {
   const [signupOpen, setSignupOpen] = useState(false);
   const [signupAction, setSignupAction] = useState("Export");
+  // Regenerating canvases (add-source, drift re-check) writes straight to
+  // Postgres and only reaches this component again via the session's own
+  // background refetch -- which, even once it lands, wouldn't change
+  // anything here, since neither `panes` nor CanvasPaneMount's `key` were
+  // tied to canvas content. Both call sites used to paper over that with a
+  // same-URL navigate({replace:true}), hoping it would force a remount --
+  // it doesn't reliably (same path/params rarely triggers a real unmount),
+  // which is exactly why extraction could succeed and save correctly while
+  // the canvas on screen kept showing stale (sometimes empty) data.
+  // canvasVersion is bumped ONLY by those two explicit actions -- never by
+  // routine autosave/background refetch -- so this can't reintroduce the
+  // reload loop the original project.id-only memo was guarding against.
+  const [canvasOverride, setCanvasOverride] = useState<StoredProject["canvases"] | null>(null);
+  const [canvasVersion, setCanvasVersion] = useState(0);
+  const onCanvasesRegenerated = useCallback((canvases: StoredProject["canvases"]) => {
+    setCanvasOverride(canvases);
+    setCanvasVersion(v => v + 1);
+  }, []);
   const panes: CanvasPane[] = useMemo(
-    () => project.canvases.map(c => ({ key: c.kind, kind: c.kind, initial: c.model })),
-    [project.id],
+    () => (canvasOverride ?? project.canvases).map(c => ({ key: c.kind, kind: c.kind, initial: c.model })),
+    [project.id, canvasOverride],
   );
   const [active, setActive] = useState(panes[0]?.key ?? "");
+  // Covers a from-scratch project (0 canvases at mount, so `active` starts
+  // as "") whose first source-add makes panes non-empty -- without this,
+  // no tab would ever be selected and nothing would render as `visible`.
+  // Only fires when nothing is selected yet, so it never fights a real tab
+  // click.
+  useEffect(() => {
+    if (!active && panes.length > 0) setActive(panes[0].key);
+  }, [active, panes]);
   const [exporting, setExporting] = useState(false);
   const paneRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const editingModelsRef = useRef<Record<string, ArtifactModel>>({});
@@ -146,7 +172,6 @@ function ProjectShell({ project }: { project: StoredProject }) {
     }
   };
 
-  const navigateDrift = useNavigate();
   const [checkingDrift, setCheckingDrift] = useState(false);
   const recheckDrift = async () => {
     if (!session.userId || project.sources.length === 0) return;
@@ -199,7 +224,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
       await sessionStore.updateProject(project.id, { canvases: nextCanvases });
       await sessionStore.saveSnapshot(project.id, nextCanvases, "drift_recheck", session.userId);
       if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "drift_recheck", project.id);
-      navigateDrift({ to: "/project/$id", params: { id: project.id }, replace: true });
+      onCanvasesRegenerated(nextCanvases);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Couldn't re-check for drift. Try again.");
     } finally {
@@ -335,7 +360,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
                 ? <><Loader2 className="size-3.5 animate-spin" /> Re-checking…</>
                 : <><AlertTriangle className="size-3.5" /> Re-check for drift</>}
             </Button>
-            <AddSourceDialog project={project} />
+            <AddSourceDialog project={project} onCanvasesRegenerated={onCanvasesRegenerated} />
             <CommentsDialog projectId={project.id} />
             <VersionHistoryDialog project={project} />
             <Button size="sm" variant="outline" onClick={saveVersion} disabled={savingVersion || panes.length === 0}>
@@ -372,7 +397,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
             <p className="text-sm text-muted-foreground mt-2">
               Add a source to extract, or an artifact type to start from scratch.
             </p>
-            <div className="mt-4"><AddSourceDialog project={project} /></div>
+            <div className="mt-4"><AddSourceDialog project={project} onCanvasesRegenerated={onCanvasesRegenerated} /></div>
           </div>
         ) : (
           <>
@@ -426,7 +451,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
             <div className="relative">
               {panes.map(pane => (
                 <CanvasPaneMount
-                  key={pane.key}
+                  key={`${pane.key}-${canvasVersion}`}
                   pane={pane}
                   visible={pane.key === active}
                   onPublish={onPublish}
@@ -658,11 +683,15 @@ function VersionHistoryDialog({ project }: { project: StoredProject }) {
   );
 }
 
-function AddSourceDialog({ project }: { project: StoredProject }) {
+function AddSourceDialog({
+  project, onCanvasesRegenerated,
+}: {
+  project: StoredProject;
+  onCanvasesRegenerated: (canvases: StoredProject["canvases"]) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [sources, setSources] = useState<SourceDraft[]>([makeSource(0)]);
   const [busy, setBusy] = useState(false);
-  const navigate = useNavigate();
   const session = useSession();
 
   const ready = sources.filter(s => s.status === "ready" && s.text.trim().length > 0);
@@ -726,8 +755,7 @@ function AddSourceDialog({ project }: { project: StoredProject }) {
     }
     setBusy(false);
     setOpen(false);
-    // Force full remount so the ProjectShell picks up regenerated canvases.
-    navigate({ to: "/project/$id", params: { id: project.id }, replace: true });
+    onCanvasesRegenerated(canvases);
   };
 
   return (
