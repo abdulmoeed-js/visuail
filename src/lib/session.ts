@@ -87,6 +87,12 @@ export interface ProjectComment {
   createdAt: number;
 }
 
+export interface DriftAlert {
+  id: string;
+  detectedAt: number;
+  summary: { kind: string; changed: string[]; added: string[]; removed: string[] }[];
+}
+
 export type SnapshotTrigger = "manual_save" | "source_added" | "drift_recheck" | "manual_edit";
 
 /** Lightweight summary for the history list -- no canvases payload, so listing stays cheap. */
@@ -365,6 +371,30 @@ export const sessionStore = {
     if (error) throw error;
     return ((data as { canvases: StoredCanvas[]; trigger: SnapshotTrigger; created_at: string }[] | null) ?? [])
       .map((r) => ({ canvases: r.canvases, trigger: r.trigger, createdAt: new Date(r.created_at).getTime() }));
+  },
+
+  /** Unnotified drift_alerts rows written by the scheduled background scan
+   *  (supabase/functions/scheduled-drift-scan) -- detection only, never
+   *  applied to the canvas automatically. */
+  async listDriftAlerts(projectId: string): Promise<DriftAlert[]> {
+    const { data, error } = await supabase
+      .from("drift_alerts")
+      .select("id, detected_at, drifted_summary")
+      .eq("project_id", projectId)
+      .is("notified_at", null)
+      .order("detected_at", { ascending: false });
+    if (error) throw error;
+    return ((data as { id: string; detected_at: string; drifted_summary: DriftAlert["summary"] }[] | null) ?? [])
+      .map((r) => ({ id: r.id, detectedAt: new Date(r.detected_at).getTime(), summary: r.drifted_summary }));
+  },
+
+  async dismissDriftAlert(id: string): Promise<void> {
+    const { error } = await supabase
+      .from("drift_alerts")
+      .update({ notified_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error;
+    notify();
   },
 
   async listMembers(orgId: string): Promise<OrgMember[]> {

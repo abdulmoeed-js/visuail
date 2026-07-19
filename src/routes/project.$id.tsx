@@ -16,7 +16,7 @@ import { useArtifactEditing } from "@/lib/artifact-editing";
 import { stats, allItems, type ArtifactModel } from "@/data/samples";
 import { exportSectionsToPdf, exportElementToPng, exportElementToSvg, type ExportSection } from "@/lib/export-pdf";
 import {
-  sessionStore, useSession, type StoredProject, type SnapshotSummary, type SnapshotTrigger,
+  sessionStore, useSession, type StoredProject, type SnapshotSummary, type SnapshotTrigger, type DriftAlert,
 } from "@/lib/session";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -331,6 +331,8 @@ function ProjectShell({ project }: { project: StoredProject }) {
           </div>
         </div>
 
+        <ScheduledDriftBanner project={project} onRecheck={recheckDrift} />
+
         {panes.length === 0 ? (
           <div className="rounded-2xl border border-dashed bg-card/60 p-12 text-center bp-grid-fine">
             <h2 className="font-display text-xl">This project has no canvases yet.</h2>
@@ -433,6 +435,47 @@ function CanvasPaneMount({
       ref={(el) => { registerRef(el); }}
     >
       <ArtifactView editing={editing} stats={st} onPublish={onPublish} />
+    </div>
+  );
+}
+
+/** Surfaces unnotified drift_alerts from the scheduled background scan
+ *  (supabase/functions/scheduled-drift-scan). The scan only detects and
+ *  records -- it never touches the canvas -- so this banner's job is to
+ *  route a human to the existing "Re-check for drift" button, which does
+ *  the real reconcile-with-manual-edits update. */
+function ScheduledDriftBanner({ project, onRecheck }: { project: StoredProject; onRecheck: () => void }) {
+  const [alerts, setAlerts] = useState<DriftAlert[]>([]);
+
+  useEffect(() => {
+    sessionStore.listDriftAlerts(project.id).then(setAlerts).catch(() => setAlerts([]));
+  }, [project.id]);
+
+  const dismiss = async (id: string) => {
+    setAlerts((cur) => cur.filter((a) => a.id !== id));
+    try { await sessionStore.dismissDriftAlert(id); } catch { /* already removed from view either way */ }
+  };
+
+  if (alerts.length === 0) return null;
+  const latest = alerts[0];
+  const itemCount = latest.summary.reduce((n, s) => n + s.changed.length + s.added.length + s.removed.length, 0);
+
+  return (
+    <div className="mb-4 rounded-lg border border-drift/40 bg-drift/5 p-3 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2 text-sm">
+        <AlertTriangle className="size-4 text-drift shrink-0" />
+        <span>
+          Automated scan found <strong>{itemCount} change{itemCount === 1 ? "" : "s"}</strong> in the source
+          {alerts.length > 1 ? ` (+${alerts.length - 1} earlier scan${alerts.length - 1 === 1 ? "" : "s"})` : ""}.
+          Nothing's been changed on the canvas yet.
+        </span>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <Button size="sm" variant="outline" onClick={() => { onRecheck(); alerts.forEach((a) => dismiss(a.id)); }}>
+          Review now
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => dismiss(latest.id)}>Dismiss</Button>
+      </div>
     </div>
   );
 }
