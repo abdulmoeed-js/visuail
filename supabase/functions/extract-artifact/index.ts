@@ -127,6 +127,15 @@ function systemPrompt(allowedKinds: string[]): string {
     "- If the source doesn't actually support a requested kind (e.g. asked for a process map but the " +
     "transcript is a sales pitch with no workflow), set that kind to null rather than forcing a weak structure.\n" +
     "- Use short, stable, human-readable ids (AC1, ST1, CS1, ...), unique within each model.\n" +
+    "- CRITICAL — do not silently absorb unresolved branches: if the source IMPLIES a decision's failure/no-path, " +
+    "an exception, or a step exists, but never explicitly states its outcome or how it's actually handled, you " +
+    "MUST still create a formal node for it (a decision, step, or exception item) with low confidence (0.3-0.5) " +
+    "and a snippet quoting the ambiguous language — never fold it silently into a sibling item's text or drop it " +
+    "entirely. A missing branch that should have been flagged unresolved is a worse failure than a low-confidence " +
+    "guess, because it defeats the refuse-when-unsure trust mechanism downstream.\n" +
+    "- Do not resolve a genuinely ambiguous reference (e.g. two names for what might be the same role, an " +
+    "unnamed system, an undefined threshold) with false confidence. If the source itself is uncertain, your " +
+    "confidence score must say so — confidently picking one interpretation is worse than flagging the ambiguity.\n" +
     "- Call submit_extraction exactly once with your full answer."
   );
 }
