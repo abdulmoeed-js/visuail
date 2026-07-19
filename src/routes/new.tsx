@@ -169,6 +169,10 @@ function NewProjectPage() {
         canvases,
         fromScratch,
       });
+      if (canvases.length > 0) {
+        // Best-effort -- a missed first snapshot isn't worth blocking project creation over.
+        sessionStore.saveSnapshot(project.id, canvases, "manual_save", session.userId).catch(() => {});
+      }
       navigate({ to: "/project/$id", params: { id: project.id } });
     } catch (err) {
       setCreating(false);

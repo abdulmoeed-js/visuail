@@ -48,6 +48,16 @@ export interface StoredProject {
   fromScratch?: boolean;
 }
 
+export type SnapshotTrigger = "manual_save" | "source_added" | "drift_recheck" | "manual_edit";
+
+/** Lightweight summary for the history list -- no canvases payload, so listing stays cheap. */
+export interface SnapshotSummary {
+  id: string;
+  trigger: SnapshotTrigger;
+  createdAt: number;
+  createdByEmail?: string;
+}
+
 export interface Session {
   signedIn: boolean;
   loading: boolean;
@@ -258,6 +268,48 @@ export const sessionStore = {
     const { error } = await supabase.from("projects").delete().eq("id", id);
     if (error) throw error;
     notify();
+  },
+
+  /** Checkpoint the current canvases. Called on meaningful events (creation,
+   *  re-extraction, an explicit "Save version" click) -- never on every
+   *  autosave tick, or this table would grow one row per keystroke. */
+  async saveSnapshot(
+    projectId: string,
+    canvases: StoredCanvas[],
+    trigger: SnapshotTrigger,
+    createdBy: string,
+  ): Promise<void> {
+    const { error } = await supabase
+      .from("project_snapshots")
+      .insert({ project_id: projectId, canvases, trigger, created_by: createdBy });
+    if (error) throw error;
+  },
+
+  async listSnapshots(projectId: string): Promise<SnapshotSummary[]> {
+    const { data, error } = await supabase
+      .from("project_snapshots")
+      .select("id, trigger, created_at, profiles(email)")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return ((data as unknown as { id: string; trigger: SnapshotTrigger; created_at: string; profiles: { email: string } | null }[] | null) ?? [])
+      .map((r) => ({
+        id: r.id,
+        trigger: r.trigger,
+        createdAt: new Date(r.created_at).getTime(),
+        createdByEmail: r.profiles?.email,
+      }));
+  },
+
+  /** Fetches one snapshot's full canvases -- kept separate from listSnapshots so the list stays cheap. */
+  async getSnapshotCanvases(snapshotId: string): Promise<StoredCanvas[]> {
+    const { data, error } = await supabase
+      .from("project_snapshots")
+      .select("canvases")
+      .eq("id", snapshotId)
+      .single();
+    if (error) throw error;
+    return (data as { canvases: StoredCanvas[] }).canvases;
   },
 };
 

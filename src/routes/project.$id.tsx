@@ -9,13 +9,15 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft, FileDown, Loader2, Workflow, LayoutGrid, Users2,
-  ShieldCheck, Plus, AlertTriangle,
+  ShieldCheck, Plus, AlertTriangle, History, RotateCcw, Clock,
 } from "lucide-react";
 import { ArtifactView } from "@/components/Workbench";
 import { useArtifactEditing } from "@/lib/artifact-editing";
 import { stats, allItems, type ArtifactModel } from "@/data/samples";
 import { exportSectionsToPdf, type ExportSection } from "@/lib/export-pdf";
-import { sessionStore, useSession, type StoredProject } from "@/lib/session";
+import {
+  sessionStore, useSession, type StoredProject, type SnapshotSummary, type SnapshotTrigger,
+} from "@/lib/session";
 import { SignupWallModal } from "@/components/SignupWallModal";
 import { SourceIntake, makeSource, type SourceDraft } from "@/components/workbench/SourceIntake";
 import { extractFromSource, type ArtifactKind } from "@/lib/extract";
@@ -104,6 +106,24 @@ function ProjectShell({ project }: { project: StoredProject }) {
     sessionStore.updateProjectDebounced(project.id, { canvases: merged });
   }, [panes, project.id]);
 
+  const session = useSession();
+  const [savingVersion, setSavingVersion] = useState(false);
+  const saveVersion = async () => {
+    if (!session.userId) return;
+    setSavingVersion(true);
+    const merged = panes.map(p => ({
+      kind: p.kind,
+      model: editingModelsRef.current[p.key] ?? p.initial,
+    }));
+    try {
+      await sessionStore.saveSnapshot(project.id, merged, "manual_save", session.userId);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't save this version. Try again.");
+    } finally {
+      setSavingVersion(false);
+    }
+  };
+
   const onPublish = (action: string) => {
     setSignupAction(action);
     setSignupOpen(true);
@@ -162,6 +182,12 @@ function ProjectShell({ project }: { project: StoredProject }) {
           </div>
           <div className="flex items-center gap-2">
             <AddSourceDialog project={project} />
+            <VersionHistoryDialog project={project} />
+            <Button size="sm" variant="outline" onClick={saveVersion} disabled={savingVersion || panes.length === 0}>
+              {savingVersion
+                ? <><Loader2 className="size-3.5 animate-spin" /> Saving…</>
+                : <><History className="size-3.5" /> Save version</>}
+            </Button>
             <Button size="sm" onClick={exportAll} disabled={exporting || panes.length === 0}>
               {exporting
                 ? <><Loader2 className="size-3.5 animate-spin" /> Building PDF…</>
@@ -275,11 +301,112 @@ function CanvasPaneMount({
   );
 }
 
+const TRIGGER_LABEL: Record<SnapshotTrigger, string> = {
+  manual_save: "Saved version",
+  source_added: "Source added",
+  drift_recheck: "Drift re-check",
+  manual_edit: "Edited",
+};
+
+function fmtVersionTime(ts: number) {
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function VersionHistoryDialog({ project }: { project: StoredProject }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([]);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const session = useSession();
+
+  const load = () => {
+    setLoading(true);
+    sessionStore.listSnapshots(project.id)
+      .then(setSnapshots)
+      .catch(() => setSnapshots([]))
+      .finally(() => setLoading(false));
+  };
+
+  const restore = async (snapshotId: string) => {
+    if (!confirm("Restore this version? Your current canvases will be replaced -- this itself is saved as a new version first, so nothing is lost.")) return;
+    setRestoringId(snapshotId);
+    try {
+      const canvases = await sessionStore.getSnapshotCanvases(snapshotId);
+      await sessionStore.updateProject(project.id, { canvases });
+      if (session.userId) {
+        await sessionStore.saveSnapshot(project.id, canvases, "manual_save", session.userId);
+      }
+      setOpen(false);
+      navigate({ to: "/project/$id", params: { id: project.id }, replace: true });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Couldn't restore this version. Try again.");
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) load(); }}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline"><History className="size-3.5" /> History</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Version history</DialogTitle>
+          <DialogDescription>
+            Checkpoints from project creation, re-extraction, and manual saves. Restoring keeps
+            what you had before as its own version too.
+          </DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+        ) : snapshots.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">No versions saved yet.</p>
+        ) : (
+          <div className="max-h-[50vh] overflow-y-auto space-y-1.5">
+            {snapshots.map((s, i) => (
+              <div key={s.id} className="flex items-center justify-between gap-3 rounded-lg border bg-card p-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium flex items-center gap-1.5">
+                    <Clock className="size-3.5 text-muted-foreground shrink-0" />
+                    {TRIGGER_LABEL[s.trigger]}
+                    {i === 0 && <span className="text-[10px] font-mono-tight uppercase text-muted-foreground">latest</span>}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                    {fmtVersionTime(s.createdAt)}{s.createdByEmail ? ` · ${s.createdByEmail}` : ""}
+                  </div>
+                </div>
+                <Button
+                  size="sm" variant="ghost" disabled={restoringId === s.id}
+                  onClick={() => restore(s.id)}
+                >
+                  {restoringId === s.id
+                    ? <Loader2 className="size-3.5 animate-spin" />
+                    : <><RotateCcw className="size-3.5" /> Restore</>}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AddSourceDialog({ project }: { project: StoredProject }) {
   const [open, setOpen] = useState(false);
   const [sources, setSources] = useState<SourceDraft[]>([makeSource(0)]);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+  const session = useSession();
 
   const ready = sources.filter(s => s.status === "ready" && s.text.trim().length > 0);
 
@@ -330,6 +457,10 @@ function AddSourceDialog({ project }: { project: StoredProject }) {
         canvases,
         fromScratch: false,
       });
+      if (canvases.length > 0 && session.userId) {
+        // Best-effort -- a missed snapshot isn't worth blocking the save over.
+        sessionStore.saveSnapshot(project.id, canvases, "source_added", session.userId).catch(() => {});
+      }
     } catch (err) {
       setBusy(false);
       alert(err instanceof Error ? err.message : "Couldn't save the new source. Try again.");
