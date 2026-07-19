@@ -1,16 +1,89 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Nav } from "@/components/Nav";
-import { useSession, sessionStore, FREE_LIMIT, type StoredProject } from "@/lib/session";
+import { useSession, sessionStore, FREE_LIMIT, type StoredProject, type Tier } from "@/lib/session";
 import { allItems } from "@/data/samples";
 import {
   FolderPlus, Workflow, LayoutGrid, ArrowUpRight, Trash2, ShieldCheck,
-  Clock, Sparkles, Info, Loader2, LogIn,
+  Clock, Sparkles, Info, Loader2, LogIn, CheckCircle2, X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { SignupWallModal } from "@/components/SignupWallModal";
 import { cn } from "@/lib/utils";
+
+type ActivationState = "idle" | "activating" | "done" | "timeout";
+
+/** Polls for the tier flip after a LemonSqueezy checkout redirect. The
+ *  webhook that actually writes organizations.tier lands async (it's a
+ *  separate request from LemonSqueezy, not part of the redirect), so we
+ *  can't assume the new tier is visible the instant the user lands back
+ *  on /dashboard. */
+function useCheckoutActivation(currentTier: Tier): ActivationState {
+  const [state, setState] = useState<ActivationState>("idle");
+  const initialTierRef = useRef<Tier | null>(null);
+  const tierRef = useRef(currentTier);
+  tierRef.current = currentTier;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") !== "success") return;
+    window.history.replaceState(null, "", window.location.pathname);
+    initialTierRef.current = currentTier;
+    setState("activating");
+    // Deliberately runs once on mount only -- currentTier is captured via
+    // initialTierRef, not re-read as a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (state !== "activating") return;
+    let attempts = 0;
+    const id = setInterval(() => {
+      attempts++;
+      if (initialTierRef.current !== null && tierRef.current !== initialTierRef.current) {
+        clearInterval(id);
+        setState("done");
+        return;
+      }
+      if (attempts >= 10) {
+        clearInterval(id);
+        setState("timeout");
+        return;
+      }
+      sessionStore.refresh();
+    }, 2000);
+    return () => clearInterval(id);
+  }, [state]);
+
+  return state;
+}
+
+function ActivationBanner({ state, onDismiss }: { state: ActivationState; onDismiss: () => void }) {
+  if (state === "idle") return null;
+  return (
+    <div
+      className={cn(
+        "mb-6 rounded-lg border p-3 flex items-center justify-between gap-3",
+        state === "done" ? "bg-confident/10 border-confident/30" : "bg-card/60",
+      )}
+    >
+      <div className="flex items-center gap-2 text-sm">
+        {state === "activating" && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+        {state === "done" && <CheckCircle2 className="size-4 text-confident" />}
+        {state === "timeout" && <Info className="size-4 text-muted-foreground" />}
+        <span>
+          {state === "activating" && "Payment received — activating your plan. This usually takes a few seconds."}
+          {state === "done" && "Your plan is active."}
+          {state === "timeout" && "Payment received — still finishing setup. Refresh in a minute if this doesn't update."}
+        </span>
+      </div>
+      <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground transition" aria-label="Dismiss">
+        <X className="size-4" />
+      </button>
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -49,6 +122,8 @@ function DashboardPage() {
   const navigate = useNavigate();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
+  const activation = useCheckoutActivation(s.tier);
+  const [activationDismissed, setActivationDismissed] = useState(false);
 
   const remaining = s.tier === "free" ? Math.max(0, FREE_LIMIT - s.projects.length) : Infinity;
 
@@ -111,6 +186,10 @@ function DashboardPage() {
             </Button>
           </div>
         </div>
+
+        {!activationDismissed && (
+          <ActivationBanner state={activation} onDismiss={() => setActivationDismissed(true)} />
+        )}
 
         {s.tier === "free" && (
           <div className="mb-6 rounded-lg border bg-card/60 p-3 flex items-center justify-between gap-3">

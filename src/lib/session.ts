@@ -624,6 +624,13 @@ export const sessionStore = {
     if (error) throw error;
     notify();
   },
+
+  /** Re-runs every mounted useSession()'s fetchOrgs/fetchProjects. Used to
+   *  poll for the tier flip after a LemonSqueezy checkout redirect, since
+   *  the webhook that actually writes organizations.tier lands async. */
+  refresh(): void {
+    notify();
+  },
 };
 
 /** Public, unauthenticated read for the /share/$token route. Returns null for
