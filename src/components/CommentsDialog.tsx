@@ -43,6 +43,7 @@ export function CommentsDialog({ projectId }: { projectId: string }) {
     setPosting(true);
     try {
       await sessionStore.addComment(projectId, session.userId, body);
+      if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "comment_posted", projectId);
       setBody("");
       load();
     } catch (err) {

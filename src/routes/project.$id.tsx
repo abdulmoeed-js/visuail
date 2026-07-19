@@ -197,6 +197,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
 
       await sessionStore.updateProject(project.id, { canvases: nextCanvases });
       await sessionStore.saveSnapshot(project.id, nextCanvases, "drift_recheck", session.userId);
+      if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "drift_recheck", project.id);
       navigateDrift({ to: "/project/$id", params: { id: project.id }, replace: true });
     } catch (err) {
       alert(err instanceof Error ? err.message : "Couldn't re-check for drift. Try again.");
@@ -228,6 +229,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
     try {
       if (format === "png") await exportElementToPng(`${safe || "visuail"}-${suffix}.png`, el);
       else await exportElementToSvg(`${safe || "visuail"}-${suffix}.svg`, el);
+      if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "export_used", project.id, { format });
     } catch (e) {
       console.error(e); alert(`${format.toUpperCase()} export failed. See console for details.`);
     } finally {
@@ -252,6 +254,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
       }));
       const safe = project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
       await exportSectionsToPdf(`${safe || "visuail-project"}.pdf`, sections);
+      if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "export_used", project.id, { format: "pdf" });
     } catch (e) {
       console.error(e); alert("PDF export failed. See console for details.");
     } finally {
@@ -666,6 +669,7 @@ function AddSourceDialog({ project }: { project: StoredProject }) {
       alert(err instanceof Error ? err.message : "Extraction failed. Try again.");
       return;
     }
+    if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "extraction_run", project.id, { sourceCount: allSources.length });
     const canvases: { kind: ArtifactKind; model: ArtifactModel }[] = [];
     for (const kind of project.kinds) {
       const models: ArtifactModel[] = [];

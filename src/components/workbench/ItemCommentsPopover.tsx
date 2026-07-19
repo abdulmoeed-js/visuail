@@ -51,6 +51,7 @@ export function ItemCommentsPopover({ projectId, itemId, count, onCountChange }:
     setPosting(true);
     try {
       await sessionStore.addComment(projectId, session.userId, body, itemId);
+      if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "comment_posted", projectId, { itemId });
       setBody("");
       onCountChange(itemId, 1);
       load();

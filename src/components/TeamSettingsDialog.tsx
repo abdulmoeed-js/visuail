@@ -9,8 +9,18 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Loader2, UserPlus, X, Crown, Sparkles } from "lucide-react";
+import { Loader2, UserPlus, X, Crown, Sparkles, BarChart3 } from "lucide-react";
 import { sessionStore, useSession, type Org, type OrgMember, type PendingInvite } from "@/lib/session";
+
+const EVENT_LABEL: Record<string, string> = {
+  project_created: "Projects created",
+  extraction_run: "Extractions run",
+  drift_recheck: "Drift re-checks",
+  export_used: "Exports",
+  comment_posted: "Comments posted",
+  share_link_created: "Share links created",
+  member_invited: "Members invited",
+};
 
 interface Props {
   open: boolean;
@@ -27,6 +37,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
   const [email, setEmail] = useState("");
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<Record<string, number> | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -34,6 +45,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
       .then(([m, i]) => { setMembers(m); setInvites(i); })
       .catch(() => { setMembers([]); setInvites([]); })
       .finally(() => setLoading(false));
+    sessionStore.getUsageSummary(org.id).then(setUsage).catch(() => setUsage({}));
   };
 
   const invite = async (e: React.FormEvent) => {
@@ -43,6 +55,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
     setError(null);
     try {
       await sessionStore.inviteMember(org.id, email.trim(), session.userId);
+      sessionStore.trackEvent(org.id, session.userId, "member_invited");
       setEmail("");
       load();
     } catch (err) {
@@ -77,6 +90,22 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
               : "Shared workspaces are a Team-tier feature."}
           </DialogDescription>
         </DialogHeader>
+
+        {usage && Object.keys(usage).length > 0 && (
+          <div className="rounded-lg border bg-card p-3 mb-1">
+            <div className="flex items-center gap-1.5 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-2">
+              <BarChart3 className="size-3" /> Last 30 days
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+              {Object.entries(usage).map(([type, count]) => (
+                <div key={type} className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{EVENT_LABEL[type] ?? type}</span>
+                  <span className="font-mono-tight font-medium">{count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {org.tier !== "team" ? (
           <div className="text-center py-6">

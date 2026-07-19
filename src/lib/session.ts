@@ -61,6 +61,10 @@ export interface PendingInvite {
   createdAt: number;
 }
 
+export type UsageEventType =
+  | "project_created" | "extraction_run" | "drift_recheck" | "export_used"
+  | "comment_posted" | "share_link_created" | "member_invited";
+
 export interface ShareLink {
   id: string;
   token: string;
@@ -531,6 +535,33 @@ export const sessionStore = {
       .eq("id", id);
     if (error) throw error;
     notify();
+  },
+
+  /** Fire-and-forget usage tracking. Never blocks or throws into the caller
+   *  -- a missed event isn't worth surfacing an error over. */
+  trackEvent(orgId: string, userId: string | undefined, eventType: UsageEventType, projectId?: string, metadata?: Record<string, unknown>): void {
+    supabase.from("usage_events").insert({
+      org_id: orgId, user_id: userId ?? null, project_id: projectId ?? null,
+      event_type: eventType, metadata: metadata ?? {},
+    }).then(({ error }) => {
+      if (error) console.error("[session] trackEvent failed", eventType, error);
+    });
+  },
+
+  /** Event counts for the last N days, grouped by type -- the whole of "basic observability" for now. */
+  async getUsageSummary(orgId: string, days = 30): Promise<Record<string, number>> {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from("usage_events")
+      .select("event_type")
+      .eq("org_id", orgId)
+      .gte("created_at", since);
+    if (error) throw error;
+    const counts: Record<string, number> = {};
+    for (const row of (data as { event_type: string }[] | null) ?? []) {
+      counts[row.event_type] = (counts[row.event_type] ?? 0) + 1;
+    }
+    return counts;
   },
 };
 

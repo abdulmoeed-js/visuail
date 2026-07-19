@@ -39,6 +39,7 @@ export function ShareLinkDialog({ open, onOpenChange, projectId }: Props) {
     setCreating(true);
     try {
       await sessionStore.createShareLink(projectId, session.userId, includeSources);
+      if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "share_link_created", projectId);
       load();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Couldn't create a share link. Try again.");

@@ -108,6 +108,7 @@ function NewProjectPage() {
         setError(err instanceof Error ? err.message : "Extraction failed. Try again.");
         return;
       }
+      if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "extraction_run", undefined, { sourceCount: readySources.length });
       let refusalReason: string | null = null;
       for (const kind of kinds) {
         const models: ArtifactModel[] = [];
@@ -173,6 +174,7 @@ function NewProjectPage() {
         // Best-effort -- a missed first snapshot isn't worth blocking project creation over.
         sessionStore.saveSnapshot(project.id, canvases, "manual_save", session.userId).catch(() => {});
       }
+      sessionStore.trackEvent(session.currentOrgId, session.userId, "project_created", project.id, { mode });
       navigate({ to: "/project/$id", params: { id: project.id } });
     } catch (err) {
       setCreating(false);
