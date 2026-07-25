@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
+import { MentionTextarea } from "@/components/MentionTextarea";
 import { Button } from "@/components/ui/button";
 import { Loader2, MessageSquare, Send, Trash2 } from "lucide-react";
 import { sessionStore, useSession, type ProjectComment } from "@/lib/session";
@@ -61,7 +61,7 @@ export function ItemCommentsPopover({ projectId, itemId, count, onCountChange, a
     if (!body.trim() || posting || !session.userId) return;
     setPosting(true);
     try {
-      await sessionStore.addComment(projectId, session.userId, body, itemId);
+      await sessionStore.addComment(projectId, session.userId, body, itemId, session.currentOrgId);
       if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "comment_posted", projectId, { itemId });
       setBody("");
       onCountChange(itemId, 1);
@@ -123,9 +123,9 @@ export function ItemCommentsPopover({ projectId, itemId, count, onCountChange, a
           )}
         </div>
         <div className="flex gap-1.5 p-2 border-t">
-          <Textarea
-            value={body} onChange={(e) => setBody(e.target.value)}
-            placeholder="Comment on this item…" className="min-h-[44px] text-xs"
+          <MentionTextarea
+            value={body} onChange={setBody} orgId={session.currentOrgId}
+            placeholder="Comment on this item… (@ to mention)" className="min-h-[44px] text-xs"
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) post(); }}
           />
           <Button size="sm" onClick={post} disabled={posting || !body.trim()} className="self-end shrink-0 h-8 w-8 p-0">

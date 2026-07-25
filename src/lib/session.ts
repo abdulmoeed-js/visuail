@@ -198,6 +198,29 @@ interface OrgMemberRow {
   organizations: { id: string; name: string; tier: Tier; is_personal: boolean; notification_email: string | null } | null;
 }
 
+/** Extracts every distinct @token from a comment body, e.g.
+ *  "hey @moeed.ashraf can you check this" -> ["moeed.ashraf"]. */
+function matchMentionTokens(body: string): string[] {
+  const tokens = new Set<string>();
+  const re = /@([\w.+-]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body))) tokens.add(m[1]);
+  return [...tokens];
+}
+
+/** Resolves a mention token against an org's member list by the local part
+ *  of their email (the part before @) -- exact match wins; otherwise the
+ *  token must be an unambiguous prefix of exactly one member, so a short
+ *  typo-prone token never silently pings the wrong person. */
+function matchMemberByToken(token: string, members: OrgMember[]): OrgMember | undefined {
+  const t = token.toLowerCase();
+  const localPart = (email: string) => email.split("@")[0].toLowerCase();
+  const exact = members.find((m) => localPart(m.email) === t);
+  if (exact) return exact;
+  const prefixMatches = members.filter((m) => localPart(m.email).startsWith(t));
+  return prefixMatches.length === 1 ? prefixMatches[0] : undefined;
+}
+
 async function fetchOrgs(userId: string): Promise<Org[]> {
   const { data, error } = await supabase
     .from("organization_members")
@@ -550,12 +573,54 @@ export const sessionStore = {
       }));
   },
 
-  async addComment(projectId: string, userId: string, body: string, itemId: string | null = null): Promise<void> {
-    const { error } = await supabase
+  /** orgId is only used to resolve @mention tokens against that org's
+   *  member list -- the comment itself is still scoped by projectId as
+   *  before. Parsing happens here (not in the composer) so it runs
+   *  identically regardless of whether the mention was typed by hand or
+   *  inserted via the autocomplete dropdown. */
+  async addComment(projectId: string, userId: string, body: string, itemId: string | null = null, orgId?: string): Promise<void> {
+    const trimmed = body.trim();
+    const { data, error } = await supabase
       .from("project_comments")
-      .insert({ project_id: projectId, user_id: userId, body: body.trim(), item_id: itemId });
+      .insert({ project_id: projectId, user_id: userId, body: trimmed, item_id: itemId })
+      .select("id")
+      .single();
     if (error) throw error;
     notify();
+
+    if (!orgId) return;
+    const tokens = matchMentionTokens(trimmed);
+    if (tokens.length === 0) return;
+    try {
+      const members = await sessionStore.listMembers(orgId);
+      const mentionedIds = new Set<string>();
+      for (const token of tokens) {
+        const member = matchMemberByToken(token, members);
+        if (member && member.userId !== userId) mentionedIds.add(member.userId);
+      }
+      if (mentionedIds.size === 0) return;
+      const commentId = (data as { id: string }).id;
+      await supabase.from("comment_mentions").insert(
+        [...mentionedIds].map((mentioned_user_id) => ({ comment_id: commentId, mentioned_user_id })),
+      );
+    } catch {
+      // Best-effort -- a missed mention notification isn't worth failing the comment post over.
+    }
+  },
+
+  /** Which of the given (already-fetched) comment ids tag this user --
+   *  used to highlight "mentioned you" entries in the dashboard inbox.
+   *  Takes comment ids directly rather than project ids + a join, since
+   *  callers only ever need this for a comment list they already have. */
+  async listMentionedCommentIds(userId: string, commentIds: string[]): Promise<Set<string>> {
+    if (commentIds.length === 0) return new Set();
+    const { data, error } = await supabase
+      .from("comment_mentions")
+      .select("comment_id")
+      .eq("mentioned_user_id", userId)
+      .in("comment_id", commentIds);
+    if (error) throw error;
+    return new Set((data as { comment_id: string }[] | null ?? []).map((r) => r.comment_id));
   },
 
   async deleteComment(commentId: string): Promise<void> {

@@ -580,27 +580,44 @@ function resolveItemText(project: StoredProject | undefined, itemId: string | nu
   return null;
 }
 
-/** Recent comments across every project in the org -- the "mentions" job
- *  without a formal @-mention parser (that's a separate, not-yet-built
- *  feature): you see who said what on your projects without having to open
- *  each one to check. The project route's /project/$id route has no typed
- *  search schema, so this navigates with a plain query string rather than
- *  the router's typed search API -- the same pattern the checkout-success
- *  redirect already uses elsewhere in this app. */
+/** Recent comments across every project in the org, with real @mentions
+ *  (parsed at post time in sessionStore.addComment) surfaced and sorted
+ *  first -- "someone tagged you" is a stronger signal than general recent
+ *  activity, so those entries bubble up with a highlight instead of being
+ *  buried in chronological order. The project route's /project/$id route
+ *  has no typed search schema, so this navigates with a plain query string
+ *  rather than the router's typed search API -- the same pattern the
+ *  checkout-success redirect already uses elsewhere in this app. */
 function InboxCard({ projects }: { projects: StoredProject[] }) {
+  const session = useSession();
   const [comments, setComments] = useState<
     { id: string; projectId: string; itemId: string | null; body: string; authorEmail: string; createdAt: number }[] | null
   >(null);
+  const [mentionedIds, setMentionedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    sessionStore.listRecentCommentsForProjects(projects.map((p) => p.id))
-      .then(setComments)
+    const projectIds = projects.map((p) => p.id);
+    const userId = session.userId;
+    sessionStore.listRecentCommentsForProjects(projectIds)
+      .then((list) => {
+        setComments(list);
+        if (userId) {
+          sessionStore.listMentionedCommentIds(userId, list.map((c) => c.id))
+            .then(setMentionedIds)
+            .catch(() => setMentionedIds(new Set()));
+        }
+      })
       .catch(() => setComments([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.map((p) => p.id).sort().join(",")]);
+  }, [projects.map((p) => p.id).sort().join(","), session.userId]);
 
   if (!comments || comments.length === 0) return null;
   const projectsById = new Map(projects.map((p) => [p.id, p]));
+  const sorted = [...comments].sort((a, b) => {
+    const am = mentionedIds.has(a.id) ? 1 : 0;
+    const bm = mentionedIds.has(b.id) ? 1 : 0;
+    return bm - am || b.createdAt - a.createdAt;
+  });
 
   return (
     <div className="rounded-xl border bg-card p-4">
@@ -608,9 +625,10 @@ function InboxCard({ projects }: { projects: StoredProject[] }) {
         <MessageSquare className="size-3" /> Inbox
       </div>
       <ul className="space-y-3">
-        {comments.map((c) => {
+        {sorted.map((c) => {
           const project = projectsById.get(c.projectId);
           const itemText = resolveItemText(project, c.itemId);
+          const mentioned = mentionedIds.has(c.id);
           return (
             <li key={c.id}>
               <button
@@ -618,10 +636,21 @@ function InboxCard({ projects }: { projects: StoredProject[] }) {
                   const path = `/project/${c.projectId}${c.itemId ? `?focusItem=${encodeURIComponent(c.itemId)}` : ""}`;
                   window.location.href = path;
                 }}
-                className="w-full text-left group"
+                className={cn(
+                  "w-full text-left group rounded-lg p-1.5 -m-1.5 transition",
+                  mentioned && "bg-primary/5 hover:bg-primary/10",
+                  !mentioned && "hover:bg-muted/60",
+                )}
               >
                 <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                  <span className="font-medium text-foreground truncate">{c.authorEmail}</span>
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-medium text-foreground truncate">{c.authorEmail}</span>
+                    {mentioned && (
+                      <span className="shrink-0 rounded-full bg-primary/15 text-primary px-1.5 py-0.5 text-[9px] font-mono-tight uppercase tracking-wide">
+                        @you
+                      </span>
+                    )}
+                  </span>
                   <span className="shrink-0">{fmtRel(c.createdAt)}</span>
                 </div>
                 <p className="text-xs text-foreground/90 line-clamp-2 mt-0.5 group-hover:text-primary transition">

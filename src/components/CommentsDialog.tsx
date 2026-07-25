@@ -6,7 +6,7 @@ import { useState } from "react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
+import { MentionTextarea } from "@/components/MentionTextarea";
 import { Button } from "@/components/ui/button";
 import { Loader2, MessageSquare, Send, Trash2 } from "lucide-react";
 import { sessionStore, useSession, type ProjectComment } from "@/lib/session";
@@ -42,7 +42,7 @@ export function CommentsDialog({ projectId }: { projectId: string }) {
     if (!body.trim() || posting || !session.userId) return;
     setPosting(true);
     try {
-      await sessionStore.addComment(projectId, session.userId, body);
+      await sessionStore.addComment(projectId, session.userId, body, null, session.currentOrgId);
       if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "comment_posted", projectId);
       setBody("");
       load();
@@ -99,9 +99,9 @@ export function CommentsDialog({ projectId }: { projectId: string }) {
         )}
 
         <div className="flex gap-2 pt-2 border-t">
-          <Textarea
-            value={body} onChange={(e) => setBody(e.target.value)}
-            placeholder="Add a comment…" className="min-h-[60px] text-sm"
+          <MentionTextarea
+            value={body} onChange={setBody} orgId={session.currentOrgId}
+            placeholder="Add a comment… (@ to mention)" className="min-h-[60px] text-sm"
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) post(); }}
           />
           <Button size="sm" onClick={post} disabled={posting || !body.trim()} className="self-end shrink-0">
