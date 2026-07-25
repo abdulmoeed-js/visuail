@@ -268,7 +268,7 @@ function RefusedState({ reason, onRetry }: { reason: string; onRetry: () => void
  */
 export function ArtifactView({
   editing, stats: st, onPublish, canvasRef, extraHeaderRight,
-  projectId, commentCounts, onCommentCountChange,
+  projectId, commentCounts, onCommentCountChange, focusItemId,
 }: {
   editing: ArtifactEditing;
   stats: ReturnType<typeof stats>;
@@ -279,12 +279,15 @@ export function ArtifactView({
   projectId?: string;
   commentCounts?: Record<string, number>;
   onCommentCountChange?: (itemId: string, delta: number) => void;
+  /** Arriving from the dashboard's comments inbox -- lands on the Items tab
+   *  with the relevant row scrolled to and its thread opened. */
+  focusItemId?: string;
 }) {
   const { model, drifted } = editing;
   const avgPct = Math.round(st.avg * 100);
   const avgTone = avgPct >= 85 ? "text-confident" : avgPct >= 70 ? "text-unresolved" : "text-drift";
   const drift = drifted ? driftSummary(model) : { count: 0, label: "" };
-  const [tab, setTab] = useState<ArtifactTab>("artifact");
+  const [tab, setTab] = useState<ArtifactTab>(focusItemId ? "items" : "artifact");
 
   const tabs: { value: ArtifactTab; label: ReactNode }[] = [
     { value: "artifact", label: model.kind === "process" ? "Process map" : "Canvas" },
@@ -400,11 +403,11 @@ export function ArtifactView({
             <div className="p-4 space-y-4">
               {model.kind === "process" ? (
                 <div className="grid gap-4 md:grid-cols-2">
-                  <ItemGroup title="Actors" items={model.actors} onAdd={editing.onAddActor} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} />
-                  <ItemGroup title="Systems" items={model.systems} onAdd={editing.onAddSystem} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} />
-                  <ItemGroup title="Steps" items={model.steps} onAdd={editing.onAddStep} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} />
-                  <ItemGroup title="Decisions" items={model.decisions} onAdd={editing.onAddDecision} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} />
-                  <ItemGroup title="Exceptions" items={model.exceptions} onAdd={editing.onAddException} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} />
+                  <ItemGroup title="Actors" items={model.actors} onAdd={editing.onAddActor} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} focusItemId={focusItemId} />
+                  <ItemGroup title="Systems" items={model.systems} onAdd={editing.onAddSystem} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} focusItemId={focusItemId} />
+                  <ItemGroup title="Steps" items={model.steps} onAdd={editing.onAddStep} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} focusItemId={focusItemId} />
+                  <ItemGroup title="Decisions" items={model.decisions} onAdd={editing.onAddDecision} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} focusItemId={focusItemId} />
+                  <ItemGroup title="Exceptions" items={model.exceptions} onAdd={editing.onAddException} onDelete={editing.onDeleteAny} onEdit={(id, t) => editing.onUpdateItem(id, { text: t })} projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange} focusItemId={focusItemId} />
                 </div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-3">
@@ -418,6 +421,7 @@ export function ArtifactView({
                         onEdit={(id, t) => editing.onUpdateItem(id, { text: t })}
                         compact showIds={false}
                         projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange}
+                        focusItemId={focusItemId}
                       />
                     </div>
                   ))}
@@ -473,7 +477,7 @@ function MetricBlock({ label, value, tone }: { label: string; value: string; ton
   );
 }
 
-function ItemGroup({ title, items, onAdd, onDelete, onEdit, projectId, commentCounts, onCommentCountChange }: {
+function ItemGroup({ title, items, onAdd, onDelete, onEdit, projectId, commentCounts, onCommentCountChange, focusItemId }: {
   title: string; items: BaseItem[];
   onAdd: (t: string) => void;
   onDelete: (id: string) => void;
@@ -481,6 +485,7 @@ function ItemGroup({ title, items, onAdd, onDelete, onEdit, projectId, commentCo
   projectId?: string;
   commentCounts?: Record<string, number>;
   onCommentCountChange?: (itemId: string, delta: number) => void;
+  focusItemId?: string;
 }) {
   return (
     <div className="rounded-lg border bg-card p-3">
@@ -491,6 +496,7 @@ function ItemGroup({ title, items, onAdd, onDelete, onEdit, projectId, commentCo
       <EditableList
         items={items} onAdd={onAdd} onDelete={onDelete} onEdit={onEdit} compact
         projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange}
+        focusItemId={focusItemId}
       />
     </div>
   );

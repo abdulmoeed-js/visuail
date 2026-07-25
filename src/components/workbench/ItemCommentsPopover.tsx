@@ -3,7 +3,7 @@
 // component doing double duty -- this one is a lightweight popover meant to
 // sit inline next to a list item, not a full dialog.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -28,11 +28,15 @@ interface Props {
   count: number;
   /** Called after a post/delete changes the count, so the parent's badge stays in sync without a full refetch. */
   onCountChange: (itemId: string, delta: number) => void;
+  /** Set when arriving here from the dashboard's comments inbox, to land
+   *  the user directly in the thread the notification was about rather
+   *  than just the item's row. */
+  autoOpen?: boolean;
 }
 
-export function ItemCommentsPopover({ projectId, itemId, count, onCountChange }: Props) {
+export function ItemCommentsPopover({ projectId, itemId, count, onCountChange, autoOpen }: Props) {
   const session = useSession();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!autoOpen);
   const [loading, setLoading] = useState(false);
   const [comments, setComments] = useState<ProjectComment[]>([]);
   const [body, setBody] = useState("");
@@ -45,6 +49,13 @@ export function ItemCommentsPopover({ projectId, itemId, count, onCountChange }:
       .catch(() => setComments([]))
       .finally(() => setLoading(false));
   };
+
+  // The onOpenChange handler below only fires on a user-driven open, so an
+  // autoOpen (already open on mount) needs its own load.
+  useEffect(() => {
+    if (autoOpen) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const post = async () => {
     if (!body.trim() || posting || !session.userId) return;

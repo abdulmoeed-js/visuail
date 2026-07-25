@@ -429,6 +429,23 @@ export const sessionStore = {
     notify();
   },
 
+  /** Dashboard-level: unnotified drift across every project in the current
+   *  org, not just one. Callers pass the org's own project id list rather
+   *  than this doing its own org lookup, since the dashboard already has
+   *  session.projects loaded. */
+  async listRecentDriftAlertsForProjects(projectIds: string[]): Promise<(DriftAlert & { projectId: string })[]> {
+    if (projectIds.length === 0) return [];
+    const { data, error } = await supabase
+      .from("drift_alerts")
+      .select("id, project_id, detected_at, drifted_summary")
+      .in("project_id", projectIds)
+      .is("notified_at", null)
+      .order("detected_at", { ascending: false });
+    if (error) throw error;
+    return ((data as { id: string; project_id: string; detected_at: string; drifted_summary: DriftAlert["summary"] }[] | null) ?? [])
+      .map((r) => ({ id: r.id, projectId: r.project_id, detectedAt: new Date(r.detected_at).getTime(), summary: r.drifted_summary }));
+  },
+
   async listMembers(orgId: string): Promise<OrgMember[]> {
     const { data, error } = await supabase
       .from("organization_members")
@@ -508,6 +525,29 @@ export const sessionStore = {
       counts[row.item_id] = (counts[row.item_id] ?? 0) + 1;
     }
     return counts;
+  },
+
+  /** Dashboard inbox: most recent comments across every project in the
+   *  current org, regardless of author -- this is "what's been said on my
+   *  stuff," not just "what I said." itemId null means the project-wide
+   *  thread rather than one canvas item. */
+  async listRecentCommentsForProjects(projectIds: string[], limit = 8): Promise<
+    { id: string; projectId: string; itemId: string | null; body: string; authorEmail: string; createdAt: number }[]
+  > {
+    if (projectIds.length === 0) return [];
+    const { data, error } = await supabase
+      .from("project_comments")
+      .select("id, project_id, item_id, body, created_at, profiles(email)")
+      .in("project_id", projectIds)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return ((data as unknown as { id: string; project_id: string; item_id: string | null; body: string; created_at: string; profiles: { email: string } | null }[] | null) ?? [])
+      .map((r) => ({
+        id: r.id, projectId: r.project_id, itemId: r.item_id, body: r.body,
+        authorEmail: r.profiles?.email ?? "(unknown)",
+        createdAt: new Date(r.created_at).getTime(),
+      }));
   },
 
   async addComment(projectId: string, userId: string, body: string, itemId: string | null = null): Promise<void> {

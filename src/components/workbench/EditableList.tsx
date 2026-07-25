@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -23,15 +23,24 @@ interface Props {
   projectId?: string;
   commentCounts?: Record<string, number>;
   onCommentCountChange?: (itemId: string, delta: number) => void;
+  /** Set when arriving from the dashboard's comments inbox -- scrolls the
+   *  matching row into view, briefly highlights it, and opens its thread. */
+  focusItemId?: string;
 }
 
 export function EditableList({
   items, onAdd, onDelete, onEdit,
   placeholder = "Add item…", compact, showIds = true,
-  projectId, commentCounts, onCommentCountChange,
+  projectId, commentCounts, onCommentCountChange, focusItemId,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
+  const focusRef = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    if (focusItemId && focusRef.current) {
+      focusRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [focusItemId]);
 
   const submit = () => {
     const t = draft.trim();
@@ -45,11 +54,13 @@ export function EditableList({
       {items.map((item) => (
         <li
           key={item.id}
+          ref={item.id === focusItemId ? focusRef : undefined}
           className={cn(
             "group relative flex items-start gap-2 rounded-md border bg-card px-2.5 py-1.5 text-sm animate-item-in",
             item.confidence < 0.7 && !item.userAdded && "border-dashed border-unresolved/60 bg-unresolved/5",
             (item.drift || item.conflict) && "border-drift bg-drift/5 animate-drift",
             item.userAdded && "user-added",
+            item.id === focusItemId && "ring-2 ring-primary ring-offset-2 ring-offset-background",
           )}
         >
           {showIds && <IdChip id={item.id} />}
@@ -78,6 +89,7 @@ export function EditableList({
               projectId={projectId} itemId={item.id}
               count={commentCounts?.[item.id] ?? 0}
               onCountChange={onCommentCountChange ?? (() => {})}
+              autoOpen={item.id === focusItemId}
             />
           )}
           <button

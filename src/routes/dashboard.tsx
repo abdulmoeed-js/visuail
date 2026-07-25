@@ -5,12 +5,12 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Nav } from "@/components/Nav";
-import { useSession, sessionStore, FREE_LIMIT, type StoredProject, type Tier } from "@/lib/session";
+import { useSession, sessionStore, FREE_LIMIT, type StoredProject, type Tier, type DriftAlert } from "@/lib/session";
 import { allItems } from "@/data/samples";
 import {
   FolderPlus, Workflow, LayoutGrid, ArrowUpRight, Trash2, ShieldCheck,
   Clock, Info, Loader2, LogIn, CheckCircle2, X, MoreHorizontal,
-  Pencil, ExternalLink, AlertTriangle, LayoutTemplate,
+  Pencil, ExternalLink, AlertTriangle, LayoutTemplate, MessageSquare,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckoutModal } from "@/components/CheckoutModal";
@@ -73,6 +73,83 @@ function ActivationBanner({ state, onDismiss }: { state: ActivationState; onDism
       <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground transition" aria-label="Dismiss">
         <X className="size-4" />
       </button>
+    </div>
+  );
+}
+
+/* ───────────────────────── Needs review (drift) ───────────────────────── */
+
+function driftItemCount(a: DriftAlert): number {
+  return a.summary.reduce((n, s) => n + s.changed.length + s.added.length + s.removed.length, 0);
+}
+
+/** Dashboard-wide surface for the scheduled background drift scan -- the
+ *  product's actual differentiator ("diagrams that know when they're
+ *  stale"), so it leads the page instead of being buried inside each
+ *  project. Detection only: clicking through lands on the existing
+ *  per-project drift banner, which is where reconciling into the canvas
+ *  actually happens -- this never touches a canvas itself. */
+function NeedsReviewStrip({ projects }: { projects: StoredProject[] }) {
+  const [alerts, setAlerts] = useState<(DriftAlert & { projectId: string })[] | null>(null);
+
+  useEffect(() => {
+    sessionStore.listRecentDriftAlertsForProjects(projects.map((p) => p.id))
+      .then(setAlerts)
+      .catch(() => setAlerts([]));
+    // Re-fetch when the actual set of projects changes, not on every
+    // session refetch that leaves the id set identical.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects.map((p) => p.id).sort().join(",")]);
+
+  if (!alerts || alerts.length === 0) return null;
+
+  // Multiple accumulated alerts can exist per project (one per scan day);
+  // show one entry per project, keyed to its most recent detection.
+  const byProject = new Map<string, DriftAlert & { projectId: string }>();
+  for (const a of alerts) {
+    const existing = byProject.get(a.projectId);
+    if (!existing || a.detectedAt > existing.detectedAt) byProject.set(a.projectId, a);
+  }
+  const entries = [...byProject.values()].sort((a, b) => b.detectedAt - a.detectedAt);
+  const projectsById = new Map(projects.map((p) => [p.id, p]));
+
+  return (
+    <div className="relative mb-6 overflow-hidden rounded-2xl border border-drift/30 bg-gradient-to-br from-drift/10 via-drift/[0.04] to-transparent p-4 sm:p-5">
+      <div
+        className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-40 blur-2xl"
+        style={{ background: "radial-gradient(circle, color-mix(in oklab, var(--drift) 35%, transparent), transparent 70%)" }}
+      />
+      <div className="relative flex items-center gap-3 mb-3.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-drift/15 text-drift">
+          <AlertTriangle className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-[10px] font-mono-tight uppercase tracking-widest text-drift">Needs review</div>
+          <h2 className="font-display text-lg leading-tight truncate">
+            {entries.length} project{entries.length === 1 ? "" : "s"} drifted from source
+          </h2>
+        </div>
+      </div>
+      <div className="relative flex flex-wrap gap-2">
+        {entries.map((entry) => {
+          const project = projectsById.get(entry.projectId);
+          const itemCount = driftItemCount(entry);
+          return (
+            <Link
+              key={entry.projectId}
+              to="/project/$id"
+              params={{ id: entry.projectId }}
+              className="group inline-flex items-center gap-2 rounded-xl border border-drift/30 bg-card/90 px-3 py-2 text-sm transition hover:border-drift hover:shadow-sm"
+            >
+              <span className="font-medium truncate max-w-[180px]">{project?.name ?? "Project"}</span>
+              <span className="text-[11px] font-mono-tight text-drift shrink-0">
+                {itemCount} change{itemCount === 1 ? "" : "s"} · {fmtRel(entry.detectedAt)}
+              </span>
+              <ArrowUpRight className="size-3.5 text-muted-foreground shrink-0 transition group-hover:text-drift group-hover:translate-x-0.5" />
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -206,6 +283,8 @@ function DashboardPage() {
           </div>
         </header>
 
+        {s.projects.length > 0 && <NeedsReviewStrip projects={s.projects} />}
+
         {!activationDismissed && (
           <ActivationBanner state={activation} onDismiss={() => setActivationDismissed(true)} />
         )}
@@ -251,6 +330,7 @@ function DashboardPage() {
             {/* ── Right rail ─────────────────────────────────── */}
             <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
               {s.tier !== "free" && <PlanCard tier={s.tier} />}
+              <InboxCard projects={s.projects} />
               <TipsCard onNew={startNew} />
             </aside>
           </div>
@@ -485,6 +565,76 @@ function PlanCard({ tier }: { tier: Tier }) {
       <p className="text-xs text-muted-foreground mt-1">
         Unlimited projects, drift detection, version history, and source traceability are on.
       </p>
+    </div>
+  );
+}
+
+/* ───────────────────────── Inbox (comments) ───────────────────────── */
+
+function resolveItemText(project: StoredProject | undefined, itemId: string | null): string | null {
+  if (!project || !itemId) return null;
+  for (const c of project.canvases) {
+    const hit = allItems(c.model).find((i) => i.id === itemId);
+    if (hit) return hit.text;
+  }
+  return null;
+}
+
+/** Recent comments across every project in the org -- the "mentions" job
+ *  without a formal @-mention parser (that's a separate, not-yet-built
+ *  feature): you see who said what on your projects without having to open
+ *  each one to check. The project route's /project/$id route has no typed
+ *  search schema, so this navigates with a plain query string rather than
+ *  the router's typed search API -- the same pattern the checkout-success
+ *  redirect already uses elsewhere in this app. */
+function InboxCard({ projects }: { projects: StoredProject[] }) {
+  const [comments, setComments] = useState<
+    { id: string; projectId: string; itemId: string | null; body: string; authorEmail: string; createdAt: number }[] | null
+  >(null);
+
+  useEffect(() => {
+    sessionStore.listRecentCommentsForProjects(projects.map((p) => p.id))
+      .then(setComments)
+      .catch(() => setComments([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects.map((p) => p.id).sort().join(",")]);
+
+  if (!comments || comments.length === 0) return null;
+  const projectsById = new Map(projects.map((p) => [p.id, p]));
+
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="flex items-center gap-1.5 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-2">
+        <MessageSquare className="size-3" /> Inbox
+      </div>
+      <ul className="space-y-3">
+        {comments.map((c) => {
+          const project = projectsById.get(c.projectId);
+          const itemText = resolveItemText(project, c.itemId);
+          return (
+            <li key={c.id}>
+              <button
+                onClick={() => {
+                  const path = `/project/${c.projectId}${c.itemId ? `?focusItem=${encodeURIComponent(c.itemId)}` : ""}`;
+                  window.location.href = path;
+                }}
+                className="w-full text-left group"
+              >
+                <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground truncate">{c.authorEmail}</span>
+                  <span className="shrink-0">{fmtRel(c.createdAt)}</span>
+                </div>
+                <p className="text-xs text-foreground/90 line-clamp-2 mt-0.5 group-hover:text-primary transition">
+                  {c.body}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                  on {itemText ? `"${itemText}"` : "the project thread"} · {project?.name ?? "Project"}
+                </p>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

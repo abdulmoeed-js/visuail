@@ -136,6 +136,24 @@ function ProjectShell({ project }: { project: StoredProject }) {
   useEffect(() => {
     if (!active && panes.length > 0) setActive(panes[0].key);
   }, [active, panes]);
+
+  // Arriving from the dashboard's comments inbox: jump to whichever pane
+  // actually contains the linked item and hand it down so that pane opens
+  // the right thread. Cleared once panes has a chance to render with it, so
+  // switching tabs afterward doesn't keep re-scrolling/re-opening.
+  const [focusItemId, setFocusItemId] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const itemId = params.get("focusItem");
+    if (!itemId) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    const pane = panes.find((p) => allItems(p.initial).some((i) => i.id === itemId));
+    if (!pane) return;
+    setActive(pane.key);
+    setFocusItemId(itemId);
+    // Runs once panes are actually populated, not on every panes identity change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panes.length > 0]);
   const [exporting, setExporting] = useState(false);
   const paneRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const editingModelsRef = useRef<Record<string, ArtifactModel>>({});
@@ -460,6 +478,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
                   projectId={project.id}
                   commentCounts={commentCounts}
                   onCommentCountChange={onCommentCountChange}
+                  focusItemId={pane.key === active ? (focusItemId ?? undefined) : undefined}
                 />
               ))}
             </div>
@@ -473,7 +492,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
 }
 
 function CanvasPaneMount({
-  pane, visible, onPublish, registerRef, onModelChange, projectId, commentCounts, onCommentCountChange,
+  pane, visible, onPublish, registerRef, onModelChange, projectId, commentCounts, onCommentCountChange, focusItemId,
 }: {
   pane: CanvasPane; visible: boolean;
   onPublish: (action: string) => void;
@@ -482,6 +501,7 @@ function CanvasPaneMount({
   projectId: string;
   commentCounts: Record<string, number>;
   onCommentCountChange: (itemId: string, delta: number) => void;
+  focusItemId?: string;
 }) {
   const editing = useArtifactEditing(pane.initial, { channelName: `project:${projectId}:${pane.kind}` });
   const st = stats(editing.model);
@@ -501,6 +521,7 @@ function CanvasPaneMount({
       <ArtifactView
         editing={editing} stats={st} onPublish={onPublish}
         projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange}
+        focusItemId={focusItemId}
       />
     </div>
   );
