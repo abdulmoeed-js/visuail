@@ -9,8 +9,8 @@ import { useSession, sessionStore, FREE_LIMIT, type StoredProject, type Tier } f
 import { allItems } from "@/data/samples";
 import {
   FolderPlus, Workflow, LayoutGrid, ArrowUpRight, Trash2, ShieldCheck,
-  Clock, Sparkles, Info, Loader2, LogIn, CheckCircle2, X, MoreHorizontal,
-  Pencil, ExternalLink, AlertTriangle, LayoutTemplate, Zap,
+  Clock, Info, Loader2, LogIn, CheckCircle2, X, MoreHorizontal,
+  Pencil, ExternalLink, AlertTriangle, LayoutTemplate,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckoutModal } from "@/components/CheckoutModal";
@@ -117,7 +117,6 @@ function DashboardPage() {
   const activation = useCheckoutActivation(s.tier);
   const [activationDismissed, setActivationDismissed] = useState(false);
 
-  const remaining = s.tier === "free" ? Math.max(0, FREE_LIMIT - s.projects.length) : Infinity;
   const quotaPct = s.tier === "free" ? Math.min(100, (s.projects.length / FREE_LIMIT) * 100) : 0;
 
   const startNew = () => {
@@ -251,15 +250,7 @@ function DashboardPage() {
 
             {/* ── Right rail ─────────────────────────────────── */}
             <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-              {s.tier === "free" ? (
-                <UpgradeCard
-                  used={s.projects.length}
-                  remaining={remaining as number}
-                  onUpgrade={() => setUpgradeOpen(true)}
-                />
-              ) : (
-                <PlanCard tier={s.tier} />
-              )}
+              {s.tier !== "free" && <PlanCard tier={s.tier} />}
               <TipsCard onNew={startNew} />
             </aside>
           </div>
@@ -482,34 +473,6 @@ function KindChips({ kinds, fromScratch }: { kinds: StoredProject["kinds"]; from
 }
 
 /* ───────────────────────── Right rail ───────────────────────── */
-
-function UpgradeCard({ used, remaining, onUpgrade }: { used: number; remaining: number; onUpgrade: () => void }) {
-  const pct = Math.min(100, (used / FREE_LIMIT) * 100);
-  return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary mb-1">
-        Free plan
-      </div>
-      <h3 className="font-display text-lg leading-tight">
-        {remaining === 0 ? "You've hit the free cap." : `${remaining} project${remaining === 1 ? "" : "s"} left.`}
-      </h3>
-      <div className="mt-3 space-y-1.5">
-        <Progress value={pct} className="h-1.5" />
-        <div className="flex justify-between text-[11px] font-mono-tight text-muted-foreground tabular-nums">
-          <span>{used} used</span><span>{FREE_LIMIT} total</span>
-        </div>
-      </div>
-      <ul className="mt-4 space-y-1.5 text-xs text-muted-foreground">
-        <li className="flex items-start gap-1.5"><Zap className="size-3 mt-0.5 text-primary" /> Unlimited projects</li>
-        <li className="flex items-start gap-1.5"><Zap className="size-3 mt-0.5 text-primary" /> Drift detection & reconciliation</li>
-        <li className="flex items-start gap-1.5"><Zap className="size-3 mt-0.5 text-primary" /> Version history</li>
-      </ul>
-      <Button size="sm" className="w-full mt-4" onClick={onUpgrade}>
-        <Sparkles className="size-3.5" /> Upgrade to Pro
-      </Button>
-    </div>
-  );
-}
 
 function PlanCard({ tier }: { tier: Tier }) {
   const label = tier === "pro" ? "Pro" : "Team";

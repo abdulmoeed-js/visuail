@@ -79,16 +79,16 @@ export function Nav() {
           <Logo />
           <span className="font-display text-xl tracking-tight">Visuail</span>
         </Link>
-        <nav className="hidden md:flex items-center gap-1 text-sm">
-          <button onClick={() => scrollTo("workbench")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Workbench</button>
-          <button onClick={() => scrollTo("why-not-miro")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">The maintenance problem</button>
-          <button onClick={() => scrollTo("pricing")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Pricing</button>
-          {session.signedIn && !onDashboard && (
-            <Link to="/dashboard" className="px-3 py-1.5 rounded-md hover:bg-muted transition inline-flex items-center gap-1.5">
-              <LayoutDashboard className="size-3.5" /> Dashboard
-            </Link>
-          )}
-        </nav>
+        {/* Marketing links only make sense for a signed-out visitor -- once
+         *  inside the app, this row would just be dead weight pointing back
+         *  at the landing page. */}
+        {!session.signedIn && (
+          <nav className="hidden md:flex items-center gap-1 text-sm">
+            <button onClick={() => scrollTo("workbench")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Workbench</button>
+            <button onClick={() => scrollTo("why-not-miro")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">The maintenance problem</button>
+            <button onClick={() => scrollTo("pricing")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Pricing</button>
+          </nav>
+        )}
 
         <div className="flex items-center gap-2">
           {session.signedIn && <OrgSwitcher session={session} />}
@@ -110,12 +110,14 @@ export function Nav() {
           </button>
           {session.signedIn ? (
             <>
-              <Link
-                to="/dashboard"
-                className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition inline-flex items-center gap-1.5"
-              >
-                <LayoutDashboard className="size-3.5" /> Dashboard
-              </Link>
+              {!onDashboard && (
+                <Link
+                  to="/dashboard"
+                  className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition inline-flex items-center gap-1.5"
+                >
+                  <LayoutDashboard className="size-3.5" /> Dashboard
+                </Link>
+              )}
               <button
                 onClick={() => { sessionStore.signOut(); router.navigate({ to: "/" }); }}
                 className="h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition"
