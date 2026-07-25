@@ -1,24 +1,24 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Nav } from "@/components/Nav";
 import { useSession, sessionStore, FREE_LIMIT, type StoredProject, type Tier } from "@/lib/session";
 import { allItems } from "@/data/samples";
 import {
   FolderPlus, Workflow, LayoutGrid, ArrowUpRight, Trash2, ShieldCheck,
-  Clock, Sparkles, Info, Loader2, LogIn, CheckCircle2, X,
+  Clock, Sparkles, Info, Loader2, LogIn, CheckCircle2, X, MoreHorizontal,
+  Pencil, ExternalLink, AlertTriangle, LayoutTemplate, Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { SignupWallModal } from "@/components/SignupWallModal";
 import { cn } from "@/lib/utils";
 
 type ActivationState = "idle" | "activating" | "done" | "timeout";
 
-/** Polls for the tier flip after a LemonSqueezy checkout redirect. The
- *  webhook that actually writes organizations.tier lands async (it's a
- *  separate request from LemonSqueezy, not part of the redirect), so we
- *  can't assume the new tier is visible the instant the user lands back
- *  on /dashboard. */
 function useCheckoutActivation(currentTier: Tier): ActivationState {
   const [state, setState] = useState<ActivationState>("idle");
   const initialTierRef = useRef<Tier | null>(null);
@@ -31,8 +31,6 @@ function useCheckoutActivation(currentTier: Tier): ActivationState {
     window.history.replaceState(null, "", window.location.pathname);
     initialTierRef.current = currentTier;
     setState("activating");
-    // Deliberately runs once on mount only -- currentTier is captured via
-    // initialTierRef, not re-read as a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -42,15 +40,9 @@ function useCheckoutActivation(currentTier: Tier): ActivationState {
     const id = setInterval(() => {
       attempts++;
       if (initialTierRef.current !== null && tierRef.current !== initialTierRef.current) {
-        clearInterval(id);
-        setState("done");
-        return;
+        clearInterval(id); setState("done"); return;
       }
-      if (attempts >= 10) {
-        clearInterval(id);
-        setState("timeout");
-        return;
-      }
+      if (attempts >= 10) { clearInterval(id); setState("timeout"); return; }
       sessionStore.refresh();
     }, 2000);
     return () => clearInterval(id);
@@ -126,12 +118,26 @@ function DashboardPage() {
   const [activationDismissed, setActivationDismissed] = useState(false);
 
   const remaining = s.tier === "free" ? Math.max(0, FREE_LIMIT - s.projects.length) : Infinity;
+  const quotaPct = s.tier === "free" ? Math.min(100, (s.projects.length / FREE_LIMIT) * 100) : 0;
 
   const startNew = () => {
     const check = sessionStore.canCreateProject(s.projects.length, s.tier);
     if (!check.ok) { setUpgradeOpen(true); return; }
     navigate({ to: "/new" });
   };
+
+  const { continueProject, needsAttention, rest } = useMemo(() => {
+    const sorted = [...s.projects].sort((a, b) => b.updatedAt - a.updatedAt);
+    const cont = sorted[0];
+    const others = sorted.slice(1);
+    const attn: StoredProject[] = [];
+    const remaining: StoredProject[] = [];
+    for (const p of others) {
+      const st = projectStats(p);
+      if (st.unresolved > 0) attn.push(p); else remaining.push(p);
+    }
+    return { continueProject: cont, needsAttention: attn, rest: remaining };
+  }, [s.projects]);
 
   if (s.loading) {
     return (
@@ -154,7 +160,7 @@ function DashboardPage() {
           </div>
           <h1 className="font-display text-2xl">Sign in to see your projects.</h1>
           <p className="text-muted-foreground text-sm mt-2 max-w-md mx-auto">
-            Projects are tied to your account now, not just this browser — so they follow you across devices.
+            Projects are tied to your account, not this browser — they follow you across devices.
           </p>
           <Button className="mt-6" onClick={() => setSignInOpen(true)}>
             <LogIn className="size-4" /> Sign in
@@ -169,53 +175,97 @@ function DashboardPage() {
     <div className="min-h-screen bg-background text-foreground">
       <Nav />
       <main className="mx-auto max-w-[1200px] px-4 pt-8 pb-24">
-        <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
-          <div>
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <header className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4 mb-8 sm:flex sm:flex-wrap sm:justify-between">
+          <div className="min-w-0">
             <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">
               Dashboard
             </div>
-            <h1 className="font-display text-3xl md:text-4xl mt-1">Your projects</h1>
-            <p className="text-muted-foreground text-sm mt-1 max-w-xl">
-              Signed in as {s.email}. Your projects follow you across devices now.
+            <h1 className="font-display text-3xl md:text-4xl mt-1 truncate">Your workspace</h1>
+            <p className="text-muted-foreground text-sm mt-1 truncate">
+              Signed in as {s.email}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
+            {s.tier === "free" && (
+              <div className="hidden md:flex flex-col items-end gap-1 mr-1">
+                <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+                  Free quota
+                </div>
+                <div className="flex items-center gap-2">
+                  <Progress value={quotaPct} className="w-32 h-1.5" />
+                  <span className="text-[11px] font-mono-tight text-muted-foreground tabular-nums">
+                    {s.projects.length}/{FREE_LIMIT}
+                  </span>
+                </div>
+              </div>
+            )}
             <TierPill tier={s.tier} onUpgrade={() => setUpgradeOpen(true)} />
             <Button onClick={startNew} className="h-10">
               <FolderPlus className="size-4" /> New project
             </Button>
           </div>
-        </div>
+        </header>
 
         {!activationDismissed && (
           <ActivationBanner state={activation} onDismiss={() => setActivationDismissed(true)} />
         )}
 
-        {s.tier === "free" && (
-          <div className="mb-6 rounded-lg border bg-card/60 p-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Info className="size-4 text-muted-foreground" />
-              <span>
-                <strong>{s.projects.length} of {FREE_LIMIT}</strong> projects used on the Free tier.
-                {remaining === 0 && " Upgrade to Pro for unlimited projects."}
-              </span>
-            </div>
-            <Button size="sm" variant="outline" onClick={() => setUpgradeOpen(true)}>
-              <Sparkles className="size-3.5" /> Upgrade
-            </Button>
-          </div>
-        )}
-
         {s.projects.length === 0 ? (
           <EmptyState onStart={startNew} />
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {s.projects.map(p => (
-              <ProjectCard key={p.id} project={p} />
-            ))}
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+            {/* ── Primary column ─────────────────────────────── */}
+            <div className="min-w-0 space-y-8">
+              {continueProject && (
+                <Section
+                  eyebrow="Continue"
+                  title="Where you left off"
+                  hint={`Last edited ${fmtRel(continueProject.updatedAt)}`}
+                >
+                  <ContinueCard project={continueProject} />
+                </Section>
+              )}
+
+              {needsAttention.length > 0 && (
+                <Section
+                  eyebrow="Needs attention"
+                  title="Unresolved items"
+                  hint={`${needsAttention.length} project${needsAttention.length === 1 ? "" : "s"} with low-confidence or conflicting items`}
+                  tone="drift"
+                >
+                  <ProjectGrid projects={needsAttention} />
+                </Section>
+              )}
+
+              {rest.length > 0 && (
+                <Section
+                  eyebrow="All projects"
+                  title="Everything else"
+                  hint={`${rest.length} project${rest.length === 1 ? "" : "s"}`}
+                >
+                  <ProjectGrid projects={rest} />
+                </Section>
+              )}
+            </div>
+
+            {/* ── Right rail ─────────────────────────────────── */}
+            <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+              {s.tier === "free" ? (
+                <UpgradeCard
+                  used={s.projects.length}
+                  remaining={remaining as number}
+                  onUpgrade={() => setUpgradeOpen(true)}
+                />
+              ) : (
+                <PlanCard tier={s.tier} />
+              )}
+              <TipsCard onNew={startNew} />
+            </aside>
           </div>
         )}
       </main>
+
       <CheckoutModal
         open={upgradeOpen}
         onOpenChange={setUpgradeOpen}
@@ -232,7 +282,283 @@ function DashboardPage() {
   );
 }
 
-function TierPill({ tier, onUpgrade }: { tier: "free" | "pro" | "team"; onUpgrade: () => void }) {
+/* ───────────────────────── Section wrapper ───────────────────────── */
+
+function Section({
+  eyebrow, title, hint, tone, children,
+}: {
+  eyebrow: string;
+  title: string;
+  hint?: string;
+  tone?: "drift";
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <header className="mb-3 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <div
+            className={cn(
+              "text-[10px] font-mono-tight uppercase tracking-widest",
+              tone === "drift" ? "text-drift" : "text-primary",
+            )}
+          >
+            {eyebrow}
+          </div>
+          <h2 className="font-display text-xl leading-tight truncate">{title}</h2>
+        </div>
+        {hint && (
+          <span className="text-[11px] font-mono-tight text-muted-foreground shrink-0">
+            {hint}
+          </span>
+        )}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+/* ───────────────────────── Continue card (large) ───────────────────────── */
+
+function ContinueCard({ project }: { project: StoredProject }) {
+  const st = projectStats(project);
+  return (
+    <Link
+      to="/project/$id"
+      params={{ id: project.id }}
+      className="group relative block overflow-hidden rounded-2xl border bg-card p-5 transition hover:border-primary/50 hover:shadow-lg"
+    >
+      <div
+        className="pointer-events-none absolute inset-0 opacity-60"
+        style={{
+          background:
+            "radial-gradient(600px 200px at 100% 0%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 60%)",
+        }}
+      />
+      <div className="relative flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary mb-1.5">
+            Pick up
+          </div>
+          <h3 className="font-display text-2xl leading-tight truncate">{project.name}</h3>
+          {project.description && (
+            <p className="text-sm text-muted-foreground mt-1 line-clamp-2 max-w-2xl">
+              {project.description}
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <KindChips kinds={project.kinds} fromScratch={project.fromScratch} />
+            <span className="inline-flex items-center gap-1 text-[11px] font-mono-tight text-muted-foreground">
+              <ShieldCheck className="size-3" /> {st.count} item{st.count === 1 ? "" : "s"}
+            </span>
+            {st.unresolved > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-mono-tight text-drift">
+                <AlertTriangle className="size-3" /> {st.unresolved} unresolved
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1 text-[11px] font-mono-tight text-muted-foreground">
+              <Clock className="size-3" /> {fmtRel(project.updatedAt)}
+            </span>
+          </div>
+        </div>
+        <div className="shrink-0 inline-flex items-center gap-1.5 rounded-md border bg-background/60 px-2.5 py-1.5 text-sm font-medium text-foreground transition group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary">
+          Open <ArrowUpRight className="size-4" />
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+/* ───────────────────────── Grid + card ───────────────────────── */
+
+function ProjectGrid({ projects }: { projects: StoredProject[] }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {projects.map(p => <ProjectCard key={p.id} project={p} />)}
+    </div>
+  );
+}
+
+function ProjectCard({ project }: { project: StoredProject }) {
+  const st = projectStats(project);
+  const navigate = useNavigate();
+
+  const onRename = async () => {
+    const next = window.prompt("Rename project", project.name);
+    if (!next || next.trim() === "" || next.trim() === project.name) return;
+    try {
+      await sessionStore.updateProject(project.id, { name: next.trim() });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't rename this project.");
+    }
+  };
+
+  const onDelete = async () => {
+    if (!confirm(`Delete "${project.name}"? This can't be undone.`)) return;
+    try {
+      await sessionStore.deleteProject(project.id);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Couldn't delete this project.");
+    }
+  };
+
+  return (
+    <div
+      className="group relative rounded-xl border bg-card p-4 flex flex-col gap-3 transition hover:border-primary/50 hover:shadow-sm cursor-pointer"
+      onClick={() => navigate({ to: "/project/$id", params: { id: project.id } })}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-display text-lg leading-tight truncate">{project.name}</h3>
+          {project.description && (
+            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{project.description}</p>
+          )}
+        </div>
+        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="grid size-7 place-items-center rounded-md border bg-background/60 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-muted transition focus:opacity-100"
+                aria-label="Project actions"
+              >
+                <MoreHorizontal className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem onClick={() => navigate({ to: "/project/$id", params: { id: project.id } })}>
+                <ExternalLink className="size-3.5" /> Open
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onRename}>
+                <Pencil className="size-3.5" /> Rename
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+                <Trash2 className="size-3.5" /> Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <KindChips kinds={project.kinds} fromScratch={project.fromScratch} />
+      </div>
+
+      <div className="mt-auto flex items-center justify-between border-t pt-2 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1">
+          <ShieldCheck className="size-3" /> {st.count} item{st.count === 1 ? "" : "s"}
+          {st.unresolved > 0 && (
+            <span className="ml-1 text-drift">· {st.unresolved} unresolved</span>
+          )}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <Clock className="size-3" /> {fmtRel(project.updatedAt)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function KindChips({ kinds, fromScratch }: { kinds: StoredProject["kinds"]; fromScratch?: boolean }) {
+  return (
+    <>
+      {kinds.includes("process") && (
+        <span className="inline-flex items-center gap-1 rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight">
+          <Workflow className="size-3" /> Process map
+        </span>
+      )}
+      {kinds.includes("bmc") && (
+        <span className="inline-flex items-center gap-1 rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight">
+          <LayoutGrid className="size-3" /> BMC
+        </span>
+      )}
+      {fromScratch && (
+        <span className="inline-flex items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-[10px] font-mono-tight text-muted-foreground">
+          empty
+        </span>
+      )}
+    </>
+  );
+}
+
+/* ───────────────────────── Right rail ───────────────────────── */
+
+function UpgradeCard({ used, remaining, onUpgrade }: { used: number; remaining: number; onUpgrade: () => void }) {
+  const pct = Math.min(100, (used / FREE_LIMIT) * 100);
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary mb-1">
+        Free plan
+      </div>
+      <h3 className="font-display text-lg leading-tight">
+        {remaining === 0 ? "You've hit the free cap." : `${remaining} project${remaining === 1 ? "" : "s"} left.`}
+      </h3>
+      <div className="mt-3 space-y-1.5">
+        <Progress value={pct} className="h-1.5" />
+        <div className="flex justify-between text-[11px] font-mono-tight text-muted-foreground tabular-nums">
+          <span>{used} used</span><span>{FREE_LIMIT} total</span>
+        </div>
+      </div>
+      <ul className="mt-4 space-y-1.5 text-xs text-muted-foreground">
+        <li className="flex items-start gap-1.5"><Zap className="size-3 mt-0.5 text-primary" /> Unlimited projects</li>
+        <li className="flex items-start gap-1.5"><Zap className="size-3 mt-0.5 text-primary" /> Drift detection & reconciliation</li>
+        <li className="flex items-start gap-1.5"><Zap className="size-3 mt-0.5 text-primary" /> Version history</li>
+      </ul>
+      <Button size="sm" className="w-full mt-4" onClick={onUpgrade}>
+        <Sparkles className="size-3.5" /> Upgrade to Pro
+      </Button>
+    </div>
+  );
+}
+
+function PlanCard({ tier }: { tier: Tier }) {
+  const label = tier === "pro" ? "Pro" : "Team";
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary mb-1">
+        {label} plan
+      </div>
+      <h3 className="font-display text-lg leading-tight">All features unlocked.</h3>
+      <p className="text-xs text-muted-foreground mt-1">
+        Unlimited projects, drift detection, version history, and source traceability are on.
+      </p>
+    </div>
+  );
+}
+
+function TipsCard({ onNew }: { onNew: () => void }) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-1">
+        Try next
+      </div>
+      <ul className="space-y-2 text-sm">
+        <li>
+          <button onClick={onNew} className="w-full text-left flex items-center gap-2 hover:text-primary transition">
+            <LayoutTemplate className="size-3.5 shrink-0 text-muted-foreground" />
+            <span>Start from a template</span>
+          </button>
+        </li>
+        <li>
+          <button onClick={onNew} className="w-full text-left flex items-center gap-2 hover:text-primary transition">
+            <FolderPlus className="size-3.5 shrink-0 text-muted-foreground" />
+            <span>Paste a transcript</span>
+          </button>
+        </li>
+        <li>
+          <Link to="/" className="w-full text-left flex items-center gap-2 hover:text-primary transition">
+            <Info className="size-3.5 shrink-0 text-muted-foreground" />
+            <span>See what Visuail does</span>
+          </Link>
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+/* ───────────────────────── Bits ───────────────────────── */
+
+function TierPill({ tier, onUpgrade }: { tier: Tier; onUpgrade: () => void }) {
   const label = tier === "free" ? "Free" : tier === "pro" ? "Pro" : "Team";
   return (
     <button
@@ -247,69 +573,6 @@ function TierPill({ tier, onUpgrade }: { tier: "free" | "pro" | "team"; onUpgrad
     >
       {label} plan
     </button>
-  );
-}
-
-function ProjectCard({ project }: { project: StoredProject }) {
-  const st = projectStats(project);
-  return (
-    <Link
-      to="/project/$id"
-      params={{ id: project.id }}
-      className="group rounded-xl border bg-card p-4 flex flex-col gap-3 transition hover:border-primary/50 hover:shadow-sm"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <h3 className="font-display text-lg leading-tight truncate">{project.name}</h3>
-          {project.description && (
-            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{project.description}</p>
-          )}
-        </div>
-        <ArrowUpRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition" />
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        {project.kinds.includes("process") && (
-          <span className="inline-flex items-center gap-1 rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight">
-            <Workflow className="size-3" /> Process map
-          </span>
-        )}
-        {project.kinds.includes("bmc") && (
-          <span className="inline-flex items-center gap-1 rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight">
-            <LayoutGrid className="size-3" /> BMC
-          </span>
-        )}
-        {project.fromScratch && (
-          <span className="inline-flex items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-[10px] font-mono-tight text-muted-foreground">
-            empty
-          </span>
-        )}
-      </div>
-      <div className="mt-auto flex items-center justify-between border-t pt-2 text-[11px] text-muted-foreground">
-        <span className="inline-flex items-center gap-1">
-          <ShieldCheck className="size-3" /> {st.count} item{st.count === 1 ? "" : "s"}
-          {st.unresolved > 0 && (
-            <span className="ml-1 text-drift">· {st.unresolved} unresolved</span>
-          )}
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <Clock className="size-3" /> {fmtRel(project.updatedAt)}
-        </span>
-      </div>
-      <button
-        onClick={(e) => {
-          e.preventDefault();
-          if (confirm(`Delete "${project.name}"? This can't be undone.`)) {
-            sessionStore.deleteProject(project.id).catch((err) => {
-              alert(err instanceof Error ? err.message : "Couldn't delete this project. Try again.");
-            });
-          }
-        }}
-        className="absolute opacity-0 pointer-events-none"
-        aria-hidden
-      >
-        <Trash2 className="size-3" />
-      </button>
-    </Link>
   );
 }
 
