@@ -38,6 +38,7 @@ async function withNeutralizedTransform<T>(
 }
 
 async function snapshot(el: HTMLElement): Promise<{ dataUrl: string; w: number; h: number }> {
+  const { toPng } = await loadHtmlToImage();
   const dataUrl = await withNeutralizedTransform(el, (inner, width, height) =>
     toPng(inner, {
       backgroundColor: "#ffffff",
