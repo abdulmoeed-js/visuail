@@ -1,19 +1,34 @@
 // Client-side text extraction for uploaded files (PDF/DOCX).
 // Nothing leaves the browser — all parsing happens in-page.
 
-import * as pdfjsLib from "pdfjs-dist";
-// Vite serves the worker as a URL asset. Modern pdfjs-dist ships an ESM worker.
-import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-// Browser build of mammoth — do not import the Node build.
-// (No official types shipped for the browser entry; declare below.)
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-expect-error - no types for browser entry
-import mammoth from "mammoth/mammoth.browser";
+// These parsers are browser-only and must never enter the SSR/worker module
+// graph — they are loaded lazily, on first use, inside the browser.
+type PdfjsModule = typeof import("pdfjs-dist");
 
-// Register worker exactly once.
-if (typeof window !== "undefined" && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+let pdfjsPromise: Promise<PdfjsModule> | undefined;
+
+async function loadPdfjs(): Promise<PdfjsModule> {
+  if (!pdfjsPromise) {
+    pdfjsPromise = (async () => {
+      const pdfjsLib = await import("pdfjs-dist");
+      const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = (worker as { default: string }).default;
+      }
+      return pdfjsLib;
+    })();
+  }
+  return pdfjsPromise;
 }
+
+async function loadMammoth() {
+  // @ts-expect-error - no types for browser entry
+  const mod = await import("mammoth/mammoth.browser");
+  return (mod.default ?? mod) as {
+    extractRawText: (o: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>;
+  };
+}
+
 
 export type UploadKind = "pdf" | "docx" | "unsupported";
 
