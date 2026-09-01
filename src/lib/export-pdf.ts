@@ -2,8 +2,11 @@
 // browser. Uses html-to-image (svg foreignObject) because html2canvas
 // can't parse modern CSS color functions like oklch().
 
-import { toPng, toSvg } from "html-to-image";
-import jsPDF from "jspdf";
+// Browser-only libraries: loaded lazily so they never enter the SSR/worker
+// module graph (jspdf/html-to-image touch DOM globals at import time).
+const loadHtmlToImage = () => import("html-to-image");
+const loadJsPdf = async () => (await import("jspdf")).default;
+
 
 export interface ExportSection {
   title: string;
