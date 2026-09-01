@@ -74,6 +74,7 @@ export async function exportElementToPng(filename: string, el: HTMLElement): Pro
 
 /** Downloads a single canvas as an SVG (vector, not rasterized). */
 export async function exportElementToSvg(filename: string, el: HTMLElement): Promise<void> {
+  const { toSvg } = await loadHtmlToImage();
   const dataUrl = await withNeutralizedTransform(el, (inner, width, height) =>
     toSvg(inner, {
       backgroundColor: "#ffffff",
