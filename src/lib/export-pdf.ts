@@ -92,6 +92,7 @@ export async function exportSectionsToPdf(
   sections: ExportSection[],
 ): Promise<void> {
   if (sections.length === 0) return;
+  const jsPDF = await loadJsPdf();
   const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
