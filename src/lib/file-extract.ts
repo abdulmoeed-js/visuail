@@ -44,6 +44,7 @@ export function detectKind(file: File): UploadKind {
 }
 
 export async function extractPdfText(file: File): Promise<string> {
+  const pdfjsLib = await loadPdfjs();
   const buf = await file.arrayBuffer();
   const doc = await pdfjsLib.getDocument({ data: buf }).promise;
   const chunks: string[] = [];
@@ -59,10 +60,12 @@ export async function extractPdfText(file: File): Promise<string> {
 }
 
 export async function extractDocxText(file: File): Promise<string> {
+  const mammoth = await loadMammoth();
   const buf = await file.arrayBuffer();
   const result = await mammoth.extractRawText({ arrayBuffer: buf });
   return (result.value as string).trim();
 }
+
 
 export async function extractFileText(file: File): Promise<string> {
   const kind = detectKind(file);
