@@ -2,8 +2,11 @@
 // browser. Uses html-to-image (svg foreignObject) because html2canvas
 // can't parse modern CSS color functions like oklch().
 
-import { toPng, toSvg } from "html-to-image";
-import jsPDF from "jspdf";
+// Browser-only libraries: loaded lazily so they never enter the SSR/worker
+// module graph (jspdf/html-to-image touch DOM globals at import time).
+const loadHtmlToImage = () => import("html-to-image");
+const loadJsPdf = async () => (await import("jspdf")).default;
+
 
 export interface ExportSection {
   title: string;
@@ -35,6 +38,7 @@ async function withNeutralizedTransform<T>(
 }
 
 async function snapshot(el: HTMLElement): Promise<{ dataUrl: string; w: number; h: number }> {
+  const { toPng } = await loadHtmlToImage();
   const dataUrl = await withNeutralizedTransform(el, (inner, width, height) =>
     toPng(inner, {
       backgroundColor: "#ffffff",
@@ -70,6 +74,7 @@ export async function exportElementToPng(filename: string, el: HTMLElement): Pro
 
 /** Downloads a single canvas as an SVG (vector, not rasterized). */
 export async function exportElementToSvg(filename: string, el: HTMLElement): Promise<void> {
+  const { toSvg } = await loadHtmlToImage();
   const dataUrl = await withNeutralizedTransform(el, (inner, width, height) =>
     toSvg(inner, {
       backgroundColor: "#ffffff",
@@ -87,6 +92,7 @@ export async function exportSectionsToPdf(
   sections: ExportSection[],
 ): Promise<void> {
   if (sections.length === 0) return;
+  const jsPDF = await loadJsPdf();
   const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
