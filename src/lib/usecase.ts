@@ -3,7 +3,7 @@
 // One oval per step (not clustered) so slice 2's drill-down can key off the
 // same step id the diagram renders.
 
-import type { Actor, Decision, Exception, ProcessModel, Step } from "@/data/samples";
+import { decisionBranches, type Actor, type Decision, type Exception, type ProcessModel, type Step } from "@/data/samples";
 
 export interface UseCase {
   id: string;
@@ -30,7 +30,7 @@ export function useCasesByActor(model: ProcessModel): ActorUseCases[] {
 
 export interface AlternateFlow {
   decision: Decision;
-  branch: "yes" | "no";
+  branch: string;
   targetLabel: string;
 }
 
@@ -57,10 +57,9 @@ export function deriveUseCaseDescription(model: ProcessModel, stepId: string): U
 
   const alternateFlows: AlternateFlow[] = model.decisions
     .filter((d) => d.afterStepId === stepId)
-    .flatMap((decision) => [
-      { decision, branch: "yes" as const, targetLabel: targetLabel(decision.yes) },
-      { decision, branch: "no" as const, targetLabel: targetLabel(decision.no) },
-    ]);
+    .flatMap((decision) => decisionBranches(decision).map((b) => ({
+      decision, branch: b.label, targetLabel: targetLabel(b.targetId),
+    })));
 
   const exceptionFlows = model.exceptions.filter((e) => e.relatedStepId === stepId);
 

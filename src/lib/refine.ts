@@ -3,7 +3,7 @@
 // Proposal (diff-style) which the user explicitly accepts or rejects before it
 // touches the underlying IR.
 
-import type { ProcessModel, Step, Decision, Exception } from "@/data/samples";
+import { decisionBranches, type ProcessModel, type Step, type Decision, type Exception } from "@/data/samples";
 
 export type NodeKind = "step" | "decision" | "exception";
 
@@ -232,12 +232,16 @@ export function applyProposal(p: Proposal, model: ProcessModel): ProcessModel {
       const id = nextIdFor(model, "DC");
       const idx = model.steps.findIndex((s) => s.id === p.anchorStepId);
       const nextStep = idx >= 0 ? model.steps[idx + 1] : undefined;
+      // "No" loops back to the gated step itself (rework) rather than a
+      // dangling "rework" id that resolves to no real node.
       const dec: Decision = {
         id,
         text: p.newDecisionText,
         afterStepId: p.anchorStepId,
-        yes: nextStep?.id ?? "—",
-        no: "rework",
+        branches: [
+          { id: `${id}-y`, label: "Yes", targetId: nextStep?.id ?? "—" },
+          { id: `${id}-n`, label: "No", targetId: p.anchorStepId },
+        ],
         ...(marked({}) as Partial<Decision>),
       } as Decision;
       return { ...model, decisions: [...model.decisions, dec] };
@@ -255,8 +259,12 @@ export function applyProposal(p: Proposal, model: ProcessModel): ProcessModel {
       const decisions = model.decisions.map((d) => ({
         ...d,
         afterStepId: d.afterStepId === removedId ? orig.id : d.afterStepId,
-        yes: d.yes === removedId ? orig.id : d.yes,
-        no: d.no === removedId ? orig.id : d.no,
+        branches: decisionBranches(d).map((b) => ({
+          ...b,
+          targetId: b.targetId === removedId ? orig.id : b.targetId,
+        })),
+        yes: undefined,
+        no: undefined,
       }));
       const exceptions = model.exceptions.map((e) => ({
         ...e,

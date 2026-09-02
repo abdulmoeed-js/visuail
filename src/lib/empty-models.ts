@@ -14,6 +14,10 @@ export function emptyProcess(title: string): ProcessModel {
     exceptions: [],
     systems: [],
     nonFunctionalRequirements: [],
+    riskLog: [],
+    changeRequests: [],
+    communicationPlan: [],
+    testCases: [],
   };
 }
 
@@ -33,6 +37,10 @@ export function emptyBMC(title: string): BMCModel {
     kind: "bmc",
     title,
     blocks: ids.map(([id, t]) => ({ id, title: t, items: [] })),
+    riskLog: [],
+    changeRequests: [],
+    communicationPlan: [],
+    stakeholders: [],
   };
 }
 

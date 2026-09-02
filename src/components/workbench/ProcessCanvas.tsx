@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ProcessModel, Step, Decision, Exception, Connection, CrowMarker } from "@/data/samples";
+import { decisionBranches, type ProcessModel, type Step, type Decision, type DecisionBranch, type Exception, type Connection, type CrowMarker } from "@/data/samples";
 import { cn } from "@/lib/utils";
 import { ConfidenceBadge, IdChip } from "./atoms";
 import {
@@ -206,29 +206,40 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
     });
   });
 
-  spine.forEach((n) => {
+  spine.forEach((n, idx) => {
     if (n.kind !== "decision") return;
     const d = n.ref;
-    const exRight = right.find((r) => r.ref.id === d.no);
-    if (exRight) {
-      routes.push({
-        id: `route-no-${d.id}`, kind: "no-branch", laneX: nextLaneX(),
-        from: { x: n.cx + n.w / 2, y: n.cy },
-        to:   { x: exRight.cx - exRight.w / 2, y: exRight.cy },
-        label: `no → ${d.no}`,
-      });
-      return;
-    }
-    const tgtIdx = spineIndexById.get(d.no);
-    if (tgtIdx !== undefined) {
-      const tgt = spine[tgtIdx];
-      routes.push({
-        id: `route-no-${d.id}`, kind: "no-branch", laneX: nextLaneX(),
-        from: { x: n.cx + n.w / 2, y: n.cy },
-        to:   { x: tgt.cx + tgt.w / 2, y: tgt.cy },
-        label: `no → ${d.no}`,
-      });
-    }
+    const branches = decisionBranches(d);
+    // The one branch (if any) whose target is structurally the next spine
+    // node is drawn as the plain straight-down connector below, not a lane
+    // route -- generalizes the old "yes always continues down" assumption
+    // to "whichever branch actually continues down, however many there are."
+    const nextNode = spine[idx + 1];
+    const primary = nextNode ? branches.find((b) => b.targetId === nextNode.ref.id) : undefined;
+
+    branches.forEach((b) => {
+      if (primary && b.id === primary.id) return;
+      const exRight = right.find((r) => r.ref.id === b.targetId);
+      if (exRight) {
+        routes.push({
+          id: `route-${d.id}-${b.id}`, kind: "no-branch", laneX: nextLaneX(),
+          from: { x: n.cx + n.w / 2, y: n.cy },
+          to:   { x: exRight.cx - exRight.w / 2, y: exRight.cy },
+          label: `${b.label} → ${b.targetId}`,
+        });
+        return;
+      }
+      const tgtIdx = spineIndexById.get(b.targetId);
+      if (tgtIdx !== undefined) {
+        const tgt = spine[tgtIdx];
+        routes.push({
+          id: `route-${d.id}-${b.id}`, kind: "no-branch", laneX: nextLaneX(),
+          from: { x: n.cx + n.w / 2, y: n.cy },
+          to:   { x: tgt.cx + tgt.w / 2, y: tgt.cy },
+          label: `${b.label} → ${b.targetId}`,
+        });
+      }
+    });
   });
 
   const bottoms = [
@@ -575,7 +586,10 @@ export function ProcessCanvas({
           if (n.ref.userAdded || next.ref.userAdded) return null;
           const from = { x: n.cx, y: n.cy + n.h / 2 };
           const to = { x: next.cx, y: next.cy - next.h / 2 };
-          const yesLabel = n.kind === "decision" ? `yes → ${(n.ref as Decision).yes}` : null;
+          const primaryBranch = n.kind === "decision"
+            ? decisionBranches(n.ref as Decision).find((b) => b.targetId === next.ref.id)
+            : undefined;
+          const yesLabel = primaryBranch ? `${primaryBranch.label} → ${primaryBranch.targetId}` : null;
           const midY = (from.y + to.y) / 2;
           const path = Math.abs(from.x - to.x) < 4
             ? `M ${from.x} ${from.y} L ${to.x} ${to.y}`
@@ -1708,6 +1722,19 @@ function DecisionNode({
   const shape = d.shape ?? "decision";
   const isGateway = shape !== "decision";
   const gatewayGlyph = shape === "gateway-parallel" ? "+" : "×";
+  const branches = decisionBranches(d);
+  const updateBranch = (id: string, patch: Partial<DecisionBranch>) =>
+    onUpdate({ branches: branches.map((b) => (b.id === id ? { ...b, ...patch } : b)) });
+  const removeBranch = (id: string) =>
+    onUpdate({ branches: branches.filter((b) => b.id !== id) });
+  const addBranch = () =>
+    onUpdate({
+      branches: [...branches, {
+        id: `${d.id}-b${branches.length}-${Math.random().toString(36).slice(2, 6)}`,
+        label: `Option ${branches.length + 1}`,
+        targetId: "—",
+      }],
+    });
   const stroke = d.drift ? "var(--color-drift)" : d.userAdded ? "var(--color-verified)" : "var(--color-primary)";
   const fill = d.drift
     ? "color-mix(in oklab, var(--color-drift) 6%, var(--color-card))"
@@ -1768,9 +1795,24 @@ function DecisionNode({
           <InlineEdit value={d.text} onChange={(v) => onUpdate({ text: v })} multiline />
         </div>
         {!isGateway && (
-          <div className="flex gap-2 text-[9px] font-mono-tight text-muted-foreground flex-wrap justify-center">
-            <span className="text-confident">yes→<InlineEdit value={d.yes} onChange={(v) => onUpdate({ yes: v })} /></span>
-            <span className="text-drift">no→<InlineEdit value={d.no} onChange={(v) => onUpdate({ no: v })} /></span>
+          <div className="flex flex-col gap-0.5 text-[9px] font-mono-tight text-muted-foreground items-center" data-no-pan>
+            {branches.map((b) => (
+              <div key={b.id} className="flex items-center gap-1">
+                <InlineEdit value={b.label} onChange={(v) => updateBranch(b.id, { label: v })} className="text-primary" />
+                <span>→</span>
+                <InlineEdit value={b.targetId} onChange={(v) => updateBranch(b.id, { targetId: v })} />
+                {branches.length > 2 && (
+                  <button onClick={() => removeBranch(b.id)} data-no-pan
+                    className="opacity-0 group-hover:opacity-100 hover:text-destructive transition">
+                    <X className="size-2.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button onClick={addBranch} data-no-pan
+              className="opacity-0 group-hover:opacity-100 hover:text-primary transition flex items-center gap-0.5">
+              <Plus className="size-2.5" /> branch
+            </button>
           </div>
         )}
       </div>

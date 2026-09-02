@@ -1,4 +1,4 @@
-import type { ProcessModel, BMCModel } from "@/data/samples";
+import { decisionBranches, type ProcessModel, type BMCModel } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { IdChip } from "./atoms";
 import { InlineEdit } from "./InlineEdit";
@@ -90,7 +90,12 @@ export function BRDTab({
           {m.decisions.map((d) => (
             <li key={d.id} className="rounded-md border bg-card p-2.5 text-sm">
               <IdChip id={d.id} tone="primary" /> <strong>{d.text}</strong>
-              <span className="text-muted-foreground"> — if yes → {d.yes}, if no → {d.no}</span>
+              <span className="text-muted-foreground">
+                {" — "}
+                {decisionBranches(d).map((b, i) => (
+                  <span key={b.id}>{i > 0 && ", "}if {b.label.toLowerCase()} → {b.targetId}</span>
+                ))}
+              </span>
             </li>
           ))}
         </ul>

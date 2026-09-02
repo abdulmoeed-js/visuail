@@ -20,6 +20,9 @@ import * as Y from "yjs";
 import {
   type ArtifactModel, type BaseItem, type BMCBlock, type Connection,
   type Step, type Decision, type NFRCategory,
+  type RiskItem, type ChangeRequestItem, type CommunicationPlanItem,
+  type TestCaseItem, type StakeholderItem,
+  type BusinessCase, type RequirementsManagementPlan,
 } from "@/data/samples";
 import { applyProposal, type Proposal } from "@/lib/refine";
 import { diffModels } from "@/lib/diff";
@@ -42,9 +45,15 @@ function bumpUidPast(model: ArtifactModel) {
     }
     for (const c of model.connections ?? []) ids.push(c.id);
     for (const n of model.nonFunctionalRequirements ?? []) ids.push(n.id);
+    for (const n of model.testCases ?? []) ids.push(n.id);
   } else {
     for (const b of model.blocks) for (const item of b.items) ids.push(item.id);
+    for (const s of model.stakeholders ?? []) ids.push(s.id);
   }
+  for (const r of model.riskLog ?? []) ids.push(r.id);
+  for (const c of model.changeRequests ?? []) ids.push(c.id);
+  for (const c of model.communicationPlan ?? []) ids.push(c.id);
+  for (const o of model.businessCase?.options ?? []) ids.push(o.id);
   for (const id of ids) {
     const match = /-U(\d+)$/.exec(id);
     if (match) uid = Math.max(uid, parseInt(match[1], 10));
@@ -73,6 +82,18 @@ export interface ArtifactEditing {
   onAddConnection: (fromId: string, toId: string, label?: string) => string;
   onDeleteConnection: (id: string) => void;
   onUpdateConnection: (id: string, patch: Partial<Connection>) => void;
+
+  // BA artifact suite -- available on both Process and BMC models.
+  onAddRisk: (t: string) => string;
+  onAddChangeRequest: (t: string) => string;
+  onAddCommunicationPlanItem: (t: string) => string;
+  /** Process-only: a business model has no steps to write test cases against. */
+  onAddTestCase: (t: string) => string;
+  /** BMC-only: Process instead enriches Actor directly via onUpdateItem. */
+  onAddStakeholder: (t: string) => string;
+  onUpdateBusinessCase: (patch: Partial<BusinessCase>) => void;
+  onAddBusinessCaseOption: (t: string) => string;
+  onUpdateRMP: (patch: Partial<RequirementsManagementPlan>) => void;
 
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
@@ -163,9 +184,15 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   const onClearDrift = () => { mutate(() => pristine); setDrifted(false); };
 
   const onDeleteAny = (id: string) => mutate(m => {
+    const shared = {
+      riskLog: (m.riskLog ?? []).filter(x => x.id !== id),
+      changeRequests: (m.changeRequests ?? []).filter(x => x.id !== id),
+      communicationPlan: (m.communicationPlan ?? []).filter(x => x.id !== id),
+      businessCase: m.businessCase && { ...m.businessCase, options: (m.businessCase.options ?? []).filter(x => x.id !== id) },
+    };
     if (m.kind === "process") {
       return {
-        ...m,
+        ...m, ...shared,
         actors: m.actors.filter(x => x.id !== id),
         steps: m.steps.filter(x => x.id !== id),
         decisions: m.decisions.filter(x => x.id !== id),
@@ -173,9 +200,14 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
         systems: m.systems.filter(x => x.id !== id),
         connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
         nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).filter(x => x.id !== id),
+        testCases: (m.testCases ?? []).filter(x => x.id !== id),
       };
     }
-    return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })) };
+    return {
+      ...m, ...shared,
+      blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })),
+      stakeholders: (m.stakeholders ?? []).filter(x => x.id !== id),
+    };
   });
 
   const onUpdateItem = (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => mutate(m => {
@@ -190,18 +222,29 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
       }
       return merged;
     };
+    const shared = {
+      riskLog: (m.riskLog ?? []).map(apply),
+      changeRequests: (m.changeRequests ?? []).map(apply),
+      communicationPlan: (m.communicationPlan ?? []).map(apply),
+      businessCase: m.businessCase && { ...m.businessCase, options: (m.businessCase.options ?? []).map(apply) },
+    };
     if (m.kind === "process") {
       return {
-        ...m,
+        ...m, ...shared,
         actors: m.actors.map(apply),
         steps: m.steps.map(apply),
         decisions: m.decisions.map(apply),
         exceptions: m.exceptions.map(apply),
         systems: m.systems.map(apply),
         nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).map(apply),
+        testCases: (m.testCases ?? []).map(apply),
       };
     }
-    return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.map(apply) })) };
+    return {
+      ...m, ...shared,
+      blocks: m.blocks.map(b => ({ ...b, items: b.items.map(apply) })),
+      stakeholders: (m.stakeholders ?? []).map(apply),
+    };
   });
 
   const addWithId = (mk: () => { id: string; run: (m: ArtifactModel) => ArtifactModel }) => {
@@ -214,11 +257,18 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   const onRemoveLastAdded = useCallback(() => {
     setLastAddedId(id => {
       if (!id) return null;
-      // Reuse onDeleteAny's model-shape-aware removal.
+      // Mirrors onDeleteAny's model-shape-aware removal (hand-duplicated,
+      // not a call to it, to keep this a pure setter callback).
       mutate(m => {
+        const shared = {
+          riskLog: (m.riskLog ?? []).filter(x => x.id !== id),
+          changeRequests: (m.changeRequests ?? []).filter(x => x.id !== id),
+          communicationPlan: (m.communicationPlan ?? []).filter(x => x.id !== id),
+          businessCase: m.businessCase && { ...m.businessCase, options: (m.businessCase.options ?? []).filter(x => x.id !== id) },
+        };
         if (m.kind === "process") {
           return {
-            ...m,
+            ...m, ...shared,
             actors: m.actors.filter(x => x.id !== id),
             steps: m.steps.filter(x => x.id !== id),
             decisions: m.decisions.filter(x => x.id !== id),
@@ -226,9 +276,14 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
             systems: m.systems.filter(x => x.id !== id),
             connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
             nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).filter(x => x.id !== id),
+            testCases: (m.testCases ?? []).filter(x => x.id !== id),
           };
         }
-        return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })) };
+        return {
+          ...m, ...shared,
+          blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })),
+          stakeholders: (m.stakeholders ?? []).filter(x => x.id !== id),
+        };
       });
       return null;
     });
@@ -246,8 +301,12 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   });
   const onAddDecision = (t: string, shape?: Decision["shape"]) => addWithId(() => {
     const item = newUserItem("DC", t);
+    const branches = [
+      { id: nextId("BR"), label: "Yes", targetId: "—" },
+      { id: nextId("BR"), label: "No", targetId: "—" },
+    ];
     return { id: item.id, run: (m) => m.kind === "process"
-      ? { ...m, decisions: [...m.decisions, { ...item, afterStepId: m.steps.at(-1)?.id ?? "ST1", yes: "—", no: "—", shape }] } : m };
+      ? { ...m, decisions: [...m.decisions, { ...item, afterStepId: m.steps.at(-1)?.id ?? "ST1", branches, shape }] } : m };
   });
   const onAddException = (t: string) => addWithId(() => {
     const item = newUserItem("EX", t);
@@ -269,6 +328,43 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
       ? { ...m, blocks: m.blocks.map(b => b.id === bid ? { ...b, items: [...b.items, item] } : b) } : m };
   });
 
+  // BA artifact suite -- riskLog/changeRequests/communicationPlan/businessCase
+  // are declared on both ProcessModel and BMCModel with the same shape, so
+  // these actions don't need to branch on kind at all.
+  const onAddRisk = (t: string) => addWithId(() => {
+    const item: RiskItem = { ...newUserItem("RI", t), probability: "Medium", impact: "Medium", response: "Mitigate", status: "Open" };
+    return { id: item.id, run: (m) => ({ ...m, riskLog: [...(m.riskLog ?? []), item] }) };
+  });
+  const onAddChangeRequest = (t: string) => addWithId(() => {
+    const item: ChangeRequestItem = { ...newUserItem("CR", t), changeType: "Modification", rationale: "", disposition: "Pending" };
+    return { id: item.id, run: (m) => ({ ...m, changeRequests: [...(m.changeRequests ?? []), item] }) };
+  });
+  const onAddCommunicationPlanItem = (t: string) => addWithId(() => {
+    const item: CommunicationPlanItem = { ...newUserItem("CP", t), audience: "", method: "", frequency: "" };
+    return { id: item.id, run: (m) => ({ ...m, communicationPlan: [...(m.communicationPlan ?? []), item] }) };
+  });
+  const onAddTestCase = (t: string) => addWithId(() => {
+    const item: TestCaseItem = { ...newUserItem("TC", t), expectedResult: "", status: "Not Run" };
+    return { id: item.id, run: (m) => m.kind === "process"
+      ? { ...m, testCases: [...(m.testCases ?? []), item] } : m };
+  });
+  const onAddStakeholder = (t: string) => addWithId(() => {
+    const item: StakeholderItem = { ...newUserItem("SH", t), influence: "Medium", interest: "Medium" };
+    return { id: item.id, run: (m) => m.kind === "bmc"
+      ? { ...m, stakeholders: [...(m.stakeholders ?? []), item] } : m };
+  });
+  const onUpdateBusinessCase = (patch: Partial<BusinessCase>) =>
+    mutate(m => ({ ...m, businessCase: { ...m.businessCase, ...patch } }));
+  const onAddBusinessCaseOption = (t: string) => addWithId(() => {
+    const item = newUserItem("OPT", t);
+    return { id: item.id, run: (m) => ({
+      ...m,
+      businessCase: { ...m.businessCase, options: [...(m.businessCase?.options ?? []), item] },
+    }) };
+  });
+  const onUpdateRMP = (patch: Partial<RequirementsManagementPlan>) =>
+    mutate(m => ({ ...m, requirementsManagementPlan: { ...m.requirementsManagementPlan, ...patch } }));
+
   const onAddConnection = (fromId: string, toId: string, label?: string) => {
     const id = nextId("CN");
     const conn: Connection = { id, fromId, toId, label, userAdded: true };
@@ -289,6 +385,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     onSimulateDrift, onClearDrift,
     onAddActor, onAddStep, onAddDecision, onAddException, onAddSystem, onAddBMC, onAddNFR,
     onAddConnection, onDeleteConnection, onUpdateConnection,
+    onAddRisk, onAddChangeRequest, onAddCommunicationPlanItem, onAddTestCase, onAddStakeholder,
+    onUpdateBusinessCase, onAddBusinessCaseOption, onUpdateRMP,
     onDeleteAny, onUpdateItem, onApplyRefinement,
     onRemoveLastAdded,
   };

@@ -16,7 +16,18 @@ export interface BaseItem {
   conflictNote?: string; // human-readable summary of the conflict
 }
 
-export interface Actor extends BaseItem {}
+/** Shared Low/Medium/High rating, used by stakeholder influence/interest and risk probability/impact. */
+export type Level = "Low" | "Medium" | "High";
+
+export interface Actor extends BaseItem {
+  /** Stakeholder Analysis fields -- enrich the existing actor rather than
+   *  duplicating a parallel "stakeholder" list (Process only; BMC has no
+   *  actor concept, so its Stakeholder Analysis is a small item array
+   *  instead -- see StakeholderItem below). */
+  role?: string;
+  influence?: Level;
+  interest?: Level;
+}
 export interface Step extends BaseItem {
   actorId: string;
   systemId?: string;
@@ -39,11 +50,25 @@ export interface Step extends BaseItem {
   /** RACI code per actor id, e.g. { AC1: "R", AC2: "A" }. */
   raci?: Partial<Record<string, "R" | "A" | "C" | "I">>;
 }
+export interface DecisionBranch { id: string; label: string; targetId: string; }
 export interface Decision extends BaseItem {
   afterStepId: string;
-  yes: string;
-  no: string;
+  branches: DecisionBranch[];
+  /** Legacy binary shape from before N-way branches. Optional and read only
+   *  via decisionBranches() below, never directly -- lets already-persisted
+   *  projects (opaque jsonb, no schema gate) keep working with no migration. */
+  yes?: string;
+  no?: string;
   shape?: "decision" | "gateway-exclusive" | "gateway-parallel";
+}
+/** Normalizes a decision's branches, transparently upgrading the legacy
+ *  yes/no shape on read so every consumer can just loop over N branches. */
+export function decisionBranches(d: Decision): DecisionBranch[] {
+  if (d.branches?.length) return d.branches;
+  return [
+    { id: "yes", label: "Yes", targetId: d.yes ?? "—" },
+    { id: "no", label: "No", targetId: d.no ?? "—" },
+  ];
 }
 export interface Exception extends BaseItem { relatedStepId?: string; }
 export interface System extends BaseItem {}
@@ -53,6 +78,78 @@ export interface System extends BaseItem {}
 export const NFR_CATEGORIES = ["Reliability", "Performance", "Security", "Usability", "Audit"] as const;
 export type NFRCategory = (typeof NFR_CATEGORIES)[number];
 export interface NonFunctionalRequirement extends BaseItem { category: NFRCategory; }
+
+/** Risk Log -- probability/impact/response/status, from the corpus's Risk Log
+ *  Template + Risk Response Worksheet. */
+export const RISK_RESPONSES = ["Avoid", "Mitigate", "Transfer", "Accept"] as const;
+export type RiskResponse = (typeof RISK_RESPONSES)[number];
+export interface RiskItem extends BaseItem {
+  probability: Level;
+  impact: Level;
+  response: RiskResponse;
+  status: "Open" | "Closed";
+}
+
+/** Change Request -- type/rationale/disposition, from the corpus's Change
+ *  Request Form 1/2. */
+export const CHANGE_TYPES = ["Addition", "Modification", "Deletion"] as const;
+export type ChangeType = (typeof CHANGE_TYPES)[number];
+export const CHANGE_DISPOSITIONS = ["Pending", "Approved", "Denied", "Postponed"] as const;
+export type ChangeDisposition = (typeof CHANGE_DISPOSITIONS)[number];
+export interface ChangeRequestItem extends BaseItem {
+  changeType: ChangeType;
+  rationale: string;
+  disposition: ChangeDisposition;
+}
+
+/** Communication Plan -- activity/audience/method/frequency, from the
+ *  corpus's Communication Plan Template. `text` on BaseItem holds the
+ *  activity description. */
+export interface CommunicationPlanItem extends BaseItem {
+  audience: string;
+  method: string;
+  frequency: string;
+}
+
+/** Test Case -- objective/preconditions/expected result/status, from the
+ *  corpus's CMS Test Case Specification + Test Case.xlsx. Process-only: a
+ *  business model has no steps to write test cases against. */
+export const TEST_STATUSES = ["Not Run", "Pass", "Fail"] as const;
+export type TestStatus = (typeof TEST_STATUSES)[number];
+export interface TestCaseItem extends BaseItem {
+  relatedStepId?: string;
+  preconditions?: string;
+  expectedResult: string;
+  status: TestStatus;
+}
+
+/** Stakeholder Analysis on BMC -- Process enriches Actor instead (see
+ *  above); BMC has no actor concept, so it gets its own small array. */
+export interface StakeholderItem extends BaseItem {
+  role?: string;
+  influence: Level;
+  interest: Level;
+}
+
+/** Business Case -- problem/options/recommendation, converged structure
+ *  from the corpus's Corporate Education Group, TheBAGuide, and OSSIE
+ *  templates. A single document per model, not a list of identified items. */
+export interface BusinessCaseOption extends BaseItem { pros?: string; cons?: string; }
+export interface BusinessCase {
+  problemStatement?: string;
+  recommendation?: string;
+  options?: BusinessCaseOption[];
+}
+
+/** Requirements Management Plan -- purpose/scope/elicitation/change-control,
+ *  from the corpus's Requirements Management Plan Template (Corporate
+ *  Education Group + TheBAGuide variants). Also a single document. */
+export interface RequirementsManagementPlan {
+  purpose?: string;
+  scope?: string;
+  elicitationApproach?: string;
+  changeControlProcess?: string;
+}
 
 /** Crow's-foot notation for one end of a relationship. */
 export type CrowMarker = "none" | "one" | "many" | "one-many" | "zero-one" | "zero-many";
@@ -78,6 +175,12 @@ export interface ProcessModel {
   systems: System[];
   connections?: Connection[];
   nonFunctionalRequirements?: NonFunctionalRequirement[];
+  riskLog?: RiskItem[];
+  changeRequests?: ChangeRequestItem[];
+  communicationPlan?: CommunicationPlanItem[];
+  testCases?: TestCaseItem[];
+  businessCase?: BusinessCase;
+  requirementsManagementPlan?: RequirementsManagementPlan;
 }
 
 export interface BMCBlock {
@@ -94,6 +197,12 @@ export interface BMCModel {
   kind: "bmc";
   title: string;
   blocks: BMCBlock[];
+  riskLog?: RiskItem[];
+  changeRequests?: ChangeRequestItem[];
+  communicationPlan?: CommunicationPlanItem[];
+  stakeholders?: StakeholderItem[];
+  businessCase?: BusinessCase;
+  requirementsManagementPlan?: RequirementsManagementPlan;
 }
 
 export type ArtifactModel = ProcessModel | BMCModel;
@@ -134,8 +243,10 @@ export const bankingProcess: ProcessModel = {
     { id: "ST7", text: "Notify customer account is live",          actorId: "AC1",                  confidence: 0.95 },
   ],
   decisions: [
-    { id: "DC1", text: "Application complete?", afterStepId: "ST2", yes: "ST3", no: "EX1", confidence: 0.9 },
-    { id: "DC2", text: "High-risk customer?",   afterStepId: "ST3", yes: "ST4", no: "ST5", confidence: 0.9 },
+    { id: "DC1", text: "Application complete?", afterStepId: "ST2", confidence: 0.9,
+      branches: [{ id: "DC1-Y", label: "Yes", targetId: "ST3" }, { id: "DC1-N", label: "No", targetId: "EX1" }] },
+    { id: "DC2", text: "High-risk customer?",   afterStepId: "ST3", confidence: 0.9,
+      branches: [{ id: "DC2-Y", label: "Yes", targetId: "ST4" }, { id: "DC2-N", label: "No", targetId: "ST5" }] },
   ],
   exceptions: [
     { id: "EX1", text: "Email customer for missing docs; wait (can stall ~1 week)",
@@ -293,9 +404,15 @@ export function allItems(model: ArtifactModel): BaseItem[] {
       ...model.actors, ...model.steps, ...model.decisions,
       ...model.exceptions, ...model.systems,
       ...(model.nonFunctionalRequirements ?? []),
+      ...(model.riskLog ?? []), ...(model.changeRequests ?? []),
+      ...(model.communicationPlan ?? []), ...(model.testCases ?? []),
     ];
   }
-  return model.blocks.flatMap(b => b.items);
+  return [
+    ...model.blocks.flatMap(b => b.items),
+    ...(model.riskLog ?? []), ...(model.changeRequests ?? []),
+    ...(model.communicationPlan ?? []), ...(model.stakeholders ?? []),
+  ];
 }
 
 export function stats(model: ArtifactModel) {

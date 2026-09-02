@@ -21,6 +21,7 @@ import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/Downstre
 import { UseCaseDiagramView } from "./workbench/UseCaseDiagramView";
 import { UseCaseDescriptionDialog } from "./workbench/UseCaseDescriptionDialog";
 import { RaciMatrixView } from "./workbench/RaciMatrixView";
+import { ToolkitPanel } from "./workbench/ToolkitPanel";
 import { DriftNotifier } from "./workbench/DriftNotifier";
 import { TemplateGallery } from "./workbench/TemplateGallery";
 import { Link } from "@tanstack/react-router";
@@ -38,7 +39,7 @@ type State =
   | { status: "refused"; reason: string }
   | { status: "ready" };
 
-type ArtifactTab = "artifact" | "usecases" | "raci" | "items" | "downstream1" | "downstream2";
+type ArtifactTab = "artifact" | "usecases" | "raci" | "toolkit" | "items" | "downstream1" | "downstream2";
 
 export function Workbench() {
   const [transcript, setTranscript] = useState(SAMPLES[0].transcript);
@@ -297,6 +298,7 @@ export function ArtifactView({
     { value: "artifact", label: model.kind === "process" ? "Process map" : "Canvas" },
     ...(model.kind === "process" ? [{ value: "usecases" as const, label: "Use cases" }] : []),
     ...(model.kind === "process" ? [{ value: "raci" as const, label: "RACI" }] : []),
+    { value: "toolkit", label: "Toolkit" },
     { value: "items", label: <><LayoutList className="size-3.5" /> Items</> },
     { value: "downstream1", label: model.kind === "process" ? "BRD" : "Summary brief" },
     { value: "downstream2", label: model.kind === "process" ? "Traced backlog" : "Open questions" },
@@ -417,6 +419,12 @@ export function ArtifactView({
           {tab === "raci" && model.kind === "process" && (
             <div className="h-full p-4">
               <RaciMatrixView model={model} onUpdateItem={editing.onUpdateItem} />
+            </div>
+          )}
+
+          {tab === "toolkit" && (
+            <div className="h-full overflow-auto p-4">
+              <ToolkitPanel model={model} editing={editing} />
             </div>
           )}
 

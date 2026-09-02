@@ -14,7 +14,7 @@
 // character level instead of one full string clobbering the other.
 
 import * as Y from "yjs";
-import type { ArtifactModel, BaseItem, BMCBlock } from "@/data/samples";
+import type { ArtifactModel, BaseItem, BMCBlock, BusinessCase, RequirementsManagementPlan } from "@/data/samples";
 
 type PlainItem = BaseItem & Record<string, unknown>;
 
@@ -99,7 +99,33 @@ function patchItemArray(yArray: Y.Array<Y.Map<unknown>>, prevItems: PlainItem[],
   }
 }
 
+function buildItemArray(items: PlainItem[]): Y.Array<Y.Map<unknown>> {
+  const arr = new Y.Array<Y.Map<unknown>>();
+  for (const item of items) arr.push([itemToYMap(item)]);
+  return arr;
+}
+
+function readItemArray(root: Y.Map<unknown>, key: string): PlainItem[] {
+  return ((root.get(key) as Y.Array<Y.Map<unknown>> | undefined)?.toArray() ?? []).map(yMapToItem);
+}
+
 const PROCESS_ITEM_KEYS = ["actors", "steps", "decisions", "exceptions", "systems"] as const;
+
+// Optional BaseItem-shaped arrays, keyed by field name -- each gets the same
+// "default to [] when absent" treatment `connections`/`nonFunctionalRequirements`
+// established. `connections` stays separate below since Connection doesn't
+// extend BaseItem the way these do (cast through `unknown` either way).
+const PROCESS_OPTIONAL_ARRAY_KEYS = [
+  "nonFunctionalRequirements", "riskLog", "changeRequests", "communicationPlan", "testCases",
+] as const;
+const BMC_OPTIONAL_ARRAY_KEYS = ["riskLog", "changeRequests", "communicationPlan", "stakeholders"] as const;
+
+// Single-document fields (Business Case, Requirements Management Plan) --
+// present on both model kinds. Stored as one plain JSON value per field
+// rather than a nested Y.Map/Y.Array: simplest correct option for something
+// with no per-field concurrent-merge requirement, at the same "whole value
+// replaces on conflict" granularity `sections`/`raci` already accept.
+const DOC_KEYS = ["businessCase", "requirementsManagementPlan"] as const;
 
 export function modelToYDoc(model: ArtifactModel): Y.Doc {
   const ydoc = new Y.Doc();
@@ -109,16 +135,12 @@ export function modelToYDoc(model: ArtifactModel): Y.Doc {
     root.set("title", model.title);
     if (model.kind === "process") {
       for (const key of PROCESS_ITEM_KEYS) {
-        const arr = new Y.Array<Y.Map<unknown>>();
-        for (const item of model[key] as PlainItem[]) arr.push([itemToYMap(item)]);
-        root.set(key, arr);
+        root.set(key, buildItemArray(model[key] as PlainItem[]));
       }
-      const conns = new Y.Array<Y.Map<unknown>>();
-      for (const c of model.connections ?? []) conns.push([itemToYMap(c as unknown as PlainItem)]);
-      root.set("connections", conns);
-      const nfrs = new Y.Array<Y.Map<unknown>>();
-      for (const n of model.nonFunctionalRequirements ?? []) nfrs.push([itemToYMap(n as unknown as PlainItem)]);
-      root.set("nonFunctionalRequirements", nfrs);
+      root.set("connections", buildItemArray((model.connections ?? []) as unknown as PlainItem[]));
+      for (const key of PROCESS_OPTIONAL_ARRAY_KEYS) {
+        root.set(key, buildItemArray((model[key] ?? []) as unknown as PlainItem[]));
+      }
     } else {
       const blocks = new Y.Array<Y.Map<unknown>>();
       for (const b of model.blocks) {
@@ -127,13 +149,15 @@ export function modelToYDoc(model: ArtifactModel): Y.Doc {
         bMap.set("title", b.title);
         if (b.blockDrift !== undefined) bMap.set("blockDrift", b.blockDrift);
         if (b.driftNote !== undefined) bMap.set("driftNote", b.driftNote);
-        const items = new Y.Array<Y.Map<unknown>>();
-        for (const item of b.items) items.push([itemToYMap(item as PlainItem)]);
-        bMap.set("items", items);
+        bMap.set("items", buildItemArray(b.items as PlainItem[]));
         blocks.push([bMap]);
       }
       root.set("blocks", blocks);
+      for (const key of BMC_OPTIONAL_ARRAY_KEYS) {
+        root.set(key, buildItemArray((model[key] ?? []) as unknown as PlainItem[]));
+      }
     }
+    for (const key of DOC_KEYS) root.set(key, model[key] ?? null);
   });
   return ydoc;
 }
@@ -142,21 +166,26 @@ export function yDocToModel(ydoc: Y.Doc): ArtifactModel {
   const root = ydoc.getMap("root");
   const kind = root.get("kind") as "process" | "bmc";
   const title = root.get("title") as string;
-
-  const readItems = (key: string): PlainItem[] =>
-    ((root.get(key) as Y.Array<Y.Map<unknown>> | undefined)?.toArray() ?? []).map(yMapToItem);
+  const businessCase = (root.get("businessCase") as BusinessCase | null) ?? undefined;
+  const requirementsManagementPlan = (root.get("requirementsManagementPlan") as RequirementsManagementPlan | null) ?? undefined;
 
   if (kind === "process") {
     return {
       kind: "process",
       title,
-      actors: readItems("actors") as never,
-      steps: readItems("steps") as never,
-      decisions: readItems("decisions") as never,
-      exceptions: readItems("exceptions") as never,
-      systems: readItems("systems") as never,
-      connections: readItems("connections") as never,
-      nonFunctionalRequirements: readItems("nonFunctionalRequirements") as never,
+      actors: readItemArray(root, "actors") as never,
+      steps: readItemArray(root, "steps") as never,
+      decisions: readItemArray(root, "decisions") as never,
+      exceptions: readItemArray(root, "exceptions") as never,
+      systems: readItemArray(root, "systems") as never,
+      connections: readItemArray(root, "connections") as never,
+      nonFunctionalRequirements: readItemArray(root, "nonFunctionalRequirements") as never,
+      riskLog: readItemArray(root, "riskLog") as never,
+      changeRequests: readItemArray(root, "changeRequests") as never,
+      communicationPlan: readItemArray(root, "communicationPlan") as never,
+      testCases: readItemArray(root, "testCases") as never,
+      businessCase,
+      requirementsManagementPlan,
     };
   }
 
@@ -171,6 +200,12 @@ export function yDocToModel(ydoc: Y.Doc): ArtifactModel {
       driftNote: bMap.get("driftNote") as string | undefined,
       items: ((bMap.get("items") as Y.Array<Y.Map<unknown>> | undefined)?.toArray() ?? []).map(yMapToItem) as never,
     })),
+    riskLog: readItemArray(root, "riskLog") as never,
+    changeRequests: readItemArray(root, "changeRequests") as never,
+    communicationPlan: readItemArray(root, "communicationPlan") as never,
+    stakeholders: readItemArray(root, "stakeholders") as never,
+    businessCase,
+    requirementsManagementPlan,
   };
 }
 
@@ -184,6 +219,10 @@ export function applyModelDiffToYDoc(ydoc: Y.Doc, prev: ArtifactModel, next: Art
   ydoc.transact(() => {
     if (next.title !== prev.title) root.set("title", next.title);
 
+    for (const key of DOC_KEYS) {
+      if (next[key] !== prev[key]) root.set(key, next[key] ?? null);
+    }
+
     if (next.kind === "process" && prev.kind === "process") {
       for (const key of PROCESS_ITEM_KEYS) {
         patchItemArray(root.get(key) as Y.Array<Y.Map<unknown>>, prev[key] as PlainItem[], next[key] as PlainItem[]);
@@ -193,11 +232,13 @@ export function applyModelDiffToYDoc(ydoc: Y.Doc, prev: ArtifactModel, next: Art
         (prev.connections ?? []) as unknown as PlainItem[],
         (next.connections ?? []) as unknown as PlainItem[],
       );
-      patchItemArray(
-        root.get("nonFunctionalRequirements") as Y.Array<Y.Map<unknown>>,
-        (prev.nonFunctionalRequirements ?? []) as unknown as PlainItem[],
-        (next.nonFunctionalRequirements ?? []) as unknown as PlainItem[],
-      );
+      for (const key of PROCESS_OPTIONAL_ARRAY_KEYS) {
+        patchItemArray(
+          root.get(key) as Y.Array<Y.Map<unknown>>,
+          (prev[key] ?? []) as unknown as PlainItem[],
+          (next[key] ?? []) as unknown as PlainItem[],
+        );
+      }
     } else if (next.kind === "bmc" && prev.kind === "bmc") {
       const blocksArr = root.get("blocks") as Y.Array<Y.Map<unknown>>;
       for (let idx = 0; idx < blocksArr.length; idx++) {
@@ -213,6 +254,13 @@ export function applyModelDiffToYDoc(ydoc: Y.Doc, prev: ArtifactModel, next: Art
           else bMap.set("driftNote", nextBlock.driftNote);
         }
         patchItemArray(bMap.get("items") as Y.Array<Y.Map<unknown>>, prevBlock.items as PlainItem[], nextBlock.items as PlainItem[]);
+      }
+      for (const key of BMC_OPTIONAL_ARRAY_KEYS) {
+        patchItemArray(
+          root.get(key) as Y.Array<Y.Map<unknown>>,
+          (prev[key] ?? []) as unknown as PlainItem[],
+          (next[key] ?? []) as unknown as PlainItem[],
+        );
       }
     }
   });

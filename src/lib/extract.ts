@@ -8,6 +8,7 @@
 import {
   bankingProcess,
   haulpilotBMC,
+  decisionBranches,
   type ArtifactModel,
   type ProcessModel,
   type BMCModel,
@@ -162,8 +163,9 @@ function prefixIds(model: ArtifactModel, index: number): ArtifactModel {
         ...d,
         id: tag(d.id),
         afterStepId: tag(d.afterStepId),
-        yes: tag(d.yes),
-        no: tag(d.no),
+        branches: decisionBranches(d).map(b => ({ ...b, id: tag(b.id), targetId: tag(b.targetId) })),
+        yes: undefined,
+        no: undefined,
       })),
       exceptions: model.exceptions.map(e => ({
         ...e,
