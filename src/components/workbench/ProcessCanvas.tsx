@@ -129,6 +129,14 @@ function defaultSizeFor(kind: "step" | "decision" | "exception", shape?: string)
   }
 }
 
+// The "document" shape's wavy bottom sits visibly above the full bounding
+// box, so a spine arrow anchored at the true bottom edge leaves a gap above
+// the drawn wave. Fraction of half-height to pull the anchor up by. Every
+// other shape's top/bottom edge is within ~5% of the bounding box (checked
+// io, offpage, terminator, event) -- not worth the same treatment.
+function bottomInsetFor(shape?: string): number {
+  return shape === "document" ? 0.12 : 0;
+}
 
 function effSize(id: string, defW: number, defH: number, overrides: Overrides, measured: Measured) {
   const o = overrides[id];
@@ -175,6 +183,19 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
     pushSpine("decision", d, DEC_W, DEC_H);
   });
 
+  // The right-side lane corridor carries one lane per exception plus one per
+  // non-primary decision branch. The exception column used to sit at a fixed
+  // offset regardless of how many lanes that turned out to be -- fine for a
+  // couple of exceptions, but with more branches/exceptions than that, lane
+  // lines run straight through the exception boxes instead of stopping at
+  // them. Reserve space for a safe (deliberately generous) upper bound on
+  // lane count instead: every branch of every decision, even though in
+  // practice one branch per decision usually skips a lane by continuing
+  // straight down the spine.
+  const maxPossibleLanes = model.exceptions.length +
+    model.decisions.reduce((sum, d) => sum + decisionBranches(d).length, 0);
+  const exceptionColX = RIGHT_CORRIDOR_X + Math.max(1, maxPossibleLanes) * LANE_GAP + 40;
+
   const right: RightNode[] = [];
   const occupiedYs: number[] = [];
   model.exceptions.forEach((e) => {
@@ -185,7 +206,7 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
       while (occupiedYs.some((y) => Math.abs(y - cy) < h + 20)) cy += h + 20;
     }
     occupiedYs.push(cy);
-    const cx = overrides[e.id]?.cx ?? RIGHT_CORRIDOR_X + 140 + w / 2;
+    const cx = overrides[e.id]?.cx ?? exceptionColX + w / 2;
     right.push({ kind: "exception", ref: e, cx, cy, w, h, z: zOf(e.id, overrides) });
   });
 
@@ -584,7 +605,8 @@ export function ProcessCanvas({
           const next = spine[i + 1];
           if (overrides[n.ref.id]?.cx !== undefined || overrides[next.ref.id]?.cx !== undefined) return null;
           if (n.ref.userAdded || next.ref.userAdded) return null;
-          const from = { x: n.cx, y: n.cy + n.h / 2 };
+          const fromInset = n.kind === "step" ? bottomInsetFor((n.ref as Step).shape) : 0;
+          const from = { x: n.cx, y: n.cy + n.h / 2 * (1 - fromInset) };
           const to = { x: next.cx, y: next.cy - next.h / 2 };
           const primaryBranch = n.kind === "decision"
             ? decisionBranches(n.ref as Decision).find((b) => b.targetId === next.ref.id)
@@ -1795,25 +1817,43 @@ function DecisionNode({
           <InlineEdit value={d.text} onChange={(v) => onUpdate({ text: v })} multiline />
         </div>
         {!isGateway && (
-          <div className="flex flex-col gap-0.5 text-[9px] font-mono-tight text-muted-foreground items-center" data-no-pan>
-            {branches.map((b) => (
-              <div key={b.id} className="flex items-center gap-1">
-                <InlineEdit value={b.label} onChange={(v) => updateBranch(b.id, { label: v })} className="text-primary" />
-                <span>→</span>
-                <InlineEdit value={b.targetId} onChange={(v) => updateBranch(b.id, { targetId: v })} />
-                {branches.length > 2 && (
-                  <button onClick={() => removeBranch(b.id)} data-no-pan
-                    className="opacity-0 group-hover:opacity-100 hover:text-destructive transition">
-                    <X className="size-2.5" />
-                  </button>
-                )}
+          // Branch editing lives in a popover rather than stacked inline rows.
+          // A diamond's usable interior shrinks fast away from vertical
+          // center, so an arbitrary-length branch list packed in directly
+          // spills past the slanted edges once a decision has more than ~2
+          // branches -- exactly the case N-way branches introduced. Branch
+          // labels still show at a glance on the connector lines themselves
+          // (unchanged, see spine/route rendering above); this is only for
+          // editing.
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                data-no-pan
+                className="text-[9px] font-mono-tight text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition"
+              >
+                {branches.length} branch{branches.length === 1 ? "" : "es"} ▾
+              </button>
+            </PopoverTrigger>
+            <PopoverContent data-no-pan className="w-64 p-2" align="center">
+              <div className="flex flex-col gap-1 text-[11px] font-mono-tight">
+                {branches.map((b) => (
+                  <div key={b.id} className="flex items-center gap-1">
+                    <InlineEdit value={b.label} onChange={(v) => updateBranch(b.id, { label: v })} className="text-primary" />
+                    <span className="text-muted-foreground">→</span>
+                    <InlineEdit value={b.targetId} onChange={(v) => updateBranch(b.id, { targetId: v })} />
+                    {branches.length > 2 && (
+                      <button onClick={() => removeBranch(b.id)} className="ml-auto text-muted-foreground hover:text-destructive transition">
+                        <X className="size-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button onClick={addBranch} className="flex items-center gap-1 text-muted-foreground hover:text-primary transition self-start mt-1">
+                  <Plus className="size-3" /> Add branch
+                </button>
               </div>
-            ))}
-            <button onClick={addBranch} data-no-pan
-              className="opacity-0 group-hover:opacity-100 hover:text-primary transition flex items-center gap-0.5">
-              <Plus className="size-2.5" /> branch
-            </button>
-          </div>
+            </PopoverContent>
+          </Popover>
         )}
       </div>
       {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
