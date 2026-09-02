@@ -117,6 +117,7 @@ const PROCESS_ITEM_KEYS = ["actors", "steps", "decisions", "exceptions", "system
 // extend BaseItem the way these do (cast through `unknown` either way).
 const PROCESS_OPTIONAL_ARRAY_KEYS = [
   "nonFunctionalRequirements", "riskLog", "changeRequests", "communicationPlan", "testCases",
+  "dataStores", "externalEntities",
 ] as const;
 const BMC_OPTIONAL_ARRAY_KEYS = ["riskLog", "changeRequests", "communicationPlan", "stakeholders"] as const;
 
@@ -184,6 +185,8 @@ export function yDocToModel(ydoc: Y.Doc): ArtifactModel {
       changeRequests: readItemArray(root, "changeRequests") as never,
       communicationPlan: readItemArray(root, "communicationPlan") as never,
       testCases: readItemArray(root, "testCases") as never,
+      dataStores: readItemArray(root, "dataStores") as never,
+      externalEntities: readItemArray(root, "externalEntities") as never,
       businessCase,
       requirementsManagementPlan,
     };

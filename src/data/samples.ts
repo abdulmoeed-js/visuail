@@ -151,6 +151,15 @@ export interface RequirementsManagementPlan {
   changeControlProcess?: string;
 }
 
+/** Data Flow Diagram -- process/data-store/external-entity, from the corpus's
+ *  DFD Tutorial (Gane-Sarson notation). Processes reuse the existing `steps`
+ *  array directly (a DFD process is structurally just a labeled step; the
+ *  "1.0"-style number is computed from array position at render time, not
+ *  stored) -- these two are the only genuinely new node types, and flows
+ *  reuse the existing `Connection`/`onAddConnection` machinery unchanged. */
+export interface DataStoreItem extends BaseItem {}
+export interface ExternalEntityItem extends BaseItem {}
+
 /** Crow's-foot notation for one end of a relationship. */
 export type CrowMarker = "none" | "one" | "many" | "one-many" | "zero-one" | "zero-many";
 
@@ -181,6 +190,8 @@ export interface ProcessModel {
   testCases?: TestCaseItem[];
   businessCase?: BusinessCase;
   requirementsManagementPlan?: RequirementsManagementPlan;
+  dataStores?: DataStoreItem[];
+  externalEntities?: ExternalEntityItem[];
 }
 
 export interface BMCBlock {

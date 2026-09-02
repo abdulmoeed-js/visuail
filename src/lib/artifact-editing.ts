@@ -23,6 +23,7 @@ import {
   type RiskItem, type ChangeRequestItem, type CommunicationPlanItem,
   type TestCaseItem, type StakeholderItem,
   type BusinessCase, type RequirementsManagementPlan,
+  type DataStoreItem, type ExternalEntityItem,
 } from "@/data/samples";
 import { applyProposal, type Proposal } from "@/lib/refine";
 import { diffModels } from "@/lib/diff";
@@ -46,6 +47,8 @@ function bumpUidPast(model: ArtifactModel) {
     for (const c of model.connections ?? []) ids.push(c.id);
     for (const n of model.nonFunctionalRequirements ?? []) ids.push(n.id);
     for (const n of model.testCases ?? []) ids.push(n.id);
+    for (const n of model.dataStores ?? []) ids.push(n.id);
+    for (const n of model.externalEntities ?? []) ids.push(n.id);
   } else {
     for (const b of model.blocks) for (const item of b.items) ids.push(item.id);
     for (const s of model.stakeholders ?? []) ids.push(s.id);
@@ -94,6 +97,10 @@ export interface ArtifactEditing {
   onUpdateBusinessCase: (patch: Partial<BusinessCase>) => void;
   onAddBusinessCaseOption: (t: string) => string;
   onUpdateRMP: (patch: Partial<RequirementsManagementPlan>) => void;
+
+  /** DFD -- process-only (a DFD's "process" nodes are just steps). */
+  onAddDataStore: (t: string) => string;
+  onAddExternalEntity: (t: string) => string;
 
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
@@ -201,6 +208,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
         connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
         nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).filter(x => x.id !== id),
         testCases: (m.testCases ?? []).filter(x => x.id !== id),
+        dataStores: (m.dataStores ?? []).filter(x => x.id !== id),
+        externalEntities: (m.externalEntities ?? []).filter(x => x.id !== id),
       };
     }
     return {
@@ -238,6 +247,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
         systems: m.systems.map(apply),
         nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).map(apply),
         testCases: (m.testCases ?? []).map(apply),
+        dataStores: (m.dataStores ?? []).map(apply),
+        externalEntities: (m.externalEntities ?? []).map(apply),
       };
     }
     return {
@@ -277,6 +288,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
             connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
             nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).filter(x => x.id !== id),
             testCases: (m.testCases ?? []).filter(x => x.id !== id),
+            dataStores: (m.dataStores ?? []).filter(x => x.id !== id),
+            externalEntities: (m.externalEntities ?? []).filter(x => x.id !== id),
           };
         }
         return {
@@ -365,6 +378,17 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   const onUpdateRMP = (patch: Partial<RequirementsManagementPlan>) =>
     mutate(m => ({ ...m, requirementsManagementPlan: { ...m.requirementsManagementPlan, ...patch } }));
 
+  const onAddDataStore = (t: string) => addWithId(() => {
+    const item: DataStoreItem = newUserItem("DS", t);
+    return { id: item.id, run: (m) => m.kind === "process"
+      ? { ...m, dataStores: [...(m.dataStores ?? []), item] } : m };
+  });
+  const onAddExternalEntity = (t: string) => addWithId(() => {
+    const item: ExternalEntityItem = newUserItem("EE", t);
+    return { id: item.id, run: (m) => m.kind === "process"
+      ? { ...m, externalEntities: [...(m.externalEntities ?? []), item] } : m };
+  });
+
   const onAddConnection = (fromId: string, toId: string, label?: string) => {
     const id = nextId("CN");
     const conn: Connection = { id, fromId, toId, label, userAdded: true };
@@ -387,6 +411,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     onAddConnection, onDeleteConnection, onUpdateConnection,
     onAddRisk, onAddChangeRequest, onAddCommunicationPlanItem, onAddTestCase, onAddStakeholder,
     onUpdateBusinessCase, onAddBusinessCaseOption, onUpdateRMP,
+    onAddDataStore, onAddExternalEntity,
     onDeleteAny, onUpdateItem, onApplyRefinement,
     onRemoveLastAdded,
   };
