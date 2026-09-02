@@ -247,10 +247,16 @@ function DFDNodeView({
     if (e.button !== 0) return;
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    let last = { x: e.clientX, y: e.clientY };
+    // Delta from the drag's START position, not incremental since-last-move
+    // -- onDrag adds this to the node's position from the render at drag
+    // start, so it must be the *cumulative* offset, matching how
+    // ProcessCanvas's useNodeDrag (the proven pattern elsewhere in this
+    // codebase) does it. An incremental-since-last delta would silently
+    // discard all but the last move event's worth of movement, since the
+    // stale `node.cx` captured in this closure never updates mid-drag.
+    const start = { x: e.clientX, y: e.clientY };
     const move = (ev: PointerEvent) => {
-      onDrag((ev.clientX - last.x) / zoom, (ev.clientY - last.y) / zoom);
-      last = { x: ev.clientX, y: ev.clientY };
+      onDrag((ev.clientX - start.x) / zoom, (ev.clientY - start.y) / zoom);
     };
     const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
     window.addEventListener("pointermove", move);
