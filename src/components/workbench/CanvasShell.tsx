@@ -49,6 +49,20 @@ export function CanvasShell({
     setPan({ x: Math.max(20, (width - contentWidth * z) / 2), y: 30 });
   };
 
+  // Fit the diagram to the viewport once, on first mount -- the fixed 100%
+  // zoom + (40,40) pan default put the first spine node directly behind the
+  // shape palette (top-left overlay) and pushed exception/lane content
+  // toward the minimap (bottom-right overlay) for any diagram bigger than a
+  // couple of nodes. A centered, scaled-to-fit initial view keeps real
+  // content clear of both fixed corners instead of overlapping them at
+  // whatever pan/zoom happens to be default. Deliberately mount-only (not
+  // re-run when content grows) so it doesn't fight the user's own zoom/pan
+  // while they're actively editing.
+  useEffect(() => {
+    fitView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Try native Fullscreen API first; fall back to a CSS-portal fullscreen when
   // the browser rejects it (common inside iframes without allow="fullscreen",
   // like the Lovable preview).
