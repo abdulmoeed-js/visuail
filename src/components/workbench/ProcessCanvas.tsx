@@ -1440,22 +1440,37 @@ function StepNode({
     );
   }
 
-  // Padding tuned per shape so content sits inside the visible outline. io
-  // and offpage use percentage padding (not a fixed px value) because their
-  // slanted edges are a fixed fraction of WIDTH, and width is user-resizable
-  // -- a fixed px inset that looked safe at the default size would fall
-  // short once the node is widened. io's parallelogram top-left corner (the
-  // header row's home) is inset 15% of width; offpage's pentagon point cuts
-  // the right side back by the same 15% at top and bottom.
+  // Padding tuned per shape so content sits inside the visible outline.
   const padClass =
     shape === "event" ? "px-6 py-6 items-center justify-center text-center"
-    : shape === "io" ? "px-[15%] py-2"
-    : shape === "offpage" ? "pl-3 pr-[15%] py-2"
+    : shape === "io" ? "py-2"
+    : shape === "offpage" ? "pl-3 py-2"
     : shape === "subroutine" ? "px-6 py-2"
     : shape === "document" ? "px-3 pt-2 pb-4"
     : shape === "swimlane" ? "px-3 pt-8 pb-3"
     : shape === "terminator" ? "px-6 py-2 items-center justify-center text-center"
     : "px-3 py-2";
+
+  // io and offpage need percentage padding (not fixed px) because their
+  // slanted edges are a fixed fraction of WIDTH, and width is user-resizable
+  // -- a fixed px inset that looked safe at the default size would fall
+  // short once the node is widened. io's parallelogram top-left corner (the
+  // header row's home) is inset 15% of width; offpage's pentagon point cuts
+  // the right side back by the same 15% at top and bottom.
+  //
+  // That percentage MUST live on the inner (normally-positioned) shape
+  // wrapper below, not on the outer node div above -- CSS resolves
+  // percentage padding against the containing block, and for an
+  // absolutely-positioned element (the outer node div, which has explicit
+  // left/top/width in its style) that's the whole canvas content layer, not
+  // the node's own width. Putting it there ballooned io/offpage to 3-4x
+  // their size (15% of a ~3000px canvas instead of 15% of a 260px node).
+  // The inner wrapper is normal-flow, so its containing block is correctly
+  // the outer node div's own (explicit) width.
+  const innerPadClass =
+    shape === "io" ? "px-[15%]"
+    : shape === "offpage" ? "pr-[15%]"
+    : "";
 
   // Softer, Miro-style card: a thinner border (color still carries meaning)
   // with a real drop shadow doing the visual-weight work instead, plus a
@@ -1531,7 +1546,7 @@ function StepNode({
     >
       {isShaped ? (
         <ShapeFrame shape={shape} drift={step.drift} userAdded={step.userAdded} lowConf={lowConf}>
-          <div className="relative flex flex-col gap-1 w-full h-full min-h-0">{contentInner}</div>
+          <div className={cn("relative flex flex-col gap-1 w-full h-full min-h-0", innerPadClass)}>{contentInner}</div>
         </ShapeFrame>
       ) : (
         contentInner
