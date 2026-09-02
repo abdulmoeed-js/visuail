@@ -1,4 +1,4 @@
-import { Check, Minus } from "lucide-react";
+import { FileText, GitBranch, Grid3x3, ShieldAlert, Users, Briefcase, ClipboardList, MessageSquare, ListChecks } from "lucide-react";
 
 const TONES = {
   confident: {
@@ -18,61 +18,45 @@ const TONES = {
   },
 } as const;
 
+const TONE_CYCLE: Array<keyof typeof TONES> = ["confident", "unresolved", "drift"];
+
 export function WhyNotMiro() {
-  const contrasts: Array<{ k: string; v: string; tone: keyof typeof TONES }> = [
-    {
-      k: "A first draft, then you're on your own.",
-      v: "One source, every downstream doc — BRD and backlog fall out of the same typed extraction.",
-      tone: "confident",
-    },
-    {
-      k: "Diagrams forget where a shape came from.",
-      v: "Every item remembers where it came from — a confidence score and the source quote, on every item.",
-      tone: "unresolved",
-    },
-    {
-      k: "Stale diagrams stay silent.",
-      v: "A source change flags exactly which steps, requirements, and stories it invalidated.",
-      tone: "drift",
-    },
+  const artifacts: Array<{ icon: typeof FileText; title: string; blurb: string }> = [
+    { icon: Grid3x3, title: "Process Map & BMC", blurb: "Typed extraction from a transcript or upload, not a blank canvas." },
+    { icon: GitBranch, title: "Use Case Diagrams", blurb: "Derived automatically from the actors and steps already on the canvas." },
+    { icon: Users, title: "RACI", blurb: "Actors x steps, editable inline — no separate spreadsheet to keep in sync." },
+    { icon: ShieldAlert, title: "Risk Log", blurb: "Probability x impact scoring, response strategy, status — per project." },
+    { icon: Users, title: "Stakeholder Analysis", blurb: "The classic influence/interest grid, built from your actual actors." },
+    { icon: Briefcase, title: "Business Case", blurb: "Problem, options considered, recommendation — one place, not a doc that drifts from the model." },
+    { icon: ClipboardList, title: "Requirements Mgmt Plan", blurb: "Purpose, scope, elicitation approach, change control — written down once." },
+    { icon: MessageSquare, title: "Communication Plan", blurb: "Who needs to hear what, how, and how often." },
+    { icon: ListChecks, title: "BRD & Backlog", blurb: "Fall out of the same source as everything else — never a second copy to maintain." },
   ];
   return (
     <section id="why-not-miro" className="border-t">
       <div className="mx-auto max-w-[1100px] px-4 py-24 md:py-36">
         <h2 className="font-display text-4xl md:text-5xl max-w-3xl leading-[1.05]">
-          The category is oversaturated.{" "}
-          <span className="italic text-primary">The maintenance problem isn't.</span>
+          Everything a BA is expected to ship.{" "}
+          <span className="italic text-primary">From one traced source.</span>
         </h2>
         <p className="text-muted-foreground mt-5 max-w-2xl text-lg">
-          Every competitor ships a decent first draft, then abandons it. Visuail's wedge is day 30, not day 0.
+          A first draft is easy. Staying right after the tenth stakeholder change is the job — that's where Visuail earns its keep.
         </p>
-        <div className="mt-16 space-y-12 md:space-y-16">
-          {contrasts.map((c) => {
-            const t = TONES[c.tone];
+        <div className="mt-16 grid gap-6 sm:grid-cols-2 md:grid-cols-3">
+          {artifacts.map((a, i) => {
+            const t = TONES[TONE_CYCLE[i % TONE_CYCLE.length]];
+            const Icon = a.icon;
             return (
-              <div key={c.k} className="grid gap-3 md:grid-cols-[1fr_1.2fr] md:gap-16 items-baseline">
-                <div>
-                  <div className="mb-3 inline-flex items-center gap-1.5 font-mono-tight text-[10px] uppercase tracking-widest">
+              <div key={a.title} className="rounded-xl border bg-card p-5">
+                <div className="flex items-center justify-between">
+                  <Icon className="size-5 text-primary" aria-hidden="true" />
+                  <div className="inline-flex items-center gap-1.5 font-mono-tight text-[10px] uppercase tracking-widest">
                     <span className={`h-1.5 w-1.5 rounded-full ${t.dot}`} />
                     <span className={t.accent}>{t.label}</span>
                   </div>
-                  <p className="font-display text-2xl md:text-3xl text-muted-foreground/70 leading-tight flex gap-2.5">
-                    <Minus className="size-5 md:size-6 shrink-0 mt-1.5 text-muted-foreground/50" aria-hidden="true" />
-                    <span>{c.k}</span>
-                  </p>
                 </div>
-                <p className="font-display text-2xl md:text-3xl text-foreground leading-tight flex gap-2.5">
-                  <Check className={`size-5 md:size-6 shrink-0 mt-1.5 ${t.accent}`} aria-hidden="true" />
-                  <span>
-                    {c.v.split(/(confidence score|typed extraction|flags exactly)/).map((frag, i) =>
-                      /confidence score|typed extraction|flags exactly/.test(frag) ? (
-                        <span key={i} className={t.accent}>{frag}</span>
-                      ) : (
-                        <span key={i}>{frag}</span>
-                      ),
-                    )}
-                  </span>
-                </p>
+                <h3 className="font-display text-lg mt-3">{a.title}</h3>
+                <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">{a.blurb}</p>
               </div>
             );
           })}

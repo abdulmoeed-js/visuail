@@ -85,7 +85,7 @@ export function Nav() {
         {!session.signedIn && (
           <nav className="hidden md:flex items-center gap-1 text-sm">
             <button onClick={() => scrollTo("workbench")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Workbench</button>
-            <button onClick={() => scrollTo("why-not-miro")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">The maintenance problem</button>
+            <button onClick={() => scrollTo("why-not-miro")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">What you get</button>
             <button onClick={() => scrollTo("pricing")} className="px-3 py-1.5 rounded-md hover:bg-muted transition">Pricing</button>
           </nav>
         )}

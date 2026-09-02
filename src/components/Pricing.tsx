@@ -26,6 +26,7 @@ const tiers: Array<{
     features: [
       "2 projects, 4 transcripts each",
       "Process map + Business Model Canvas",
+      "Full BA toolkit: use cases, RACI, risk log, stakeholder analysis, business case & more",
       "Generated BRD & summary briefs",
       "Confidence scoring per item",
       "PDF export",
@@ -102,9 +103,9 @@ export function Pricing() {
       <div className="mx-auto max-w-[1200px] px-4 py-24 md:py-32">
         <div className="max-w-2xl mb-16">
           <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">Pricing</div>
-          <h2 className="font-display text-4xl md:text-5xl mt-2 leading-[1.05]">Priced for people who bill by the hour.</h2>
+          <h2 className="font-display text-4xl md:text-5xl mt-2 leading-[1.05]">Straightforward pricing for real BA work.</h2>
           <p className="text-muted-foreground mt-4 text-lg">
-            Traceability and drift detection live in Pro and up — never in a free plan. That's what you're actually paying for.
+            The full artifact suite — traceability, drift detection, the works — lives in Pro and up. That's what you're actually paying for.
           </p>
         </div>
         <div className="grid gap-px bg-border md:grid-cols-3 border rounded-lg overflow-hidden">
@@ -173,11 +174,11 @@ export function Footer() {
       <div className="mx-auto max-w-[1400px] px-4 py-8 flex flex-wrap items-center justify-between gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 font-mono-tight">
           <span className="h-1.5 w-1.5 rounded-full bg-confident" />
-          Visuail · diagrams that know when they're stale
+          Visuail · your AI Business Analyst
         </div>
         <div className="flex items-center gap-4">
           <a className="hover:text-foreground" href="#workbench">Workbench</a>
-          <a className="hover:text-foreground" href="#why-not-miro">The maintenance problem</a>
+          <a className="hover:text-foreground" href="#why-not-miro">What you get</a>
           <a className="hover:text-foreground" href="#pricing">Pricing</a>
 
           <span>© 2026</span>
