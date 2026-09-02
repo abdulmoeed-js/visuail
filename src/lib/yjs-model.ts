@@ -116,6 +116,9 @@ export function modelToYDoc(model: ArtifactModel): Y.Doc {
       const conns = new Y.Array<Y.Map<unknown>>();
       for (const c of model.connections ?? []) conns.push([itemToYMap(c as unknown as PlainItem)]);
       root.set("connections", conns);
+      const nfrs = new Y.Array<Y.Map<unknown>>();
+      for (const n of model.nonFunctionalRequirements ?? []) nfrs.push([itemToYMap(n as unknown as PlainItem)]);
+      root.set("nonFunctionalRequirements", nfrs);
     } else {
       const blocks = new Y.Array<Y.Map<unknown>>();
       for (const b of model.blocks) {
@@ -153,6 +156,7 @@ export function yDocToModel(ydoc: Y.Doc): ArtifactModel {
       exceptions: readItems("exceptions") as never,
       systems: readItems("systems") as never,
       connections: readItems("connections") as never,
+      nonFunctionalRequirements: readItems("nonFunctionalRequirements") as never,
     };
   }
 
@@ -188,6 +192,11 @@ export function applyModelDiffToYDoc(ydoc: Y.Doc, prev: ArtifactModel, next: Art
         root.get("connections") as Y.Array<Y.Map<unknown>>,
         (prev.connections ?? []) as unknown as PlainItem[],
         (next.connections ?? []) as unknown as PlainItem[],
+      );
+      patchItemArray(
+        root.get("nonFunctionalRequirements") as Y.Array<Y.Map<unknown>>,
+        (prev.nonFunctionalRequirements ?? []) as unknown as PlainItem[],
+        (next.nonFunctionalRequirements ?? []) as unknown as PlainItem[],
       );
     } else if (next.kind === "bmc" && prev.kind === "bmc") {
       const blocksArr = root.get("blocks") as Y.Array<Y.Map<unknown>>;

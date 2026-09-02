@@ -18,6 +18,9 @@ import { ProcessCanvas } from "./workbench/ProcessCanvas";
 import { BMCCanvas } from "./workbench/BMCCanvas";
 import { CanvasErrorBoundary } from "./workbench/CanvasErrorBoundary";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
+import { UseCaseDiagramView } from "./workbench/UseCaseDiagramView";
+import { UseCaseDescriptionDialog } from "./workbench/UseCaseDescriptionDialog";
+import { RaciMatrixView } from "./workbench/RaciMatrixView";
 import { DriftNotifier } from "./workbench/DriftNotifier";
 import { TemplateGallery } from "./workbench/TemplateGallery";
 import { Link } from "@tanstack/react-router";
@@ -35,7 +38,7 @@ type State =
   | { status: "refused"; reason: string }
   | { status: "ready" };
 
-type ArtifactTab = "artifact" | "items" | "downstream1" | "downstream2";
+type ArtifactTab = "artifact" | "usecases" | "raci" | "items" | "downstream1" | "downstream2";
 
 export function Workbench() {
   const [transcript, setTranscript] = useState(SAMPLES[0].transcript);
@@ -288,9 +291,12 @@ export function ArtifactView({
   const avgTone = avgPct >= 85 ? "text-confident" : avgPct >= 70 ? "text-unresolved" : "text-drift";
   const drift = drifted ? driftSummary(model) : { count: 0, label: "" };
   const [tab, setTab] = useState<ArtifactTab>(focusItemId ? "items" : "artifact");
+  const [drilldownStepId, setDrilldownStepId] = useState<string | null>(null);
 
   const tabs: { value: ArtifactTab; label: ReactNode }[] = [
     { value: "artifact", label: model.kind === "process" ? "Process map" : "Canvas" },
+    ...(model.kind === "process" ? [{ value: "usecases" as const, label: "Use cases" }] : []),
+    ...(model.kind === "process" ? [{ value: "raci" as const, label: "RACI" }] : []),
     { value: "items", label: <><LayoutList className="size-3.5" /> Items</> },
     { value: "downstream1", label: model.kind === "process" ? "BRD" : "Summary brief" },
     { value: "downstream2", label: model.kind === "process" ? "Traced backlog" : "Open questions" },
@@ -385,6 +391,7 @@ export function ArtifactView({
                       onDeleteAny={editing.onDeleteAny}
                       onUpdateItem={editing.onUpdateItem}
                       onApplyRefinement={editing.onApplyRefinement}
+                      onOpenUseCase={setDrilldownStepId}
                     />
                   ) : (
                     <BMCCanvas
@@ -396,6 +403,20 @@ export function ArtifactView({
                   )}
                 </CanvasErrorBoundary>
               </div>
+            </div>
+          )}
+
+          {tab === "usecases" && model.kind === "process" && (
+            <div className="h-full p-4">
+              <div className="h-[640px]">
+                <UseCaseDiagramView model={model} onSelectUseCase={setDrilldownStepId} />
+              </div>
+            </div>
+          )}
+
+          {tab === "raci" && model.kind === "process" && (
+            <div className="h-full p-4">
+              <RaciMatrixView model={model} onUpdateItem={editing.onUpdateItem} />
             </div>
           )}
 
@@ -432,16 +453,34 @@ export function ArtifactView({
 
           {tab === "downstream1" && (
             <div className="p-4">
-              {model.kind === "process" ? <BRDTab m={model} /> : <BriefTab m={model} />}
+              {model.kind === "process" ? (
+                <BRDTab
+                  m={model}
+                  onAddNFR={editing.onAddNFR}
+                  onDeleteAny={editing.onDeleteAny}
+                  onUpdateItem={editing.onUpdateItem}
+                />
+              ) : <BriefTab m={model} />}
             </div>
           )}
           {tab === "downstream2" && (
             <div className="p-4">
-              {model.kind === "process" ? <BacklogTab m={model} /> : <QuestionsTab m={model} />}
+              {model.kind === "process" ? (
+                <BacklogTab m={model} onUpdateItem={editing.onUpdateItem} />
+              ) : <QuestionsTab m={model} />}
             </div>
           )}
         </div>
       </div>
+
+      {model.kind === "process" && (
+        <UseCaseDescriptionDialog
+          model={model}
+          stepId={drilldownStepId}
+          onOpenChange={(open) => { if (!open) setDrilldownStepId(null); }}
+          onUpdateItem={editing.onUpdateItem}
+        />
+      )}
 
       <div className="border-t bg-muted/40 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">

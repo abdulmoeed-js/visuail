@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import {
   type ArtifactModel, type BaseItem, type BMCBlock, type Connection,
-  type Step, type Decision,
+  type Step, type Decision, type NFRCategory,
 } from "@/data/samples";
 import { applyProposal, type Proposal } from "@/lib/refine";
 import { diffModels } from "@/lib/diff";
@@ -41,6 +41,7 @@ function bumpUidPast(model: ArtifactModel) {
       for (const item of group) ids.push(item.id);
     }
     for (const c of model.connections ?? []) ids.push(c.id);
+    for (const n of model.nonFunctionalRequirements ?? []) ids.push(n.id);
   } else {
     for (const b of model.blocks) for (const item of b.items) ids.push(item.id);
   }
@@ -67,6 +68,7 @@ export interface ArtifactEditing {
   onAddDecision: (t: string) => string;
   onAddException: (t: string) => string;
   onAddSystem: (t: string) => string;
+  onAddNFR: (category: NFRCategory, t: string) => string;
   onAddBMC: (b: BMCBlock["id"], t: string) => string;
   onAddConnection: (fromId: string, toId: string, label?: string) => string;
   onDeleteConnection: (id: string) => void;
@@ -170,6 +172,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
         exceptions: m.exceptions.filter(x => x.id !== id),
         systems: m.systems.filter(x => x.id !== id),
         connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
+        nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).filter(x => x.id !== id),
       };
     }
     return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })) };
@@ -195,6 +198,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
         decisions: m.decisions.map(apply),
         exceptions: m.exceptions.map(apply),
         systems: m.systems.map(apply),
+        nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).map(apply),
       };
     }
     return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.map(apply) })) };
@@ -221,6 +225,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
             exceptions: m.exceptions.filter(x => x.id !== id),
             systems: m.systems.filter(x => x.id !== id),
             connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
+            nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).filter(x => x.id !== id),
           };
         }
         return { ...m, blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })) };
@@ -253,6 +258,11 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     const item = newUserItem("SY", t);
     return { id: item.id, run: (m) => m.kind === "process" ? { ...m, systems: [...m.systems, item] } : m };
   });
+  const onAddNFR = (category: NFRCategory, t: string) => addWithId(() => {
+    const item = { ...newUserItem("NFR", t), category };
+    return { id: item.id, run: (m) => m.kind === "process"
+      ? { ...m, nonFunctionalRequirements: [...(m.nonFunctionalRequirements ?? []), item] } : m };
+  });
   const onAddBMC = (bid: BMCBlock["id"], t: string) => addWithId(() => {
     const item = newUserItem(bid.slice(0, 2).toUpperCase(), t);
     return { id: item.id, run: (m) => m.kind === "bmc"
@@ -277,7 +287,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   return {
     model, drifted, lastAddedId, reset,
     onSimulateDrift, onClearDrift,
-    onAddActor, onAddStep, onAddDecision, onAddException, onAddSystem, onAddBMC,
+    onAddActor, onAddStep, onAddDecision, onAddException, onAddSystem, onAddBMC, onAddNFR,
     onAddConnection, onDeleteConnection, onUpdateConnection,
     onDeleteAny, onUpdateItem, onApplyRefinement,
     onRemoveLastAdded,

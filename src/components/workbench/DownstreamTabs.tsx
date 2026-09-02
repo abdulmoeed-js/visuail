@@ -1,9 +1,22 @@
 import type { ProcessModel, BMCModel } from "@/data/samples";
+import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { IdChip } from "./atoms";
+import { InlineEdit } from "./InlineEdit";
 import { cn } from "@/lib/utils";
+import { analyzeRequirementText, needsQualityFlag } from "@/lib/requirements-quality";
+import { NFR_CATEGORIES } from "@/data/samples";
+import { EditableList } from "./EditableList";
 
-export function BRDTab({ m }: { m: ProcessModel }) {
+export function BRDTab({
+  m, onAddNFR, onDeleteAny, onUpdateItem,
+}: {
+  m: ProcessModel;
+  onAddNFR: ArtifactEditing["onAddNFR"];
+  onDeleteAny: ArtifactEditing["onDeleteAny"];
+  onUpdateItem: ArtifactEditing["onUpdateItem"];
+}) {
   const actorTxt = (id: string) => m.actors.find((a) => a.id === id)?.text ?? "";
+  const nfrs = m.nonFunctionalRequirements ?? [];
   return (
     <article className="prose-none space-y-5 text-sm leading-relaxed max-w-3xl">
       <header>
@@ -36,26 +49,38 @@ export function BRDTab({ m }: { m: ProcessModel }) {
       <section>
         <h3 className="font-semibold text-foreground">Functional requirements</h3>
         <ol className="mt-1.5 space-y-2">
-          {m.steps.map((s, i) => (
-            <li
-              key={s.id}
-              className={cn(
-                "rounded-md border bg-card p-3",
-                s.drift && "border-drift bg-drift/5",
-                s.userAdded && "user-added",
-              )}
-            >
-              <div className="flex items-center gap-2 text-[11px] font-mono-tight text-muted-foreground">
-                <span className="text-foreground">REQ-{String(i + 1).padStart(3, "0")}</span>
-                <span>→</span>
-                <IdChip id={s.id} tone="primary" />
-                {s.drift && <span className="text-drift">· source drifted</span>}
-              </div>
-              <div className="mt-1 text-sm">
-                The system SHALL allow <strong>{actorTxt(s.actorId)}</strong> to {s.text.toLowerCase()}.
-              </div>
-            </li>
-          ))}
+          {m.steps.map((s, i) => {
+            const quality = analyzeRequirementText(s.text);
+            const flagged = needsQualityFlag(quality);
+            return (
+              <li
+                key={s.id}
+                className={cn(
+                  "rounded-md border bg-card p-3",
+                  s.drift && "border-drift bg-drift/5",
+                  s.userAdded && "user-added",
+                )}
+              >
+                <div className="flex items-center gap-2 text-[11px] font-mono-tight text-muted-foreground">
+                  <span className="text-foreground">REQ-{String(i + 1).padStart(3, "0")}</span>
+                  <span>→</span>
+                  <IdChip id={s.id} tone="primary" />
+                  {s.drift && <span className="text-drift">· source drifted</span>}
+                </div>
+                <div className="mt-1 text-sm">
+                  The system SHALL allow <strong>{actorTxt(s.actorId)}</strong> to {s.text.toLowerCase()}.
+                </div>
+                {flagged && (
+                  <div
+                    className="mt-1.5 inline-flex items-center gap-1 rounded border border-unresolved/50 bg-unresolved/10 px-1.5 py-0.5 text-[10px] font-mono-tight text-[color:var(--unresolved-foreground)]"
+                    title="Vague wording -- consider a more specific, testable phrasing"
+                  >
+                    vague: {quality.vagueTerms.map((v) => v.word).join(", ")}
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ol>
       </section>
 
@@ -69,6 +94,25 @@ export function BRDTab({ m }: { m: ProcessModel }) {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section>
+        <h3 className="font-semibold text-foreground">Non-functional requirements</h3>
+        <div className="mt-1.5 grid gap-3 sm:grid-cols-2">
+          {NFR_CATEGORIES.map((cat) => (
+            <div key={cat} className="rounded-md border bg-card p-2.5">
+              <h4 className="text-xs font-semibold text-muted-foreground mb-1.5">{cat}</h4>
+              <EditableList
+                items={nfrs.filter((n) => n.category === cat)}
+                onAdd={(t) => onAddNFR(cat, t)}
+                onDelete={onDeleteAny}
+                onEdit={(id, t) => onUpdateItem(id, { text: t })}
+                compact showIds={false}
+                placeholder={`Add a ${cat.toLowerCase()} requirement…`}
+              />
+            </div>
+          ))}
+        </div>
       </section>
 
       {m.steps.some((s) => s.confidence < 0.7) && (
@@ -87,7 +131,12 @@ export function BRDTab({ m }: { m: ProcessModel }) {
   );
 }
 
-export function BacklogTab({ m }: { m: ProcessModel }) {
+export function BacklogTab({
+  m, onUpdateItem,
+}: {
+  m: ProcessModel;
+  onUpdateItem: ArtifactEditing["onUpdateItem"];
+}) {
   const byActor = m.actors.map((a) => ({
     actor: a,
     stories: m.steps.filter((s) => s.actorId === a.id),
@@ -127,6 +176,15 @@ export function BacklogTab({ m }: { m: ProcessModel }) {
                     <span className="text-muted-foreground">As a</span> <strong>{actor.text}</strong>,
                     <span className="text-muted-foreground"> I want to</span> {s.text.toLowerCase()},
                     <span className="text-muted-foreground"> so that</span> the onboarding workflow can proceed.
+                  </div>
+                  <div className="mt-1.5 rounded-md border border-dashed bg-muted/30 px-2 py-1 text-[12px]">
+                    <span className="text-muted-foreground">Acceptance criteria: </span>
+                    <InlineEdit
+                      value={s.acceptanceCriteria ?? ""}
+                      onChange={(v) => onUpdateItem(s.id, { acceptanceCriteria: v })}
+                      placeholder={`Given the current state, when ${actor.text.toLowerCase()} performs "${s.text.toLowerCase()}", then the workflow reflects it accurately.`}
+                      multiline
+                    />
                   </div>
                 </li>
               ))}

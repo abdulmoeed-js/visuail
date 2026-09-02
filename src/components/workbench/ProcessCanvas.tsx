@@ -6,7 +6,7 @@ import {
   Plus, X, GripVertical, Square, Diamond, AlertTriangle, Wand2,
   PanelRightOpen, PanelRightClose, Circle, FileText, ChevronsRight,
   Layers, ArrowUpToLine, ArrowDownToLine, Zap, Rows3,
-  Table2, Boxes, GitBranch, MoreHorizontal,
+  Table2, Boxes, GitBranch, MoreHorizontal, BookOpen,
 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -256,6 +256,8 @@ interface Props {
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Record<string, unknown>) => void;
   onApplyRefinement?: (p: Proposal) => void;
+  /** Opens the Use Case Description drill-down for a step (see Workbench.tsx). */
+  onOpenUseCase?: (stepId: string) => void;
 }
 
 interface PaletteItem {
@@ -308,7 +310,7 @@ const PALETTE_TABS: { id: PaletteTab; label: string; items: PaletteItem[] }[] = 
 export function ProcessCanvas({
   model, onAddStep, onAddDecision, onAddException,
   onAddConnection, onDeleteConnection, onUpdateConnection,
-  onDeleteAny, onUpdateItem, onApplyRefinement,
+  onDeleteAny, onUpdateItem, onApplyRefinement, onOpenUseCase,
 }: Props) {
 
   const [overrides, setOverrides] = useState<Overrides>({});
@@ -664,6 +666,7 @@ export function ProcessCanvas({
               onSelect={() => bringToFront(s.id)}
               onBringToFront={() => bringToFront(s.id)}
               onSendToBack={() => sendToBack(s.id)}
+              onOpenUseCase={onOpenUseCase ? () => onOpenUseCase(s.id) : undefined}
               z={n.z}
             />
           );
@@ -1304,7 +1307,7 @@ function ShapeFrame({
 function StepNode({
   node, step, actors, systems, model, autoHeight, onMeasure,
   onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
-  onSelect, onBringToFront, onSendToBack, z,
+  onSelect, onBringToFront, onSendToBack, onOpenUseCase, z,
 }: {
   node: SpineNode; step: Step; model: ProcessModel;
   actors: { id: string; text: string }[]; systems: { id: string; text: string }[];
@@ -1319,6 +1322,7 @@ function StepNode({
   onSelect: () => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
+  onOpenUseCase?: () => void;
   z: number;
 }) {
   const drag = useNodeDrag(onDrag, onSelect);
@@ -1436,6 +1440,12 @@ function StepNode({
           <ConfidenceBadge item={step} />
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
+          {onOpenUseCase && (
+            <button onClick={onOpenUseCase} data-no-pan title="View use case description"
+              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition">
+              <BookOpen className="size-3" />
+            </button>
+          )}
           <button onClick={onDelete} data-no-pan
             className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />

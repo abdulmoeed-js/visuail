@@ -31,6 +31,13 @@ export interface Step extends BaseItem {
     attributes?: string[];
     methods?: string[];
   };
+  /** Use-case-description fields -- can't be derived, so user-fillable. */
+  preCondition?: string;
+  postCondition?: string;
+  /** Acceptance criteria for this step's backlog story. */
+  acceptanceCriteria?: string;
+  /** RACI code per actor id, e.g. { AC1: "R", AC2: "A" }. */
+  raci?: Partial<Record<string, "R" | "A" | "C" | "I">>;
 }
 export interface Decision extends BaseItem {
   afterStepId: string;
@@ -40,6 +47,12 @@ export interface Decision extends BaseItem {
 }
 export interface Exception extends BaseItem { relatedStepId?: string; }
 export interface System extends BaseItem {}
+
+/** Non-functional-requirement categories, from the requirements-classification
+ *  material reviewed for the Quality Layer corpus. */
+export const NFR_CATEGORIES = ["Reliability", "Performance", "Security", "Usability", "Audit"] as const;
+export type NFRCategory = (typeof NFR_CATEGORIES)[number];
+export interface NonFunctionalRequirement extends BaseItem { category: NFRCategory; }
 
 /** Crow's-foot notation for one end of a relationship. */
 export type CrowMarker = "none" | "one" | "many" | "one-many" | "zero-one" | "zero-many";
@@ -64,6 +77,7 @@ export interface ProcessModel {
   exceptions: Exception[];
   systems: System[];
   connections?: Connection[];
+  nonFunctionalRequirements?: NonFunctionalRequirement[];
 }
 
 export interface BMCBlock {
@@ -278,6 +292,7 @@ export function allItems(model: ArtifactModel): BaseItem[] {
     return [
       ...model.actors, ...model.steps, ...model.decisions,
       ...model.exceptions, ...model.systems,
+      ...(model.nonFunctionalRequirements ?? []),
     ];
   }
   return model.blocks.flatMap(b => b.items);
