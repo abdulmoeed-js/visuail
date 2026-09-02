@@ -1440,11 +1440,17 @@ function StepNode({
     );
   }
 
-  // Padding tuned per shape so content sits inside the visible outline.
+  // Padding tuned per shape so content sits inside the visible outline. io
+  // and offpage use percentage padding (not a fixed px value) because their
+  // slanted edges are a fixed fraction of WIDTH, and width is user-resizable
+  // -- a fixed px inset that looked safe at the default size would fall
+  // short once the node is widened. io's parallelogram top-left corner (the
+  // header row's home) is inset 15% of width; offpage's pentagon point cuts
+  // the right side back by the same 15% at top and bottom.
   const padClass =
     shape === "event" ? "px-6 py-6 items-center justify-center text-center"
-    : shape === "io" ? "px-6 py-2"
-    : shape === "offpage" ? "pl-3 pr-8 py-2"
+    : shape === "io" ? "px-[15%] py-2"
+    : shape === "offpage" ? "pl-3 pr-[15%] py-2"
     : shape === "subroutine" ? "px-6 py-2"
     : shape === "document" ? "px-3 pt-2 pb-4"
     : shape === "swimlane" ? "px-3 pt-8 pb-3"
@@ -1836,18 +1842,23 @@ function DecisionNode({
             </PopoverTrigger>
             <PopoverContent data-no-pan className="w-64 p-2" align="center">
               <div className="flex flex-col gap-1 text-[11px] font-mono-tight">
-                {branches.map((b) => (
-                  <div key={b.id} className="flex items-center gap-1">
-                    <InlineEdit value={b.label} onChange={(v) => updateBranch(b.id, { label: v })} className="text-primary" />
-                    <span className="text-muted-foreground">→</span>
-                    <InlineEdit value={b.targetId} onChange={(v) => updateBranch(b.id, { targetId: v })} />
-                    {branches.length > 2 && (
-                      <button onClick={() => removeBranch(b.id)} className="ml-auto text-muted-foreground hover:text-destructive transition">
-                        <X className="size-3" />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                {/* Capped + scrollable so a decision with many branches (a real
+                    possibility now that branches are N-way) can't push the
+                    popover taller than the viewport. */}
+                <div className="flex flex-col gap-1 max-h-56 overflow-y-auto">
+                  {branches.map((b) => (
+                    <div key={b.id} className="flex items-center gap-1">
+                      <InlineEdit value={b.label} onChange={(v) => updateBranch(b.id, { label: v })} className="text-primary" />
+                      <span className="text-muted-foreground">→</span>
+                      <InlineEdit value={b.targetId} onChange={(v) => updateBranch(b.id, { targetId: v })} />
+                      {branches.length > 2 && (
+                        <button onClick={() => removeBranch(b.id)} className="ml-auto text-muted-foreground hover:text-destructive transition">
+                          <X className="size-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
                 <button onClick={addBranch} className="flex items-center gap-1 text-muted-foreground hover:text-primary transition self-start mt-1">
                   <Plus className="size-3" /> Add branch
                 </button>
