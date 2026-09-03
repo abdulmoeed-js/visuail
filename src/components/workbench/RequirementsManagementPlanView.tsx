@@ -2,10 +2,15 @@ import type { ArtifactModel } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { InlineEdit } from "./InlineEdit";
 
-const FIELDS: { key: "purpose" | "scope" | "elicitationApproach" | "changeControlProcess"; label: string; placeholder: string }[] = [
+const FIELDS: {
+  key: "purpose" | "scope" | "elicitationApproach" | "prioritizationApproach" | "traceabilityApproach" | "changeControlProcess";
+  label: string; placeholder: string;
+}[] = [
   { key: "purpose", label: "Purpose", placeholder: "Why does this plan exist, and who is it for?" },
   { key: "scope", label: "Scope", placeholder: "What requirements work is -- and isn't -- covered?" },
   { key: "elicitationApproach", label: "Elicitation approach", placeholder: "How will requirements be gathered -- interviews, workshops, document analysis?" },
+  { key: "prioritizationApproach", label: "Prioritization approach", placeholder: "How do requirements get ranked -- MoSCoW, weighted scoring, stakeholder vote?" },
+  { key: "traceabilityApproach", label: "Traceability approach", placeholder: "How does each requirement stay linked back to its source and forward to delivery?" },
   { key: "changeControlProcess", label: "Change control process", placeholder: "How do requirement changes get proposed, reviewed, and approved after baseline?" },
 ];
 

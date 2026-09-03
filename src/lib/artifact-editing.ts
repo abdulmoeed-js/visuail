@@ -368,7 +368,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     return { id: item.id, run: (m) => ({ ...m, communicationPlan: [...(m.communicationPlan ?? []), item] }) };
   });
   const onAddTestCase = (t: string) => addWithId(() => {
-    const item: TestCaseItem = { ...newUserItem("TC", t), expectedResult: "", status: "Not Run" };
+    const item: TestCaseItem = { ...newUserItem("TC", t), expectedResult: "", priority: "Medium", status: "Not Run" };
     return { id: item.id, run: (m) => m.kind === "process"
       ? { ...m, testCases: [...(m.testCases ?? []), item] } : m };
   });

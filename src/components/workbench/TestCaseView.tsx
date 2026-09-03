@@ -1,4 +1,4 @@
-import { TEST_STATUSES, type ProcessModel, type TestStatus } from "@/data/samples";
+import { TEST_STATUSES, type Level, type ProcessModel, type TestStatus } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,12 @@ const statusTone = (v: TestStatus) =>
   v === "Pass" ? "border-confident/40 bg-confident/10 text-[color:var(--confident)]"
   : v === "Fail" ? "border-drift/50 bg-drift/10 text-drift"
   : "border-muted-foreground/30 bg-muted text-muted-foreground";
+
+const PRIORITIES: readonly Level[] = ["Low", "Medium", "High"];
+const priorityTone = (v: Level) =>
+  v === "High" ? "border-drift/50 bg-drift/10 text-drift"
+  : v === "Medium" ? "border-unresolved bg-unresolved/15 text-[color:var(--unresolved-foreground)]"
+  : "border-confident/40 bg-confident/10 text-[color:var(--confident)]";
 
 /** Test Case -- objective, preconditions, expected result, pass/fail status,
  *  optionally linked to the step it verifies. Process only: a business
@@ -49,7 +55,9 @@ export function TestCaseView({
                 <TableHead className="min-w-[200px]">Objective</TableHead>
                 <TableHead className="min-w-[140px]">Verifies step</TableHead>
                 <TableHead className="min-w-[180px]">Preconditions</TableHead>
+                <TableHead className="min-w-[200px]">Steps</TableHead>
                 <TableHead className="min-w-[200px]">Expected result</TableHead>
+                <TableHead>Priority</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-8" />
               </TableRow>
@@ -83,8 +91,20 @@ export function TestCaseView({
                       placeholder="What must be true first?" />
                   </TableCell>
                   <TableCell>
+                    <InlineEdit
+                      value={(t.steps ?? []).join("\n")}
+                      onChange={(v) => onUpdateItem(t.id, { steps: v.split("\n").map((s) => s.trim()).filter(Boolean) })}
+                      placeholder="One action per line, in order"
+                      multiline as="block"
+                    />
+                  </TableCell>
+                  <TableCell>
                     <InlineEdit value={t.expectedResult} onChange={(v) => onUpdateItem(t.id, { expectedResult: v })}
                       placeholder="What should happen?" />
+                  </TableCell>
+                  <TableCell>
+                    <SelectBadge<Level> value={t.priority ?? "Medium"} options={PRIORITIES} tone={priorityTone}
+                      onChange={(v) => onUpdateItem(t.id, { priority: v })} />
                   </TableCell>
                   <TableCell>
                     <SelectBadge<TestStatus> value={t.status} options={TEST_STATUSES} tone={statusTone}

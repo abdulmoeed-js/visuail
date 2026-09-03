@@ -38,6 +38,31 @@ export function BusinessCaseView({
         </div>
       </section>
 
+      <div className="grid gap-4 sm:grid-cols-2">
+        <section>
+          <h3 className="font-semibold text-foreground mb-1">Expected benefit</h3>
+          <div className="rounded-md border bg-card p-2.5">
+            <InlineEdit
+              value={bc.expectedBenefit ?? ""}
+              onChange={(v) => onUpdateBusinessCase({ expectedBenefit: v })}
+              placeholder="What improves, and by how much, if this ships?"
+              multiline as="block"
+            />
+          </div>
+        </section>
+        <section>
+          <h3 className="font-semibold text-foreground mb-1">Estimated cost</h3>
+          <div className="rounded-md border bg-card p-2.5">
+            <InlineEdit
+              value={bc.estimatedCost ?? ""}
+              onChange={(v) => onUpdateBusinessCase({ estimatedCost: v })}
+              placeholder="Build cost, run cost, or both?"
+              multiline as="block"
+            />
+          </div>
+        </section>
+      </div>
+
       <section>
         <div className="flex items-center justify-between mb-1">
           <h3 className="font-semibold text-foreground">Options considered</h3>
@@ -71,6 +96,15 @@ export function BusinessCaseView({
                     <div className="text-muted-foreground mb-0.5">Cons</div>
                     <InlineEdit value={o.cons ?? ""} onChange={(v) => onUpdateItem(o.id, { cons: v })} multiline as="block" />
                   </div>
+                </div>
+                <div className="mt-1.5 text-xs">
+                  <div className="text-muted-foreground mb-0.5">Why not this one (leave blank if this is the pick)</div>
+                  <InlineEdit
+                    value={o.rejectedBecause ?? ""}
+                    onChange={(v) => onUpdateItem(o.id, { rejectedBecause: v })}
+                    placeholder="The specific reason this lost, not just a restatement of the cons"
+                    multiline as="block"
+                  />
                 </div>
               </div>
             ))}

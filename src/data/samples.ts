@@ -137,7 +137,10 @@ export type TestStatus = (typeof TEST_STATUSES)[number];
 export interface TestCaseItem extends BaseItem {
   relatedStepId?: string;
   preconditions?: string;
+  /** Step-by-step actions from precondition to expected result. */
+  steps?: string[];
   expectedResult: string;
+  priority: Level;
   status: TestStatus;
 }
 
@@ -152,11 +155,13 @@ export interface StakeholderItem extends BaseItem {
 /** Business Case -- problem/options/recommendation, converged structure
  *  from the corpus's Corporate Education Group, TheBAGuide, and OSSIE
  *  templates. A single document per model, not a list of identified items. */
-export interface BusinessCaseOption extends BaseItem { pros?: string; cons?: string; }
+export interface BusinessCaseOption extends BaseItem { pros?: string; cons?: string; rejectedBecause?: string; }
 export interface BusinessCase {
   problemStatement?: string;
   recommendation?: string;
   options?: BusinessCaseOption[];
+  expectedBenefit?: string;
+  estimatedCost?: string;
 }
 
 /** Requirements Management Plan -- purpose/scope/elicitation/change-control,
@@ -167,6 +172,8 @@ export interface RequirementsManagementPlan {
   scope?: string;
   elicitationApproach?: string;
   changeControlProcess?: string;
+  prioritizationApproach?: string;
+  traceabilityApproach?: string;
 }
 
 /** Data Flow Diagram -- process/data-store/external-entity, from the corpus's
