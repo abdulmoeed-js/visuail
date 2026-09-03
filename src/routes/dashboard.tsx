@@ -252,7 +252,7 @@ function DashboardPage() {
       <Nav />
       <main className="mx-auto max-w-[1200px] px-4 pt-8 pb-24">
         {/* ── Header ─────────────────────────────────────────────── */}
-        <header className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4 mb-8 sm:flex sm:flex-wrap sm:justify-between">
+        <header className="flex flex-wrap items-end justify-between gap-4 mb-8">
           <div className="min-w-0">
             <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">
               Dashboard
