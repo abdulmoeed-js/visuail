@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
-import { Moon, Sun, LayoutDashboard, LogOut, Building2, Check, ChevronDown, Users2 } from "lucide-react";
+import { LayoutDashboard, LogOut, Building2, Check, ChevronDown, Users2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { scrollToId } from "@/lib/scroll";
 import { sessionStore, useSession, type Session } from "@/lib/session";
@@ -38,7 +38,6 @@ function OrgSwitcher({ session }: { session: Session }) {
 }
 
 export function Nav() {
-  const [dark, setDark] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -47,11 +46,6 @@ export function Nav() {
   const onDashboard = router.state.location.pathname.startsWith("/dashboard");
   const onHome = router.state.location.pathname === "/";
   const currentOrg = session.orgs.find((o) => o.id === session.currentOrgId);
-
-  useEffect(() => {
-    const el = document.documentElement;
-    if (dark) el.classList.add("dark"); else el.classList.remove("dark");
-  }, [dark]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -101,13 +95,6 @@ export function Nav() {
               <Users2 className="size-4" />
             </button>
           )}
-          <button
-            onClick={() => setDark((d) => !d)}
-            className="relative h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition before:absolute before:-inset-[6px] before:content-['']"
-            aria-label="Toggle theme"
-          >
-            {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-          </button>
           {session.signedIn ? (
             <>
               {!onDashboard && (

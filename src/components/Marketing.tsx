@@ -8,7 +8,7 @@ const TONES = {
   },
   unresolved: {
     dot: "bg-unresolved",
-    accent: "text-unresolved dark:brightness-125",
+    accent: "text-unresolved",
     label: "traced",
   },
   drift: {

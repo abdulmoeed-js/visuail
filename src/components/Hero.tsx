@@ -11,7 +11,7 @@ export function Hero() {
       {/* signature blueprint glow */}
       <div
         aria-hidden
-        className="absolute -top-32 left-1/2 -translate-x-1/2 h-[720px] w-[1100px] rounded-full pointer-events-none opacity-70 dark:opacity-90"
+        className="absolute -top-32 left-1/2 -translate-x-1/2 h-[720px] w-[1100px] rounded-full pointer-events-none opacity-70"
         style={{
           background:
             "radial-gradient(closest-side, color-mix(in oklab, var(--primary) 35%, transparent), transparent 70%)",
@@ -20,7 +20,7 @@ export function Hero() {
       />
       <div
         aria-hidden
-        className="absolute top-40 right-[-10%] h-[420px] w-[420px] rounded-full pointer-events-none opacity-40 dark:opacity-60"
+        className="absolute top-40 right-[-10%] h-[420px] w-[420px] rounded-full pointer-events-none opacity-40"
         style={{
           background:
             "radial-gradient(closest-side, color-mix(in oklab, var(--verified) 45%, transparent), transparent 70%)",
