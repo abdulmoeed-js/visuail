@@ -1,4 +1,4 @@
-import { useState, useMemo, type ReactNode } from "react";
+import { useState, useMemo, useRef, useEffect, type ReactNode } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -334,6 +334,15 @@ export function ArtifactView({
     return "artifact";
   });
 
+  // Now that the tab bar scrolls instead of overflowing, a viewKind that
+  // opens straight onto one of the far-right tabs (e.g. a DFD instance
+  // landing on "DFD") would otherwise start scrolled to the left, showing
+  // an unselected-looking bar with the real active tab off-screen.
+  const activeTabRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [tab]);
+
   return (
     <div className="flex-1 flex flex-col">
       {/* Header */}
@@ -384,16 +393,24 @@ export function ArtifactView({
 
       <div className="flex-1 flex min-h-0 flex-col isolate">
         <div className="relative z-40 border-b bg-card px-4" data-no-pan>
-          <div role="tablist" aria-label="Artifact views" className="flex h-11 items-center gap-1">
+          {/* Scrolls instead of overflowing -- with 11 tabs (7 diagram types plus
+           *  Toolkit/Items/BRD/Traced backlog) this row is wider than the container
+           *  at any normal viewport width. It used to just overflow silently with no
+           *  scroll affordance, making Items/BRD/Traced backlog unreachable by click. */}
+          <div
+            role="tablist" aria-label="Artifact views"
+            className="flex h-11 items-center gap-1 overflow-x-auto [scrollbar-width:thin]"
+          >
             {tabs.map((item) => {
               const active = tab === item.value;
               return (
                 <button
                   key={item.value}
+                  ref={active ? activeTabRef : undefined}
                   type="button" role="tab" aria-selected={active}
                   data-state={active ? "active" : "inactive"}
                   className={cn(
-                    "inline-flex h-7 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     active && "bg-muted text-foreground shadow-sm",
                   )}
                   onClick={() => setTab(item.value)}

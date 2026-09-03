@@ -402,7 +402,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
               <p className="text-sm text-muted-foreground mt-0.5 max-w-2xl">{project.description}</p>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {presentUsers.length > 0 && (
               <div className="flex items-center -space-x-2 mr-1" title={presentUsers.map(u => u.email).join(", ")}>
                 {presentUsers.slice(0, 4).map((u) => (

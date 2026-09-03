@@ -42,6 +42,7 @@ export function ArtifactSidebar({ canvases, onOpen, onCreate }: Props) {
         <Input
           value={query} onChange={(e) => setQuery(e.target.value)}
           placeholder="Search artifacts by name…"
+          aria-label="Search artifacts by name"
           className="pl-8 h-9"
         />
       </div>
@@ -120,7 +121,10 @@ export function NewInstanceButton({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setName(defaultName); }}>
-      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" onClick={() => setOpen(true)}>
+      <Button
+        size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" onClick={() => setOpen(true)}
+        aria-label={`New ${meta.label}`} title={`New ${meta.label}`}
+      >
         <Plus className="size-3" /> New
       </Button>
       <DialogContent className="max-w-sm">
@@ -136,6 +140,7 @@ export function NewInstanceButton({
           autoFocus value={name} onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) { onCreate(viewKind, name.trim()); setOpen(false); } }}
           placeholder={defaultName}
+          aria-label="Artifact name"
         />
         <div className="flex justify-end pt-2">
           <Button disabled={!name.trim()} onClick={() => { onCreate(viewKind, name.trim()); setOpen(false); }}>

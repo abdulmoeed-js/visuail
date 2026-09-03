@@ -112,6 +112,7 @@ function SourceCard({
         <Input
           value={source.label}
           onChange={e => onChange({ label: e.target.value })}
+          aria-label="Source name"
           className="h-7 flex-1 max-w-xs text-sm"
         />
         <span className="text-[10px] font-mono-tight text-muted-foreground">
@@ -158,6 +159,7 @@ function SourceCard({
           value={source.text}
           onChange={e => onChange({ text: e.target.value, status: "ready" })}
           placeholder="Paste this source's transcript here…"
+          aria-label="Source transcript text"
           className="min-h-[140px] font-mono-tight text-xs leading-relaxed resize-y"
         />
       )}

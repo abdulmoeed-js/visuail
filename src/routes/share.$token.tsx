@@ -10,7 +10,7 @@
 
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Loader2, Link2Off, ArrowRight, FileText } from "lucide-react";
+import { Loader2, Link2Off, ArrowRight, FileText, PencilOff } from "lucide-react";
 import { ArtifactView, tabForViewKind } from "@/components/Workbench";
 import { useArtifactEditing } from "@/lib/artifact-editing";
 import { stats } from "@/data/samples";
@@ -114,7 +114,17 @@ function SharedCanvas({
   const st = stats(editing.model);
   return (
     <div className="rounded-xl border bg-card min-h-[480px] flex flex-col">
-      <ArtifactView editing={editing} stats={st} onPublish={() => {}} initialTab={tabForViewKind(viewKind)} />
+      <ArtifactView
+        editing={editing} stats={st} onPublish={() => {}} initialTab={tabForViewKind(viewKind)}
+        extraHeaderRight={
+          <span
+            className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground"
+            title="You can try editing, but nothing here is saved -- it resets on refresh."
+          >
+            <PencilOff className="size-3" /> Edits aren't saved
+          </span>
+        }
+      />
     </div>
   );
 }

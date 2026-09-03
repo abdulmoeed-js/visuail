@@ -95,7 +95,7 @@ export function Nav() {
           {session.signedIn && currentOrg && (
             <button
               onClick={() => setTeamOpen(true)}
-              className="h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition"
+              className="relative h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition before:absolute before:-inset-[6px] before:content-['']"
               aria-label="Team settings" title="Team settings"
             >
               <Users2 className="size-4" />
@@ -103,7 +103,7 @@ export function Nav() {
           )}
           <button
             onClick={() => setDark((d) => !d)}
-            className="h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition"
+            className="relative h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition before:absolute before:-inset-[6px] before:content-['']"
             aria-label="Toggle theme"
           >
             {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
@@ -120,7 +120,7 @@ export function Nav() {
               )}
               <button
                 onClick={() => { sessionStore.signOut(); router.navigate({ to: "/" }); }}
-                className="h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition"
+                className="relative h-8 w-8 rounded-md border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted transition before:absolute before:-inset-[6px] before:content-['']"
                 aria-label="Sign out" title={`Sign out (${session.email})`}
               >
                 <LogOut className="size-4" />
@@ -131,7 +131,7 @@ export function Nav() {
               to="/dashboard"
               className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
             >
-              Try the workbench
+              Start free
             </Link>
           )}
         </div>

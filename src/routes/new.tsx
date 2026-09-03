@@ -280,20 +280,22 @@ function NewProjectPage() {
         {step === 1 && (
           <div className="space-y-5 rounded-2xl border bg-card p-6">
             <div className="space-y-1.5">
-              <label className="text-xs font-mono-tight uppercase tracking-widest text-muted-foreground">
+              <label htmlFor="project-name" className="text-xs font-mono-tight uppercase tracking-widest text-muted-foreground">
                 Project / product name
               </label>
               <Input
+                id="project-name"
                 autoFocus value={name} onChange={e => setName(e.target.value)}
                 placeholder="e.g. Acme Bank — onboarding overhaul"
                 className="h-11 text-base"
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-mono-tight uppercase tracking-widest text-muted-foreground">
+              <label htmlFor="project-desc" className="text-xs font-mono-tight uppercase tracking-widest text-muted-foreground">
                 Short description <span className="text-muted-foreground/70 normal-case">(optional)</span>
               </label>
               <Textarea
+                id="project-desc"
                 value={desc} onChange={e => setDesc(e.target.value)}
                 placeholder="One line to help you find this later."
                 className="min-h-[80px]"
