@@ -60,6 +60,8 @@ export function CanvasShell({
     }
     const raw = Math.min(1, Math.min((width - 80) / contentWidth, (height - 80) / contentHeight));
     const z = Math.min(maxZoom, Math.max(minZoom, raw));
+    // eslint-disable-next-line no-console
+    console.log("[fitViewAttempt/DIAG]", { attempt, width, height, contentWidth, contentHeight, minZoom, maxZoom, raw, z });
     setZoom(z);
     setPan({ x: Math.max(20, (width - contentWidth * z) / 2), y: 30 });
   };
