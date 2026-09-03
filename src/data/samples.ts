@@ -137,9 +137,13 @@ export type TestStatus = (typeof TEST_STATUSES)[number];
 export interface TestCaseItem extends BaseItem {
   relatedStepId?: string;
   preconditions?: string;
+  /** Specific input values used, distinct from the preconditions they assume. */
+  testData?: string;
   /** Step-by-step actions from precondition to expected result. */
   steps?: string[];
   expectedResult: string;
+  /** What actually happened when it ran -- only meaningful once status leaves "Not Run". */
+  actualResult?: string;
   priority: Level;
   status: TestStatus;
 }

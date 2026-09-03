@@ -55,8 +55,10 @@ export function TestCaseView({
                 <TableHead className="min-w-[200px]">Objective</TableHead>
                 <TableHead className="min-w-[140px]">Verifies step</TableHead>
                 <TableHead className="min-w-[180px]">Preconditions</TableHead>
+                <TableHead className="min-w-[160px]">Test data</TableHead>
                 <TableHead className="min-w-[200px]">Steps</TableHead>
                 <TableHead className="min-w-[200px]">Expected result</TableHead>
+                <TableHead className="min-w-[200px]">Actual result</TableHead>
                 <TableHead>Priority</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-8" />
@@ -91,16 +93,24 @@ export function TestCaseView({
                       placeholder="What must be true first?" />
                   </TableCell>
                   <TableCell>
+                    <InlineEdit value={t.testData ?? ""} onChange={(v) => onUpdateItem(t.id, { testData: v })}
+                      placeholder="Specific input values used" />
+                  </TableCell>
+                  <TableCell>
                     <InlineEdit
                       value={(t.steps ?? []).join("\n")}
                       onChange={(v) => onUpdateItem(t.id, { steps: v.split("\n").map((s) => s.trim()).filter(Boolean) })}
-                      placeholder="One action per line, in order"
+                      placeholder="One action per line, or a single paragraph"
                       multiline as="block"
                     />
                   </TableCell>
                   <TableCell>
                     <InlineEdit value={t.expectedResult} onChange={(v) => onUpdateItem(t.id, { expectedResult: v })}
                       placeholder="What should happen?" />
+                  </TableCell>
+                  <TableCell>
+                    <InlineEdit value={t.actualResult ?? ""} onChange={(v) => onUpdateItem(t.id, { actualResult: v })}
+                      placeholder={t.status === "Not Run" ? "Fill in after running" : "What actually happened?"} />
                   </TableCell>
                   <TableCell>
                     <SelectBadge<Level> value={t.priority ?? "Medium"} options={PRIORITIES} tone={priorityTone}
