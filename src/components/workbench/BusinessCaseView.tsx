@@ -38,25 +38,37 @@ export function BusinessCaseView({
         </div>
       </section>
 
+      <section>
+        <h3 className="font-semibold text-foreground mb-1">Expected benefit</h3>
+        <div className="rounded-md border bg-card p-2.5">
+          <InlineEdit
+            value={bc.expectedBenefit ?? ""}
+            onChange={(v) => onUpdateBusinessCase({ expectedBenefit: v })}
+            placeholder="What improves, and by how much, if this ships? Qualitative or quantitative, whatever the source actually said."
+            multiline as="block"
+          />
+        </div>
+      </section>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <section>
-          <h3 className="font-semibold text-foreground mb-1">Expected benefit</h3>
+          <h3 className="font-semibold text-foreground mb-1">Build cost</h3>
           <div className="rounded-md border bg-card p-2.5">
             <InlineEdit
-              value={bc.expectedBenefit ?? ""}
-              onChange={(v) => onUpdateBusinessCase({ expectedBenefit: v })}
-              placeholder="What improves, and by how much, if this ships?"
+              value={bc.buildCost ?? ""}
+              onChange={(v) => onUpdateBusinessCase({ buildCost: v })}
+              placeholder="One-time cost to deliver this"
               multiline as="block"
             />
           </div>
         </section>
         <section>
-          <h3 className="font-semibold text-foreground mb-1">Estimated cost</h3>
+          <h3 className="font-semibold text-foreground mb-1">Run cost</h3>
           <div className="rounded-md border bg-card p-2.5">
             <InlineEdit
-              value={bc.estimatedCost ?? ""}
-              onChange={(v) => onUpdateBusinessCase({ estimatedCost: v })}
-              placeholder="Build cost, run cost, or both?"
+              value={bc.runCost ?? ""}
+              onChange={(v) => onUpdateBusinessCase({ runCost: v })}
+              placeholder="Ongoing cost to keep it running"
               multiline as="block"
             />
           </div>

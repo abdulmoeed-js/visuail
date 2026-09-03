@@ -161,7 +161,8 @@ export interface BusinessCase {
   recommendation?: string;
   options?: BusinessCaseOption[];
   expectedBenefit?: string;
-  estimatedCost?: string;
+  buildCost?: string;
+  runCost?: string;
 }
 
 /** Requirements Management Plan -- purpose/scope/elicitation/change-control,
