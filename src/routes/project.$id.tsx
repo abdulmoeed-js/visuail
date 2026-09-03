@@ -41,7 +41,7 @@ import { useProjectPresence } from "@/lib/presence";
 export const Route = createFileRoute("/project/$id")({
   head: () => ({
     meta: [
-      { title: "Project — Visuail" },
+      { title: "Project — Visu" },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -870,7 +870,7 @@ function AddSourceDialog({
         <DialogHeader>
           <DialogTitle>Add a source to this project</DialogTitle>
           <DialogDescription>
-            Paste a transcript or upload a .pdf / .docx. Visuail will re-extract across all
+            Paste a transcript or upload a .pdf / .docx. Visu will re-extract across all
             sources and reconcile matching items — bumping confidence when sources agree and
             flagging conflicts when they don't.
           </DialogDescription>

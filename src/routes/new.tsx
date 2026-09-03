@@ -24,8 +24,8 @@ import { SignupWallModal } from "@/components/SignupWallModal";
 export const Route = createFileRoute("/new")({
   head: () => ({
     meta: [
-      { title: "New project — Visuail" },
-      { name: "description", content: "Create a new Visuail project." },
+      { title: "New project — Visu" },
+      { name: "description", content: "Create a new Visu project." },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -310,7 +310,7 @@ function NewProjectPage() {
         {step === 2 && (
           <div className="space-y-5 rounded-2xl border bg-card p-6">
             <p className="text-sm text-muted-foreground">
-              What should Visuail build for this project? Pick as many as you want — each becomes
+              What should Visu build for this project? Pick as many as you want — each becomes
               its own independently-named artifact you can open, edit, and reposition on its own.
             </p>
             <div className="space-y-4">

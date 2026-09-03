@@ -77,7 +77,7 @@ export function Nav() {
       <div className="mx-auto max-w-[1400px] px-4 h-14 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2 group">
           <Logo />
-          <span className="font-display text-xl tracking-tight">Visuail</span>
+          <span className="font-display text-xl tracking-tight">Visu</span>
         </Link>
         {/* Marketing links only make sense for a signed-out visitor -- once
          *  inside the app, this row would just be dead weight pointing back

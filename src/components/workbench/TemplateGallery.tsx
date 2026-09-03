@@ -97,7 +97,7 @@ export function TemplateGallery({ onPick }: { onPick: (sample: Sample) => void }
           </div>
           <DialogTitle className="font-display text-2xl">Start from a job, not a shape.</DialogTitle>
           <DialogDescription>
-            Pick the outcome you want. Visuail loads a matching transcript — hit Extract to see the typed artifact.
+            Pick the outcome you want. Visu loads a matching transcript — hit Extract to see the typed artifact.
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[65vh] overflow-y-auto p-5 grid gap-3 sm:grid-cols-2">

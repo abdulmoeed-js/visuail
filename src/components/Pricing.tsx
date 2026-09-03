@@ -174,7 +174,7 @@ export function Footer() {
       <div className="mx-auto max-w-[1400px] px-4 py-8 flex flex-wrap items-center justify-between gap-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 font-mono-tight">
           <span className="h-1.5 w-1.5 rounded-full bg-confident" />
-          Visuail · your AI Business Analyst
+          Visu · your AI Business Analyst
         </div>
         <div className="flex items-center gap-4">
           <a className="hover:text-foreground" href="#workbench">Workbench</a>
