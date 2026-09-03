@@ -40,7 +40,7 @@ export function WhyNotMiro() {
           <span className="italic text-primary">From one traced source.</span>
         </h2>
         <p className="text-muted-foreground mt-5 max-w-2xl text-lg">
-          A first draft is easy. Staying right after the tenth stakeholder change is the job — that's where Visu earns its keep.
+          A first draft is easy. Staying right after the tenth stakeholder change is the job — that's where visu earns its keep.
         </p>
         <div className="mt-16 grid gap-6 sm:grid-cols-2 md:grid-cols-3">
           {artifacts.map((a, i) => {

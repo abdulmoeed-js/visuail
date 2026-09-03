@@ -157,8 +157,8 @@ function NeedsReviewStrip({ projects }: { projects: StoredProject[] }) {
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
-      { title: "Dashboard — Visu" },
-      { name: "description", content: "Your Visu projects and quotas." },
+      { title: "Dashboard — visu" },
+      { name: "description", content: "Your visu projects and quotas." },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -690,7 +690,7 @@ function TipsCard({ onNew }: { onNew: () => void }) {
         <li>
           <Link to="/" className="w-full text-left flex items-center gap-2 hover:text-primary transition">
             <Info className="size-3.5 shrink-0 text-muted-foreground" />
-            <span>See what Visu does</span>
+            <span>See what visu does</span>
           </Link>
         </li>
       </ul>

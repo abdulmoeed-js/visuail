@@ -71,7 +71,7 @@ export function Nav() {
       <div className="mx-auto max-w-[1400px] px-4 h-14 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2 group">
           <Logo />
-          <span className="font-display text-xl tracking-tight">Visu</span>
+          <span className="font-display text-xl tracking-tight">visu</span>
         </Link>
         {/* Marketing links only make sense for a signed-out visitor -- once
          *  inside the app, this row would just be dead weight pointing back
@@ -143,10 +143,10 @@ export function Nav() {
 function Logo() {
   return (
     <svg width="24" height="24" viewBox="0 0 48 48" className="text-primary">
-      <path d="M9 9 L24 37 L39 9" fill="none" stroke="currentColor" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="9" cy="9" r="4" fill="currentColor" />
-      <circle cx="39" cy="9" r="4" className="fill-unresolved" />
-      <circle cx="24" cy="37" r="5.2" fill="currentColor" />
+      <path d="M8 8 L24 36 L40 8" fill="none" stroke="currentColor" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="8" cy="8" r="4.4" className="fill-confident" />
+      <circle cx="40" cy="8" r="4.4" className="fill-unresolved" />
+      <circle cx="24" cy="36" r="6" className="fill-verified" />
     </svg>
   );
 }

@@ -265,12 +265,12 @@ function RefusedState({ reason, onRetry }: { reason: string; onRetry: () => void
         <div className="text-[10px] font-mono-tight uppercase tracking-widest text-unresolved">
           Refused — not enough structure to draw safely
         </div>
-        <h3 className="font-display text-xl">Visu didn't extract this one.</h3>
+        <h3 className="font-display text-xl">visu didn't extract this one.</h3>
         <p className="text-sm text-muted-foreground">{reason}</p>
       </div>
       <div className="rounded-md border bg-card p-3 text-xs text-muted-foreground max-w-md text-left">
         <strong className="text-foreground">Why this matters:</strong> most tools would happily
-        fabricate a three-box diagram from a single sentence. Visu refuses when a model would
+        fabricate a three-box diagram from a single sentence. visu refuses when a model would
         require guessing — and shows you why.
       </div>
       <Button variant="outline" onClick={onRetry}>Back to source</Button>

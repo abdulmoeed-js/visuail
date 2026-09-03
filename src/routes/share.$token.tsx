@@ -19,7 +19,7 @@ import { getSharedProject, type SharedProject } from "@/lib/session";
 export const Route = createFileRoute("/share/$token")({
   head: () => ({
     meta: [
-      { title: "Shared project — Visu" },
+      { title: "Shared project — visu" },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -57,7 +57,7 @@ function SharePage() {
             It may have been revoked, or never existed.
           </p>
           <Link to="/" className="inline-flex items-center gap-1 mt-6 text-sm text-primary hover:underline">
-            Go to Visu <ArrowRight className="size-3.5" />
+            Go to visu <ArrowRight className="size-3.5" />
           </Link>
         </div>
       </div>
@@ -68,7 +68,7 @@ function SharePage() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b sticky top-0 z-10 bg-background/90 backdrop-blur">
         <div className="mx-auto max-w-[1200px] px-4 h-14 flex items-center justify-between">
-          <Link to="/" className="font-display text-lg tracking-tight">Visu</Link>
+          <Link to="/" className="font-display text-lg tracking-tight">visu</Link>
           <span className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground border rounded-full px-2 py-0.5">
             Read-only shared view
           </span>
