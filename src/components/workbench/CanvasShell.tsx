@@ -40,14 +40,30 @@ export function CanvasShell({
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [fs, setFs] = useState(false);
 
-  const fitView = () => {
+  const fitViewAttempt = (attempt: number) => {
     const el = viewportRef.current;
     if (!el) return;
     const { width, height } = el.getBoundingClientRect();
-    const z = Math.min(1, Math.min((width - 80) / contentWidth, (height - 80) / contentHeight));
+    // A viewport measured before its flex/absolute ancestors have painted a
+    // real size (0 or near-0 width/height -- happens on the very first mount
+    // of a freshly-opened canvas, before layout has settled, and also
+    // whenever this shell mounts while hidden, e.g. a project-board pane
+    // that isn't the currently open one) makes (width-80)/contentWidth go
+    // negative, flipping the whole canvas upside down via a negative
+    // scale(). Retry on the next frame instead of committing to that
+    // measurement -- this only runs once on mount, so a bad first read
+    // would otherwise never self-correct. Capped so a shell that mounts
+    // hidden and never becomes visible doesn't spin forever.
+    if ((width < 80 || height < 80) && attempt < 30) {
+      requestAnimationFrame(() => fitViewAttempt(attempt + 1));
+      return;
+    }
+    const raw = Math.min(1, Math.min((width - 80) / contentWidth, (height - 80) / contentHeight));
+    const z = Math.min(maxZoom, Math.max(minZoom, raw));
     setZoom(z);
     setPan({ x: Math.max(20, (width - contentWidth * z) / 2), y: 30 });
   };
+  const fitView = () => fitViewAttempt(0);
 
   // Fit the diagram to the viewport once, on first mount -- the fixed 100%
   // zoom + (40,40) pan default put the first spine node directly behind the
