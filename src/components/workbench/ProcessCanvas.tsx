@@ -1475,10 +1475,17 @@ function StepNode({
   // Softer, Miro-style card: a thinner border (color still carries meaning)
   // with a real drop shadow doing the visual-weight work instead, plus a
   // gentle hover lift so the canvas feels responsive rather than static.
+  // No "relative" here -- the outer node div is already "absolute" (its own
+  // valid positioning context for the resize/connect handles below), and
+  // Tailwind's stylesheet order happens to let a "relative" utility on the
+  // SAME element win over "absolute", silently dropping every plain step
+  // back into normal document flow. That's what was stacking steps by
+  // cumulative sibling height instead of their computed cy, drifting them
+  // into the decision diamonds below.
   const baseClass = isShaped
-    ? "relative bg-transparent"
+    ? "bg-transparent"
     : cn(
-        "relative rounded-xl border bg-card shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.06)]",
+        "rounded-xl border bg-card shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.06)]",
         "transition-shadow hover:shadow-[0_4px_14px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.06)]",
         step.drift && "border-drift animate-drift bg-drift/5",
         lowConf && "border-dashed border-unresolved bg-unresolved/5",

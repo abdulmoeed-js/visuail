@@ -829,7 +829,15 @@ export function useSession(): Session {
       setAuth({ userId: u?.id, email: u?.email, initializing: false });
     };
     supabase.auth.getSession().then(({ data: s }) => settle(s.session?.user));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => { settle(s?.user); });
+    // Deferred with setTimeout per Supabase's own guidance: onAuthStateChange's
+    // callback runs while the client holds an internal auth lock, so calling
+    // supabase.rpc() synchronously from here (which needs that same lock to
+    // attach a fresh access token) can race it and fire unauthenticated --
+    // that's what was producing a 401 on accept_pending_invites on every
+    // sign-in. Escaping the callback's synchronous context avoids the race.
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      setTimeout(() => settle(s?.user), 0);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
