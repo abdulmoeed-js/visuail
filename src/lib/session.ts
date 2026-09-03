@@ -50,6 +50,14 @@ export interface StoredSource {
   filename?: string;
 }
 
+/** The 5 "diagram" types beyond process/bmc are not separate data models --
+ *  ProcessModel already carries every field they read (dataStores/
+ *  externalEntities for DFD, decisionTree, states, plus steps/decisions/
+ *  actors for RACI/Activity). A ViewKind is purely an instance-identity /
+ *  display concern: which tab a StoredCanvas opens to. The underlying
+ *  `kind`/`model` stay "process" for all of these except "bmc". */
+export type ViewKind = ArtifactKind | "dfd" | "raci" | "decisiontree" | "statediagram" | "activity";
+
 export interface StoredCanvas {
   /** Stable identity for this artifact instance -- the unique key everywhere
    *  it's looked up. Older rows created before multi-instance support won't
@@ -61,13 +69,27 @@ export interface StoredCanvas {
   name: string;
   kind: ArtifactKind;
   model: ArtifactModel;
+  /** Which lens this instance opens to (e.g. "dfd" opens straight to the DFD
+   *  tab of its underlying process model). Absent = today's plain Process
+   *  Map / BMC behavior, opening to the base "artifact" tab. */
+  viewKind?: ViewKind;
   /** Position on the project board. Absent until the user opens the board
    *  view, which assigns a default position on first render. */
   frame?: { x: number; y: number; w: number; h: number };
 }
 
-export function defaultCanvasName(kind: ArtifactKind): string {
-  return kind === "process" ? "Process map" : "Business Model Canvas";
+export const VIEW_KIND_LABELS: Record<ViewKind, string> = {
+  process: "Process map",
+  bmc: "Business Model Canvas",
+  dfd: "Data Flow Diagram",
+  raci: "RACI Matrix",
+  decisiontree: "Decision Tree",
+  statediagram: "State Diagram",
+  activity: "Activity Diagram",
+};
+
+export function defaultCanvasName(kind: ViewKind): string {
+  return VIEW_KIND_LABELS[kind];
 }
 
 /** Canvases read back from Supabase are untyped jsonb -- older rows (or rows

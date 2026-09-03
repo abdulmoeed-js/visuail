@@ -1,18 +1,13 @@
-import { useRef, useState } from "react";
-import { Workflow, LayoutGrid, AlertTriangle, ShieldAlert, GripVertical } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, ShieldAlert, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { allItems, stats } from "@/data/samples";
-import type { ArtifactKind } from "@/lib/extract";
-import type { StoredCanvas } from "@/lib/session";
+import type { StoredCanvas, ViewKind } from "@/lib/session";
 import { CanvasShell, useCanvas } from "@/components/workbench/CanvasShell";
 import { NewInstanceButton } from "@/components/workbench/ArtifactSidebar";
+import { ALL_VIEW_KINDS, VIEW_KIND_META } from "@/lib/view-kind-meta";
 
 type Frame = { x: number; y: number; w: number; h: number };
-
-const KIND_META: Record<ArtifactKind, { label: string; icon: typeof Workflow }> = {
-  process: { label: "Process map", icon: Workflow },
-  bmc: { label: "Business Model Canvas", icon: LayoutGrid },
-};
 
 const CARD_W = 240;
 const CARD_H = 132;
@@ -53,13 +48,12 @@ function useCardDrag(onDrag: (d: { dx: number; dy: number }) => void) {
 
 interface Props {
   canvases: StoredCanvas[];
-  kinds: ArtifactKind[];
   onOpen: (id: string) => void;
-  onCreate: (kind: ArtifactKind, name: string) => void;
+  onCreate: (viewKind: ViewKind, name: string) => void;
   onFrameChange: (id: string, frame: Frame) => void;
 }
 
-export function ArtifactBoard({ canvases, kinds, onOpen, onCreate, onFrameChange }: Props) {
+export function ArtifactBoard({ canvases, onOpen, onCreate, onFrameChange }: Props) {
   const [overrides, setOverrides] = useState<Record<string, Frame>>({});
 
   const framed = canvases.map((c, i) => ({
@@ -73,10 +67,10 @@ export function ArtifactBoard({ canvases, kinds, onOpen, onCreate, onFrameChange
   return (
     <div className="rounded-xl border bg-card h-[640px] flex flex-col">
       <div className="flex flex-wrap items-center gap-1.5 border-b p-2.5">
-        {kinds.map((kind) => (
+        {ALL_VIEW_KINDS.map((viewKind) => (
           <NewInstanceButton
-            key={kind} kind={kind}
-            existingCount={canvases.filter((c) => c.kind === kind).length}
+            key={viewKind} viewKind={viewKind}
+            existingCount={canvases.filter((c) => (c.viewKind ?? c.kind) === viewKind).length}
             onCreate={onCreate}
           />
         ))}
@@ -108,7 +102,8 @@ function BoardCard({
   const drag = useCardDrag(onDrag);
   const st = stats(canvas.model);
   const drifted = allItems(canvas.model).some((i) => i.drift);
-  const Icon = KIND_META[canvas.kind].icon;
+  const meta = VIEW_KIND_META[canvas.viewKind ?? canvas.kind];
+  const Icon = meta.icon;
 
   return (
     <div
@@ -122,7 +117,7 @@ function BoardCard({
         </button>
         <Icon className="size-3.5 text-muted-foreground shrink-0" />
         <span className="text-[11px] font-mono-tight uppercase tracking-widest text-muted-foreground truncate">
-          {KIND_META[canvas.kind].label}
+          {meta.label}
         </span>
       </div>
       <button

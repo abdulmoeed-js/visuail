@@ -11,7 +11,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Loader2, Link2Off, ArrowRight, FileText } from "lucide-react";
-import { ArtifactView } from "@/components/Workbench";
+import { ArtifactView, tabForViewKind } from "@/components/Workbench";
 import { useArtifactEditing } from "@/lib/artifact-editing";
 import { stats } from "@/data/samples";
 import { getSharedProject, type SharedProject } from "@/lib/session";
@@ -92,7 +92,7 @@ function SharePage() {
           {project.canvases.map((c) => (
             <div key={c.id}>
               <h2 className="text-sm font-semibold text-muted-foreground mb-2">{c.name}</h2>
-              <SharedCanvas model={c.model} />
+              <SharedCanvas model={c.model} viewKind={c.viewKind} />
             </div>
           ))}
           {project.canvases.length === 0 && (
@@ -104,12 +104,17 @@ function SharePage() {
   );
 }
 
-function SharedCanvas({ model }: { model: SharedProject["canvases"][number]["model"] }) {
+function SharedCanvas({
+  model, viewKind,
+}: {
+  model: SharedProject["canvases"][number]["model"];
+  viewKind: SharedProject["canvases"][number]["viewKind"];
+}) {
   const editing = useArtifactEditing(model);
   const st = stats(editing.model);
   return (
     <div className="rounded-xl border bg-card min-h-[480px] flex flex-col">
-      <ArtifactView editing={editing} stats={st} onPublish={() => {}} />
+      <ArtifactView editing={editing} stats={st} onPublish={() => {}} initialTab={tabForViewKind(viewKind)} />
     </div>
   );
 }

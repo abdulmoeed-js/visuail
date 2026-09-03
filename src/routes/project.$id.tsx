@@ -11,17 +11,18 @@ import {
   ArrowLeft, FileDown, Loader2, Users2,
   ShieldCheck, Plus, AlertTriangle, History, RotateCcw, Clock, ImageDown,
 } from "lucide-react";
-import { ArtifactView } from "@/components/Workbench";
+import { ArtifactView, tabForViewKind, type ArtifactTab } from "@/components/Workbench";
 import { useArtifactEditing } from "@/lib/artifact-editing";
 import { stats, allItems, type ArtifactModel } from "@/data/samples";
 import { exportSectionsToPdf, exportElementToPng, exportElementToSvg, type ExportSection } from "@/lib/export-pdf";
 import {
-  sessionStore, useSession, defaultCanvasName, type StoredProject, type StoredCanvas,
+  sessionStore, useSession, defaultCanvasName, type StoredProject, type StoredCanvas, type ViewKind,
   type SnapshotSummary, type SnapshotTrigger, type DriftAlert,
 } from "@/lib/session";
 import { emptyCanvas } from "@/lib/empty-models";
 import { ArtifactSidebar } from "@/components/workbench/ArtifactSidebar";
 import { ArtifactBoard } from "@/components/workbench/ArtifactBoard";
+import { underlyingKind } from "@/lib/view-kind-meta";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
@@ -92,7 +93,7 @@ function ProjectPage() {
 }
 
 type Frame = { x: number; y: number; w: number; h: number };
-interface CanvasPane { key: string; id: string; name: string; kind: ArtifactKind; initial: ArtifactModel; frame?: Frame; }
+interface CanvasPane { key: string; id: string; name: string; kind: ArtifactKind; viewKind?: ViewKind; initial: ArtifactModel; frame?: Frame; }
 
 /** Scans every canvas for items flagged `drift: true` by diffModels(). Derived
  *  fresh from stored data on every render rather than kept in local state, so
@@ -105,6 +106,26 @@ function collectDrift(canvases: StoredProject["canvases"]): { drifted: boolean; 
     }
   }
   return { drifted: names.length > 0, driftedNames: names };
+}
+
+/** Source-based operations (Add source, Re-check drift) only know "kind",
+ *  not which specific named instance to update -- and now that a DFD or RACI
+ *  instance can share `kind: "process"` with a plain Process Map, "the first
+ *  canvas of this kind" is no longer a safe way to find it. This only ever
+ *  targets the PLAIN (non-flavored) instance of a kind, falling back to a
+ *  lone flavored instance if that's genuinely the only one of its kind (so a
+ *  DFD-only project still benefits from re-extraction), and skipping the
+ *  kind entirely rather than guessing when it's ambiguous (2+ flavored
+ *  instances, no plain one). Only creates a brand new plain instance in the
+ *  true bootstrap case -- zero canvases of that kind exist anywhere yet. */
+function pickPrimaryInstance(
+  canvases: StoredCanvas[], kind: ArtifactKind,
+): { action: "update"; canvas: StoredCanvas } | { action: "create" } | { action: "skip" } {
+  const ofKind = canvases.filter(c => c.kind === kind);
+  if (ofKind.length === 0) return { action: "create" };
+  const plain = ofKind.find(c => c.viewKind === undefined || c.viewKind === kind);
+  if (plain) return { action: "update", canvas: plain };
+  return ofKind.length === 1 ? { action: "update", canvas: ofKind[0] } : { action: "skip" };
 }
 
 function ProjectShell({ project }: { project: StoredProject }) {
@@ -129,24 +150,16 @@ function ProjectShell({ project }: { project: StoredProject }) {
     setCanvasVersion(v => v + 1);
   }, []);
   const panes: CanvasPane[] = useMemo(
-    () => (canvasOverride ?? project.canvases).map(c => ({ key: c.id, id: c.id, name: c.name, kind: c.kind, initial: c.model, frame: c.frame })),
+    () => (canvasOverride ?? project.canvases).map(c => (
+      { key: c.id, id: c.id, name: c.name, kind: c.kind, viewKind: c.viewKind, initial: c.model, frame: c.frame }
+    )),
     [project.id, canvasOverride],
   );
-  // null = showing the sidebar/board hub rather than a specific canvas.
+  // null = showing the sidebar/board hub rather than a specific canvas. Always
+  // starts here -- opening a project should always let you choose which
+  // artifact to work in, never assume one for you, even when there's only one.
   const [active, setActive] = useState<string | null>(null);
   const [boardView, setBoardView] = useState<"sidebar" | "board">("sidebar");
-  // A project with exactly one artifact skips the hub entirely and opens
-  // straight into it, matching the pre-multi-instance experience -- the hub
-  // only earns its keep once there's actually something to pick between.
-  // Guarded by a ref (not just `active === null`) so navigating back to the
-  // hub via the "All artifacts" button doesn't get immediately bounced back.
-  const autoOpenedRef = useRef(false);
-  useEffect(() => {
-    if (!autoOpenedRef.current && active === null && panes.length === 1) {
-      autoOpenedRef.current = true;
-      setActive(panes[0].key);
-    }
-  }, [active, panes]);
 
   // Arriving from the dashboard's comments inbox: jump to whichever pane
   // actually contains the linked item and hand it down so that pane opens
@@ -177,7 +190,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
     editingModelsRef.current[key] = model;
   }, []);
   const buildMergedCanvases = useCallback((): StoredCanvas[] => panes.map(p => ({
-    id: p.id, name: p.name, kind: p.kind,
+    id: p.id, name: p.name, kind: p.kind, viewKind: p.viewKind,
     model: editingModelsRef.current[p.key] ?? p.initial,
     frame: frameOverridesRef.current[p.id] ?? p.frame,
   })), [panes]);
@@ -222,11 +235,6 @@ function ProjectShell({ project }: { project: StoredProject }) {
       const latest = await sessionStore.listSnapshots(project.id);
       const baseline = latest.length > 0 ? await sessionStore.getSnapshotCanvases(latest[0].id) : project.canvases;
 
-      // Source-based re-check only knows "kind", not which specific named
-      // instance to update -- so it always targets the first/original
-      // instance of each kind (the one that came from the initial
-      // extraction). Any additional hand-created instance of that kind is
-      // left untouched, same as AddSourceDialog.apply below.
       const nextCanvases: StoredCanvas[] = [];
       for (const kind of project.kinds) {
         const freshModels: ArtifactModel[] = [];
@@ -239,7 +247,11 @@ function ProjectShell({ project }: { project: StoredProject }) {
         const fresh = mergeByKind(freshModels, freshLabels);
         if (!fresh || checkRefusal(fresh).refuse) continue;
 
-        const primaryPane = panes.find(p => p.kind === kind);
+        const primary = pickPrimaryInstance(project.canvases, kind);
+        if (primary.action === "skip") continue;
+        const primaryExisting = primary.action === "update" ? primary.canvas : undefined;
+        const primaryPane = primaryExisting ? panes.find(p => p.id === primaryExisting.id) : undefined;
+
         // Current (possibly hand-edited) canvas goes FIRST so mergeByKind
         // keeps it as canonical text and flags any real discrepancy from
         // the fresh re-check as a conflict, rather than silently
@@ -250,7 +262,6 @@ function ProjectShell({ project }: { project: StoredProject }) {
         const reconciled = currentModel ? mergeByKind([currentModel, fresh], ["Current", "Re-checked source"]) : fresh;
         if (!reconciled) continue;
 
-        const primaryExisting = project.canvases.find(c => c.kind === kind);
         const baselineModel = (primaryExisting ? baseline.find(c => c.id === primaryExisting.id) : undefined)?.model;
         const withDrift = baselineModel ? diffModels(baselineModel, reconciled) : reconciled;
         nextCanvases.push(primaryExisting
@@ -274,19 +285,25 @@ function ProjectShell({ project }: { project: StoredProject }) {
     }
   };
 
-  const createInstance = useCallback(async (kind: ArtifactKind, name: string) => {
+  const createInstance = useCallback(async (viewKind: ViewKind, name: string) => {
     if (!session.userId) return;
-    const fresh: StoredCanvas = { id: crypto.randomUUID(), name, kind, model: emptyCanvas(kind, name) };
+    const kind = underlyingKind(viewKind);
+    const fresh: StoredCanvas = {
+      id: crypto.randomUUID(), name, kind, model: emptyCanvas(kind, name),
+      viewKind: viewKind !== kind ? viewKind : undefined,
+    };
     const next = [...(canvasOverride ?? project.canvases), fresh];
+    const patch: Partial<StoredProject> = { canvases: next };
+    if (!project.kinds.includes(kind)) patch.kinds = [...project.kinds, kind];
     try {
-      await sessionStore.updateProject(project.id, { canvases: next });
+      await sessionStore.updateProject(project.id, patch);
       sessionStore.saveSnapshot(project.id, next, "manual_save", session.userId).catch(() => {});
       onCanvasesRegenerated(next);
       setActive(fresh.id);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Couldn't create this artifact. Try again.");
     }
-  }, [canvasOverride, project.canvases, project.id, session.userId, onCanvasesRegenerated]);
+  }, [canvasOverride, project.canvases, project.kinds, project.id, session.userId, onCanvasesRegenerated]);
 
   const [shareOpen, setShareOpen] = useState(false);
   const onPublish = (action: string) => {
@@ -447,16 +464,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
 
         <ScheduledDriftBanner project={project} onRecheck={recheckDrift} />
 
-        {panes.length === 0 ? (
-          <div className="rounded-2xl border border-dashed bg-card/60 p-12 text-center bp-grid-fine">
-            <h2 className="font-display text-xl">This project has no canvases yet.</h2>
-            <p className="text-sm text-muted-foreground mt-2">
-              Add a source to extract, or an artifact type to start from scratch.
-            </p>
-            <div className="mt-4"><AddSourceDialog project={project} onCanvasesRegenerated={onCanvasesRegenerated} /></div>
-          </div>
-        ) : (
-          <>
+        <>
             <div className="rounded-xl border bg-card p-3 flex flex-wrap items-center justify-between gap-3 mb-3">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-1.5 text-[11px]">
@@ -535,22 +543,19 @@ function ProjectShell({ project }: { project: StoredProject }) {
               boardView === "sidebar" ? (
                 <ArtifactSidebar
                   canvases={canvasOverride ?? project.canvases}
-                  kinds={project.kinds}
                   onOpen={setActive}
                   onCreate={createInstance}
                 />
               ) : (
                 <ArtifactBoard
                   canvases={canvasOverride ?? project.canvases}
-                  kinds={project.kinds}
                   onOpen={setActive}
                   onCreate={createInstance}
                   onFrameChange={onFrameChange}
                 />
               )
             )}
-          </>
-        )}
+        </>
       </main>
       <SignupWallModal open={signupOpen} onOpenChange={setSignupOpen} action={signupAction} />
       <ShareLinkDialog open={shareOpen} onOpenChange={setShareOpen} projectId={project.id} />
@@ -588,7 +593,7 @@ function CanvasPaneMount({
       <ArtifactView
         editing={editing} stats={st} onPublish={onPublish}
         projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange}
-        focusItemId={focusItemId}
+        focusItemId={focusItemId} initialTab={tabForViewKind(pane.viewKind)}
       />
     </div>
   );
@@ -808,9 +813,10 @@ function AddSourceDialog({
     }
     if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "extraction_run", project.id, { sourceCount: allSources.length });
     // Re-extraction only knows "kind", not which specific named instance to
-    // update -- so it always targets the first/original instance of each
-    // kind. Any additional hand-created instance of that kind is preserved
-    // untouched below, same as recheckDrift in the parent component.
+    // update -- pickPrimaryInstance targets the plain (non-flavored)
+    // instance of each kind, or a lone flavored one if that's the only
+    // instance of its kind, skipping ambiguous cases. Same logic as
+    // recheckDrift in the parent component.
     const canvases: StoredCanvas[] = [];
     for (const kind of project.kinds) {
       const models: ArtifactModel[] = [];
@@ -823,9 +829,10 @@ function AddSourceDialog({
       const merged = mergeByKind(models, labels);
       if (!merged) continue;
       if (checkRefusal(merged).refuse) continue;
-      const primaryExisting = project.canvases.find(c => c.kind === kind);
-      canvases.push(primaryExisting
-        ? { ...primaryExisting, model: merged }
+      const primary = pickPrimaryInstance(project.canvases, kind);
+      if (primary.action === "skip") continue;
+      canvases.push(primary.action === "update"
+        ? { ...primary.canvas, model: merged }
         : { id: crypto.randomUUID(), name: defaultCanvasName(kind), kind, model: merged });
     }
     // Preserve every existing canvas the loop above didn't touch -- kinds

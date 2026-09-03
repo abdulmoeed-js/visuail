@@ -36,6 +36,7 @@ import { SignupWallModal } from "./SignupWallModal";
 import { useArtifactEditing, type ArtifactEditing } from "@/lib/artifact-editing";
 import { checkRefusal } from "@/lib/refusal";
 import { verifyGrounding } from "@/lib/grounding";
+import type { ViewKind } from "@/lib/session";
 
 type State =
   | { status: "empty" }
@@ -43,7 +44,15 @@ type State =
   | { status: "refused"; reason: string }
   | { status: "ready" };
 
-type ArtifactTab = "artifact" | "usecases" | "raci" | "dfd" | "decisiontree" | "statediagram" | "activity" | "toolkit" | "items" | "downstream1" | "downstream2";
+export type ArtifactTab = "artifact" | "usecases" | "raci" | "dfd" | "decisiontree" | "statediagram" | "activity" | "toolkit" | "items" | "downstream1" | "downstream2";
+
+/** The 5 new ViewKinds are spelled identically to their ArtifactTab, so this
+ *  is nearly the identity function -- process/bmc/undefined all land on the
+ *  base "artifact" tab. */
+export function tabForViewKind(vk: ViewKind | undefined): ArtifactTab {
+  if (vk === "dfd" || vk === "raci" || vk === "decisiontree" || vk === "statediagram" || vk === "activity") return vk;
+  return "artifact";
+}
 
 export function Workbench() {
   const [transcript, setTranscript] = useState(SAMPLES[0].transcript);
@@ -276,7 +285,7 @@ function RefusedState({ reason, onRetry }: { reason: string; onRetry: () => void
  */
 export function ArtifactView({
   editing, stats: st, onPublish, canvasRef, extraHeaderRight,
-  projectId, commentCounts, onCommentCountChange, focusItemId,
+  projectId, commentCounts, onCommentCountChange, focusItemId, initialTab,
 }: {
   editing: ArtifactEditing;
   stats: ReturnType<typeof stats>;
@@ -290,12 +299,15 @@ export function ArtifactView({
   /** Arriving from the dashboard's comments inbox -- lands on the Items tab
    *  with the relevant row scrolled to and its thread opened. */
   focusItemId?: string;
+  /** Which tab this instance opens to -- e.g. a DFD-flavored instance passes
+   *  "dfd" here so it lands on that lens by default. focusItemId still wins
+   *  when both are set (an inbox deep link takes priority). */
+  initialTab?: ArtifactTab;
 }) {
   const { model, drifted } = editing;
   const avgPct = Math.round(st.avg * 100);
   const avgTone = avgPct >= 85 ? "text-confident" : avgPct >= 70 ? "text-unresolved" : "text-drift";
   const drift = drifted ? driftSummary(model) : { count: 0, label: "" };
-  const [tab, setTab] = useState<ArtifactTab>(focusItemId ? "items" : "artifact");
   const [drilldownStepId, setDrilldownStepId] = useState<string | null>(null);
 
   const tabs: { value: ArtifactTab; label: ReactNode }[] = [
@@ -311,6 +323,16 @@ export function ArtifactView({
     { value: "downstream1", label: model.kind === "process" ? "BRD" : "Summary brief" },
     { value: "downstream2", label: model.kind === "process" ? "Traced backlog" : "Open questions" },
   ];
+
+  // Lazy init (function form) so this only runs once on mount, not on every
+  // render -- and clamps a stale/mismatched initialTab (e.g. a "dfd"
+  // viewKind sitting on a non-process model) to "artifact" defensively
+  // instead of landing on a tab that isn't actually in the bar.
+  const [tab, setTab] = useState<ArtifactTab>(() => {
+    if (focusItemId) return "items";
+    if (initialTab && tabs.some((t) => t.value === initialTab)) return initialTab;
+    return "artifact";
+  });
 
   return (
     <div className="flex-1 flex flex-col">

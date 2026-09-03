@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
-  ChevronRight, ChevronLeft, Workflow, LayoutGrid, FileText, LibraryBig,
+  ChevronRight, ChevronLeft, FileText, LibraryBig,
   PenLine, Loader2, Sparkles, Check, ArrowLeft, FolderPlus,
 } from "lucide-react";
 import { SourceIntake, makeSource, type SourceDraft } from "@/components/workbench/SourceIntake";
@@ -17,7 +17,8 @@ import { checkRefusal } from "@/lib/refusal";
 import { SAMPLES } from "@/data/samples";
 import type { ArtifactModel } from "@/data/samples";
 import { emptyCanvas } from "@/lib/empty-models";
-import { sessionStore, useSession, defaultCanvasName, type StoredCanvas } from "@/lib/session";
+import { sessionStore, useSession, defaultCanvasName, type StoredCanvas, type ViewKind } from "@/lib/session";
+import { ALL_VIEW_KINDS, VIEW_KIND_META, underlyingKind } from "@/lib/view-kind-meta";
 import { SignupWallModal } from "@/components/SignupWallModal";
 
 export const Route = createFileRoute("/new")({
@@ -49,6 +50,24 @@ const TEMPLATES: TemplateChoice[] = [
   { id: "validate", label: "Validate a business idea", desc: "Pressure-test a pitch against the 9 BMC blocks.", sampleId: "haulpilot", kind: "bmc" },
 ];
 
+const CORE_KINDS: ViewKind[] = ["process", "bmc"];
+const DIAGRAM_KINDS: ViewKind[] = ["dfd", "raci", "decisiontree", "statediagram", "activity"];
+
+const KIND_DESCRIPTIONS: Record<ViewKind, string> = {
+  process: "Actors, steps, decisions, exceptions.",
+  bmc: "9 classic blocks with confidence per item.",
+  dfd: "Processes, data stores, external entities — populated from your sources.",
+  raci: "Who's Responsible, Accountable, Consulted, Informed — populated from your sources.",
+  decisiontree: "Branching rules and outcomes — always starts empty, manual only.",
+  statediagram: "States and transitions — always starts empty, manual only.",
+  activity: "Swimlanes by actor — populated from your sources.",
+};
+
+function ViewKindIconFor({ kind, className = "size-4" }: { kind: ViewKind; className?: string }) {
+  const Icon = VIEW_KIND_META[kind].icon;
+  return <Icon className={className} />;
+}
+
 function NewProjectPage() {
   const navigate = useNavigate();
   const session = useSession();
@@ -59,7 +78,7 @@ function NewProjectPage() {
   const [desc, setDesc] = useState("");
 
   // Step 2
-  const [kinds, setKinds] = useState<ArtifactKind[]>(["process"]);
+  const [kinds, setKinds] = useState<ViewKind[]>(["process"]);
 
   // Step 3
   const [mode, setMode] = useState<StartMode>("sources");
@@ -72,7 +91,7 @@ function NewProjectPage() {
   const canContinue1 = name.trim().length > 0;
   const canContinue2 = kinds.length > 0;
 
-  const toggleKind = (k: ArtifactKind) =>
+  const toggleKind = (k: ViewKind) =>
     setKinds(cur => cur.includes(k) ? cur.filter(x => x !== k) : [...cur, k]);
 
   const readySources = useMemo(
@@ -92,9 +111,20 @@ function NewProjectPage() {
     setError(null);
     await new Promise(r => setTimeout(r, mode === "sources" ? 600 : 200));
 
-    const mk = (kind: ArtifactKind, model: ArtifactModel): StoredCanvas => ({
-      id: crypto.randomUUID(), name: defaultCanvasName(kind), kind, model,
-    });
+    // Each selected ViewKind becomes its own independent StoredCanvas -- the
+    // underlying data shape (kind) is process/bmc, but the instance carries
+    // its own id/name/viewKind so e.g. a Process Map and a DFD created
+    // together are two separate, independently-editable instances from the
+    // start, not two views sharing one object.
+    const mk = (viewKind: ViewKind, model: ArtifactModel): StoredCanvas => {
+      const kind = underlyingKind(viewKind);
+      return { id: crypto.randomUUID(), name: defaultCanvasName(viewKind), kind, model, viewKind: viewKind !== kind ? viewKind : undefined };
+    };
+    // Extraction itself only ever knows "process"/"bmc" -- dedupe down to
+    // that before calling it, regardless of how many of the 7 ViewKinds are
+    // selected (a DFD + RACI + Process map selection all extract once, from
+    // the same "process" call).
+    const underlyingKinds = [...new Set(kinds.map(underlyingKind))];
     let canvases: StoredCanvas[] = [];
     let storedSources: { label: string; text: string; origin: "paste" | "upload" | "scratch"; filename?: string }[] = [];
     let fromScratch = false;
@@ -104,7 +134,7 @@ function NewProjectPage() {
       try {
         perSource = await Promise.all(readySources.map(async (s, i) => ({
           label: s.label,
-          results: await extractFromSource({ label: s.label, text: s.text, index: i }, kinds),
+          results: await extractFromSource({ label: s.label, text: s.text, index: i }, underlyingKinds),
         })));
       } catch (err) {
         setCreating(false);
@@ -113,11 +143,11 @@ function NewProjectPage() {
       }
       if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "extraction_run", undefined, { sourceCount: readySources.length });
       let refusalReason: string | null = null;
-      for (const kind of kinds) {
+      for (const underlying of underlyingKinds) {
         const models: ArtifactModel[] = [];
         const labels: string[] = [];
         for (const { label, results } of perSource) {
-          const hit = results.find(r => r.kind === kind);
+          const hit = results.find(r => r.kind === underlying);
           if (hit) { models.push(hit.model); labels.push(label); }
         }
         if (models.length === 0) continue;
@@ -125,7 +155,10 @@ function NewProjectPage() {
         if (!merged) continue;
         const refusal = checkRefusal(merged);
         if (refusal.refuse) { refusalReason ??= refusal.reason ?? null; continue; }
-        canvases.push(mk(kind, merged));
+        for (const viewKind of kinds) {
+          if (underlyingKind(viewKind) !== underlying) continue;
+          canvases.push(mk(viewKind, structuredClone(merged)));
+        }
       }
       storedSources = readySources.map(s => ({
         label: s.label, text: s.text, origin: s.origin, filename: s.filename,
@@ -143,11 +176,12 @@ function NewProjectPage() {
       const sample = tpl && SAMPLES.find(s => s.id === tpl.sampleId);
       const built = sample?.build();
       if (built) {
-        for (const kind of kinds) {
-          if (built.kind === kind) {
-            canvases.push(mk(kind, structuredClone(built)));
+        for (const viewKind of kinds) {
+          const underlying = underlyingKind(viewKind);
+          if (built.kind === underlying) {
+            canvases.push(mk(viewKind, structuredClone(built)));
           } else {
-            canvases.push(mk(kind, emptyCanvas(kind, name.trim())));
+            canvases.push(mk(viewKind, emptyCanvas(underlying, name.trim())));
           }
         }
         storedSources = sample ? [{ label: "Template transcript", text: sample.transcript, origin: "paste" }] : [];
@@ -155,7 +189,7 @@ function NewProjectPage() {
     } else {
       // scratch
       fromScratch = true;
-      canvases = kinds.map(kind => mk(kind, emptyCanvas(kind, name.trim())));
+      canvases = kinds.map(viewKind => mk(viewKind, emptyCanvas(underlyingKind(viewKind), name.trim())));
       storedSources = [];
     }
 
@@ -168,7 +202,7 @@ function NewProjectPage() {
       const project = await sessionStore.createProject(session.currentOrgId, session.userId, {
         name: name.trim(),
         description: desc.trim() || undefined,
-        kinds,
+        kinds: underlyingKinds,
         sources: storedSources,
         canvases,
         fromScratch,
@@ -276,17 +310,38 @@ function NewProjectPage() {
         {step === 2 && (
           <div className="space-y-5 rounded-2xl border bg-card p-6">
             <p className="text-sm text-muted-foreground">
-              What should Visuail build for this project?
+              What should Visuail build for this project? Pick as many as you want — each becomes
+              its own independently-named artifact you can open, edit, and reposition on its own.
             </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <KindCard
-                active={kinds.includes("process")} onToggle={() => toggleKind("process")}
-                icon={<Workflow className="size-4" />} title="Process map"
-                desc="Actors, steps, decisions, exceptions." />
-              <KindCard
-                active={kinds.includes("bmc")} onToggle={() => toggleKind("bmc")}
-                icon={<LayoutGrid className="size-4" />} title="Business Model Canvas"
-                desc="9 classic blocks with confidence per item." />
+            <div className="space-y-4">
+              <div>
+                <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-2">
+                  Core artifacts
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {CORE_KINDS.map(k => (
+                    <KindCard
+                      key={k}
+                      active={kinds.includes(k)} onToggle={() => toggleKind(k)}
+                      icon={<ViewKindIconFor kind={k} />} title={VIEW_KIND_META[k].label}
+                      desc={KIND_DESCRIPTIONS[k]} />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-2">
+                  Diagram views
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {DIAGRAM_KINDS.map(k => (
+                    <KindCard
+                      key={k}
+                      active={kinds.includes(k)} onToggle={() => toggleKind(k)}
+                      icon={<ViewKindIconFor kind={k} />} title={VIEW_KIND_META[k].label}
+                      desc={KIND_DESCRIPTIONS[k]} />
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="flex justify-between pt-2">
               <Button variant="ghost" onClick={() => setStep(1)}>
@@ -339,7 +394,7 @@ function NewProjectPage() {
                       )}
                     >
                       <div className="flex items-center gap-2 font-semibold text-sm">
-                        {t.kind === "process" ? <Workflow className="size-3.5" /> : <LayoutGrid className="size-3.5" />}
+                        <ViewKindIconFor kind={t.kind} className="size-3.5" />
                         {t.label}
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">{t.desc}</div>
@@ -351,7 +406,7 @@ function NewProjectPage() {
                 <div className="text-sm text-muted-foreground">
                   We'll create an empty {kinds.length === 1 ? "canvas" : "set of canvases"} for{" "}
                   <strong>
-                    {kinds.map(k => k === "process" ? "Process map" : "BMC").join(" + ")}
+                    {kinds.map(k => VIEW_KIND_META[k].label).join(" + ")}
                   </strong>.
                   You can add sources anytime from inside the project.
                 </div>
