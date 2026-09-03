@@ -73,6 +73,24 @@ export function decisionBranches(d: Decision): DecisionBranch[] {
 export interface Exception extends BaseItem { relatedStepId?: string; }
 export interface System extends BaseItem {}
 
+/** Decision Tree -- a standalone recursive rule tree (eligibility rules,
+ *  triage/routing, approval hierarchies), distinct from the process
+ *  canvas's decision diamonds (gates *in* a flow, tied to a step). Reuses
+ *  DecisionBranch rather than a parallel shape. No separate leaf type:
+ *  a node with no branches renders as a plain outcome pill; giving it
+ *  branches later turns it into a question node. */
+export interface RuleNode extends BaseItem {
+  branches?: DecisionBranch[];
+}
+
+/** State (Statechart) Diagram -- states + transitions, from the corpus's
+ *  State Diagram material. Transitions reuse the existing Connection type
+ *  (see `connections` on ProcessModel) exactly like DFD flows do. */
+export interface StateItem extends BaseItem {
+  isInitial?: boolean;
+  isFinal?: boolean;
+}
+
 /** Non-functional-requirement categories, from the requirements-classification
  *  material reviewed for the Quality Layer corpus. */
 export const NFR_CATEGORIES = ["Reliability", "Performance", "Security", "Usability", "Audit"] as const;
@@ -192,6 +210,8 @@ export interface ProcessModel {
   requirementsManagementPlan?: RequirementsManagementPlan;
   dataStores?: DataStoreItem[];
   externalEntities?: ExternalEntityItem[];
+  decisionTree?: RuleNode[];
+  states?: StateItem[];
 }
 
 export interface BMCBlock {

@@ -24,6 +24,7 @@ import {
   type TestCaseItem, type StakeholderItem,
   type BusinessCase, type RequirementsManagementPlan,
   type DataStoreItem, type ExternalEntityItem,
+  type RuleNode, type StateItem,
 } from "@/data/samples";
 import { applyProposal, type Proposal } from "@/lib/refine";
 import { diffModels } from "@/lib/diff";
@@ -49,6 +50,8 @@ function bumpUidPast(model: ArtifactModel) {
     for (const n of model.testCases ?? []) ids.push(n.id);
     for (const n of model.dataStores ?? []) ids.push(n.id);
     for (const n of model.externalEntities ?? []) ids.push(n.id);
+    for (const n of model.decisionTree ?? []) ids.push(n.id);
+    for (const n of model.states ?? []) ids.push(n.id);
   } else {
     for (const b of model.blocks) for (const item of b.items) ids.push(item.id);
     for (const s of model.stakeholders ?? []) ids.push(s.id);
@@ -101,6 +104,8 @@ export interface ArtifactEditing {
   /** DFD -- process-only (a DFD's "process" nodes are just steps). */
   onAddDataStore: (t: string) => string;
   onAddExternalEntity: (t: string) => string;
+  onAddRuleNode: (t: string) => string;
+  onAddState: (t: string) => string;
 
   onDeleteAny: (id: string) => void;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
@@ -210,6 +215,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
         testCases: (m.testCases ?? []).filter(x => x.id !== id),
         dataStores: (m.dataStores ?? []).filter(x => x.id !== id),
         externalEntities: (m.externalEntities ?? []).filter(x => x.id !== id),
+        decisionTree: (m.decisionTree ?? []).filter(x => x.id !== id),
+        states: (m.states ?? []).filter(x => x.id !== id),
       };
     }
     return {
@@ -249,6 +256,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
         testCases: (m.testCases ?? []).map(apply),
         dataStores: (m.dataStores ?? []).map(apply),
         externalEntities: (m.externalEntities ?? []).map(apply),
+        decisionTree: (m.decisionTree ?? []).map(apply),
+        states: (m.states ?? []).map(apply),
       };
     }
     return {
@@ -290,6 +299,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
             testCases: (m.testCases ?? []).filter(x => x.id !== id),
             dataStores: (m.dataStores ?? []).filter(x => x.id !== id),
             externalEntities: (m.externalEntities ?? []).filter(x => x.id !== id),
+            decisionTree: (m.decisionTree ?? []).filter(x => x.id !== id),
+            states: (m.states ?? []).filter(x => x.id !== id),
           };
         }
         return {
@@ -388,6 +399,16 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     return { id: item.id, run: (m) => m.kind === "process"
       ? { ...m, externalEntities: [...(m.externalEntities ?? []), item] } : m };
   });
+  const onAddRuleNode = (t: string) => addWithId(() => {
+    const item: RuleNode = newUserItem("RN", t);
+    return { id: item.id, run: (m) => m.kind === "process"
+      ? { ...m, decisionTree: [...(m.decisionTree ?? []), item] } : m };
+  });
+  const onAddState = (t: string) => addWithId(() => {
+    const item: StateItem = newUserItem("SD", t);
+    return { id: item.id, run: (m) => m.kind === "process"
+      ? { ...m, states: [...(m.states ?? []), item] } : m };
+  });
 
   const onAddConnection = (fromId: string, toId: string, label?: string) => {
     const id = nextId("CN");
@@ -411,7 +432,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     onAddConnection, onDeleteConnection, onUpdateConnection,
     onAddRisk, onAddChangeRequest, onAddCommunicationPlanItem, onAddTestCase, onAddStakeholder,
     onUpdateBusinessCase, onAddBusinessCaseOption, onUpdateRMP,
-    onAddDataStore, onAddExternalEntity,
+    onAddDataStore, onAddExternalEntity, onAddRuleNode, onAddState,
     onDeleteAny, onUpdateItem, onApplyRefinement,
     onRemoveLastAdded,
   };

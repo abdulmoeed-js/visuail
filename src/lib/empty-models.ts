@@ -20,6 +20,8 @@ export function emptyProcess(title: string): ProcessModel {
     testCases: [],
     dataStores: [],
     externalEntities: [],
+    decisionTree: [],
+    states: [],
   };
 }
 

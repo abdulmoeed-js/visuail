@@ -20,6 +20,8 @@ import { CanvasErrorBoundary } from "./workbench/CanvasErrorBoundary";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
 import { UseCaseDiagramView } from "./workbench/UseCaseDiagramView";
 import { DFDView } from "./workbench/DFDView";
+import { DecisionTreeView } from "./workbench/DecisionTreeView";
+import { StateDiagramView } from "./workbench/StateDiagramView";
 import { UseCaseDescriptionDialog } from "./workbench/UseCaseDescriptionDialog";
 import { RaciMatrixView } from "./workbench/RaciMatrixView";
 import { ToolkitPanel } from "./workbench/ToolkitPanel";
@@ -40,7 +42,7 @@ type State =
   | { status: "refused"; reason: string }
   | { status: "ready" };
 
-type ArtifactTab = "artifact" | "usecases" | "raci" | "dfd" | "toolkit" | "items" | "downstream1" | "downstream2";
+type ArtifactTab = "artifact" | "usecases" | "raci" | "dfd" | "decisiontree" | "statediagram" | "toolkit" | "items" | "downstream1" | "downstream2";
 
 export function Workbench() {
   const [transcript, setTranscript] = useState(SAMPLES[0].transcript);
@@ -300,6 +302,8 @@ export function ArtifactView({
     ...(model.kind === "process" ? [{ value: "usecases" as const, label: "Use cases" }] : []),
     ...(model.kind === "process" ? [{ value: "raci" as const, label: "RACI" }] : []),
     ...(model.kind === "process" ? [{ value: "dfd" as const, label: "DFD" }] : []),
+    ...(model.kind === "process" ? [{ value: "decisiontree" as const, label: "Decision tree" }] : []),
+    ...(model.kind === "process" ? [{ value: "statediagram" as const, label: "State diagram" }] : []),
     { value: "toolkit", label: "Toolkit" },
     { value: "items", label: <><LayoutList className="size-3.5" /> Items</> },
     { value: "downstream1", label: model.kind === "process" ? "BRD" : "Summary brief" },
@@ -428,6 +432,22 @@ export function ArtifactView({
             <div className="h-full p-4">
               <div className="h-[640px]">
                 <DFDView model={model} editing={editing} />
+              </div>
+            </div>
+          )}
+
+          {tab === "decisiontree" && model.kind === "process" && (
+            <div className="h-full p-4">
+              <div className="h-[640px]">
+                <DecisionTreeView model={model} editing={editing} />
+              </div>
+            </div>
+          )}
+
+          {tab === "statediagram" && model.kind === "process" && (
+            <div className="h-full p-4">
+              <div className="h-[640px]">
+                <StateDiagramView model={model} editing={editing} />
               </div>
             </div>
           )}
