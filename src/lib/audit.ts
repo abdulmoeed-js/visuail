@@ -49,9 +49,9 @@ function describeCanvasChanges(prevModel: ArtifactModel, nextModel: ArtifactMode
 function describeSnapshotPair(prev: StoredCanvas[], next: StoredCanvas[]): string[] {
   const events: string[] = [];
   for (const nextCanvas of next) {
-    const prevCanvas = prev.find((c) => c.kind === nextCanvas.kind);
+    const prevCanvas = prev.find((c) => c.id === nextCanvas.id);
     if (!prevCanvas) {
-      events.push(`${nextCanvas.kind === "process" ? "Process map" : "Business Model Canvas"} created`);
+      events.push(`${nextCanvas.name} created`);
       continue;
     }
     events.push(...describeCanvasChanges(prevCanvas.model, nextCanvas.model));

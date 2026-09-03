@@ -51,8 +51,34 @@ export interface StoredSource {
 }
 
 export interface StoredCanvas {
+  /** Stable identity for this artifact instance -- the unique key everywhere
+   *  it's looked up. Older rows created before multi-instance support won't
+   *  have one in storage; `fromRow` backfills it so nothing downstream has
+   *  to special-case a missing id. */
+  id: string;
+  /** User-facing label, e.g. "Onboarding — Process map". Backfilled from the
+   *  kind's default title for pre-existing rows. */
+  name: string;
   kind: ArtifactKind;
   model: ArtifactModel;
+  /** Position on the project board. Absent until the user opens the board
+   *  view, which assigns a default position on first render. */
+  frame?: { x: number; y: number; w: number; h: number };
+}
+
+export function defaultCanvasName(kind: ArtifactKind): string {
+  return kind === "process" ? "Process map" : "Business Model Canvas";
+}
+
+/** Canvases read back from Supabase are untyped jsonb -- older rows (or rows
+ *  written before this field existed) won't carry id/name. Backfills both so
+ *  every read path can treat `id` as the unique key without a null check. */
+function normalizeCanvases(canvases: StoredCanvas[]): StoredCanvas[] {
+  return canvases.map((c) => ({
+    ...c,
+    id: c.id ?? crypto.randomUUID(),
+    name: c.name ?? defaultCanvasName(c.kind),
+  }));
 }
 
 export interface StoredProject {
@@ -186,7 +212,7 @@ function fromRow(row: ProjectRow): StoredProject {
     description: row.description ?? undefined,
     kinds: row.kinds as ArtifactKind[],
     sources: row.sources ?? [],
-    canvases: row.canvases ?? [],
+    canvases: normalizeCanvases(row.canvases ?? []),
     fromScratch: row.from_scratch,
     createdAt: new Date(row.created_at).getTime(),
     updatedAt: new Date(row.updated_at).getTime(),
@@ -409,7 +435,7 @@ export const sessionStore = {
       .eq("id", snapshotId)
       .single();
     if (error) throw error;
-    return (data as { canvases: StoredCanvas[] }).canvases;
+    return normalizeCanvases((data as { canvases: StoredCanvas[] }).canvases);
   },
 
   /** Full snapshot history (canvases included) oldest-first, for the audit
@@ -425,7 +451,7 @@ export const sessionStore = {
       .order("created_at", { ascending: true });
     if (error) throw error;
     return ((data as { canvases: StoredCanvas[]; trigger: SnapshotTrigger; created_at: string }[] | null) ?? [])
-      .map((r) => ({ canvases: r.canvases, trigger: r.trigger, createdAt: new Date(r.created_at).getTime() }));
+      .map((r) => ({ canvases: normalizeCanvases(r.canvases), trigger: r.trigger, createdAt: new Date(r.created_at).getTime() }));
   },
 
   /** Unnotified drift_alerts rows written by the scheduled background scan
@@ -777,7 +803,7 @@ export async function getSharedProject(token: string): Promise<SharedProject | n
     name: row.name,
     description: row.description ?? undefined,
     kinds: row.kinds as ArtifactKind[],
-    canvases: row.canvases ?? [],
+    canvases: normalizeCanvases(row.canvases ?? []),
     sources: row.sources ?? [],
   };
 }

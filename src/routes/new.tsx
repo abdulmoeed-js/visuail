@@ -17,7 +17,7 @@ import { checkRefusal } from "@/lib/refusal";
 import { SAMPLES } from "@/data/samples";
 import type { ArtifactModel } from "@/data/samples";
 import { emptyCanvas } from "@/lib/empty-models";
-import { sessionStore, useSession } from "@/lib/session";
+import { sessionStore, useSession, defaultCanvasName, type StoredCanvas } from "@/lib/session";
 import { SignupWallModal } from "@/components/SignupWallModal";
 
 export const Route = createFileRoute("/new")({
@@ -92,7 +92,10 @@ function NewProjectPage() {
     setError(null);
     await new Promise(r => setTimeout(r, mode === "sources" ? 600 : 200));
 
-    let canvases: { kind: ArtifactKind; model: ArtifactModel }[] = [];
+    const mk = (kind: ArtifactKind, model: ArtifactModel): StoredCanvas => ({
+      id: crypto.randomUUID(), name: defaultCanvasName(kind), kind, model,
+    });
+    let canvases: StoredCanvas[] = [];
     let storedSources: { label: string; text: string; origin: "paste" | "upload" | "scratch"; filename?: string }[] = [];
     let fromScratch = false;
 
@@ -122,7 +125,7 @@ function NewProjectPage() {
         if (!merged) continue;
         const refusal = checkRefusal(merged);
         if (refusal.refuse) { refusalReason ??= refusal.reason ?? null; continue; }
-        canvases.push({ kind, model: merged });
+        canvases.push(mk(kind, merged));
       }
       storedSources = readySources.map(s => ({
         label: s.label, text: s.text, origin: s.origin, filename: s.filename,
@@ -142,9 +145,9 @@ function NewProjectPage() {
       if (built) {
         for (const kind of kinds) {
           if (built.kind === kind) {
-            canvases.push({ kind, model: structuredClone(built) });
+            canvases.push(mk(kind, structuredClone(built)));
           } else {
-            canvases.push({ kind, model: emptyCanvas(kind, name.trim()) });
+            canvases.push(mk(kind, emptyCanvas(kind, name.trim())));
           }
         }
         storedSources = sample ? [{ label: "Template transcript", text: sample.transcript, origin: "paste" }] : [];
@@ -152,7 +155,7 @@ function NewProjectPage() {
     } else {
       // scratch
       fromScratch = true;
-      canvases = kinds.map(kind => ({ kind, model: emptyCanvas(kind, name.trim()) }));
+      canvases = kinds.map(kind => mk(kind, emptyCanvas(kind, name.trim())));
       storedSources = [];
     }
 

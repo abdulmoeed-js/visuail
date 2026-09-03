@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
-  ArrowLeft, FileDown, Loader2, Workflow, LayoutGrid, Users2,
+  ArrowLeft, FileDown, Loader2, Users2,
   ShieldCheck, Plus, AlertTriangle, History, RotateCcw, Clock, ImageDown,
 } from "lucide-react";
 import { ArtifactView } from "@/components/Workbench";
@@ -16,8 +16,12 @@ import { useArtifactEditing } from "@/lib/artifact-editing";
 import { stats, allItems, type ArtifactModel } from "@/data/samples";
 import { exportSectionsToPdf, exportElementToPng, exportElementToSvg, type ExportSection } from "@/lib/export-pdf";
 import {
-  sessionStore, useSession, type StoredProject, type SnapshotSummary, type SnapshotTrigger, type DriftAlert,
+  sessionStore, useSession, defaultCanvasName, type StoredProject, type StoredCanvas,
+  type SnapshotSummary, type SnapshotTrigger, type DriftAlert,
 } from "@/lib/session";
+import { emptyCanvas } from "@/lib/empty-models";
+import { ArtifactSidebar } from "@/components/workbench/ArtifactSidebar";
+import { ArtifactBoard } from "@/components/workbench/ArtifactBoard";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
@@ -87,7 +91,8 @@ function ProjectPage() {
   return <ProjectShell project={project} />;
 }
 
-interface CanvasPane { key: string; kind: ArtifactKind; initial: ArtifactModel; }
+type Frame = { x: number; y: number; w: number; h: number };
+interface CanvasPane { key: string; id: string; name: string; kind: ArtifactKind; initial: ArtifactModel; frame?: Frame; }
 
 /** Scans every canvas for items flagged `drift: true` by diffModels(). Derived
  *  fresh from stored data on every render rather than kept in local state, so
@@ -124,17 +129,23 @@ function ProjectShell({ project }: { project: StoredProject }) {
     setCanvasVersion(v => v + 1);
   }, []);
   const panes: CanvasPane[] = useMemo(
-    () => (canvasOverride ?? project.canvases).map(c => ({ key: c.kind, kind: c.kind, initial: c.model })),
+    () => (canvasOverride ?? project.canvases).map(c => ({ key: c.id, id: c.id, name: c.name, kind: c.kind, initial: c.model, frame: c.frame })),
     [project.id, canvasOverride],
   );
-  const [active, setActive] = useState(panes[0]?.key ?? "");
-  // Covers a from-scratch project (0 canvases at mount, so `active` starts
-  // as "") whose first source-add makes panes non-empty -- without this,
-  // no tab would ever be selected and nothing would render as `visible`.
-  // Only fires when nothing is selected yet, so it never fights a real tab
-  // click.
+  // null = showing the sidebar/board hub rather than a specific canvas.
+  const [active, setActive] = useState<string | null>(null);
+  const [boardView, setBoardView] = useState<"sidebar" | "board">("sidebar");
+  // A project with exactly one artifact skips the hub entirely and opens
+  // straight into it, matching the pre-multi-instance experience -- the hub
+  // only earns its keep once there's actually something to pick between.
+  // Guarded by a ref (not just `active === null`) so navigating back to the
+  // hub via the "All artifacts" button doesn't get immediately bounced back.
+  const autoOpenedRef = useRef(false);
   useEffect(() => {
-    if (!active && panes.length > 0) setActive(panes[0].key);
+    if (!autoOpenedRef.current && active === null && panes.length === 1) {
+      autoOpenedRef.current = true;
+      setActive(panes[0].key);
+    }
   }, [active, panes]);
 
   // Arriving from the dashboard's comments inbox: jump to whichever pane
@@ -157,6 +168,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
   const [exporting, setExporting] = useState(false);
   const paneRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const editingModelsRef = useRef<Record<string, ArtifactModel>>({});
+  const frameOverridesRef = useRef<Record<string, Frame>>({});
 
   // Persist canvas edits back to the stored project. Fires on every edit, so
   // this goes through the debounced writer -- one network write per pause in
@@ -164,23 +176,25 @@ function ProjectShell({ project }: { project: StoredProject }) {
   const registerModel = useCallback((key: string, model: ArtifactModel) => {
     editingModelsRef.current[key] = model;
   }, []);
+  const buildMergedCanvases = useCallback((): StoredCanvas[] => panes.map(p => ({
+    id: p.id, name: p.name, kind: p.kind,
+    model: editingModelsRef.current[p.key] ?? p.initial,
+    frame: frameOverridesRef.current[p.id] ?? p.frame,
+  })), [panes]);
   const persist = useCallback(() => {
-    const merged = panes.map(p => ({
-      kind: p.kind,
-      model: editingModelsRef.current[p.key] ?? p.initial,
-    }));
-    sessionStore.updateProjectDebounced(project.id, { canvases: merged });
-  }, [panes, project.id]);
+    sessionStore.updateProjectDebounced(project.id, { canvases: buildMergedCanvases() });
+  }, [buildMergedCanvases, project.id]);
+  const onFrameChange = useCallback((id: string, frame: Frame) => {
+    frameOverridesRef.current[id] = frame;
+    persist();
+  }, [persist]);
 
   const session = useSession();
   const [savingVersion, setSavingVersion] = useState(false);
   const saveVersion = async () => {
     if (!session.userId) return;
     setSavingVersion(true);
-    const merged = panes.map(p => ({
-      kind: p.kind,
-      model: editingModelsRef.current[p.key] ?? p.initial,
-    }));
+    const merged = buildMergedCanvases();
     try {
       await sessionStore.saveSnapshot(project.id, merged, "manual_save", session.userId);
     } catch (e) {
@@ -208,7 +222,12 @@ function ProjectShell({ project }: { project: StoredProject }) {
       const latest = await sessionStore.listSnapshots(project.id);
       const baseline = latest.length > 0 ? await sessionStore.getSnapshotCanvases(latest[0].id) : project.canvases;
 
-      const nextCanvases: { kind: ArtifactKind; model: ArtifactModel }[] = [];
+      // Source-based re-check only knows "kind", not which specific named
+      // instance to update -- so it always targets the first/original
+      // instance of each kind (the one that came from the initial
+      // extraction). Any additional hand-created instance of that kind is
+      // left untouched, same as AddSourceDialog.apply below.
+      const nextCanvases: StoredCanvas[] = [];
       for (const kind of project.kinds) {
         const freshModels: ArtifactModel[] = [];
         const freshLabels: string[] = [];
@@ -220,23 +239,28 @@ function ProjectShell({ project }: { project: StoredProject }) {
         const fresh = mergeByKind(freshModels, freshLabels);
         if (!fresh || checkRefusal(fresh).refuse) continue;
 
+        const primaryPane = panes.find(p => p.kind === kind);
         // Current (possibly hand-edited) canvas goes FIRST so mergeByKind
         // keeps it as canonical text and flags any real discrepancy from
         // the fresh re-check as a conflict, rather than silently
         // overwriting a manual edit -- same reconciliation logic already
         // used to merge multiple sources, just applied to "live state" vs
         // "re-checked state" as the two inputs.
-        const currentModel = editingModelsRef.current[kind] ?? panes.find(p => p.kind === kind)?.initial;
+        const currentModel = primaryPane ? (editingModelsRef.current[primaryPane.key] ?? primaryPane.initial) : undefined;
         const reconciled = currentModel ? mergeByKind([currentModel, fresh], ["Current", "Re-checked source"]) : fresh;
         if (!reconciled) continue;
 
-        const baselineModel = baseline.find(c => c.kind === kind)?.model;
+        const primaryExisting = project.canvases.find(c => c.kind === kind);
+        const baselineModel = (primaryExisting ? baseline.find(c => c.id === primaryExisting.id) : undefined)?.model;
         const withDrift = baselineModel ? diffModels(baselineModel, reconciled) : reconciled;
-        nextCanvases.push({ kind, model: withDrift });
+        nextCanvases.push(primaryExisting
+          ? { ...primaryExisting, model: withDrift }
+          : { id: crypto.randomUUID(), name: defaultCanvasName(kind), kind, model: withDrift });
       }
-      // Preserve any canvas kind the re-check didn't produce anything for.
+      // Preserve every existing canvas the loop above didn't touch -- kinds
+      // with no fresh extraction hit, and any additional same-kind instance.
       for (const existing of project.canvases) {
-        if (!nextCanvases.find(c => c.kind === existing.kind)) nextCanvases.push(existing);
+        if (!nextCanvases.find(c => c.id === existing.id)) nextCanvases.push(existing);
       }
 
       await sessionStore.updateProject(project.id, { canvases: nextCanvases });
@@ -249,6 +273,20 @@ function ProjectShell({ project }: { project: StoredProject }) {
       setCheckingDrift(false);
     }
   };
+
+  const createInstance = useCallback(async (kind: ArtifactKind, name: string) => {
+    if (!session.userId) return;
+    const fresh: StoredCanvas = { id: crypto.randomUUID(), name, kind, model: emptyCanvas(kind, name) };
+    const next = [...(canvasOverride ?? project.canvases), fresh];
+    try {
+      await sessionStore.updateProject(project.id, { canvases: next });
+      sessionStore.saveSnapshot(project.id, next, "manual_save", session.userId).catch(() => {});
+      onCanvasesRegenerated(next);
+      setActive(fresh.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Couldn't create this artifact. Try again.");
+    }
+  }, [canvasOverride, project.canvases, project.id, session.userId, onCanvasesRegenerated]);
 
   const [shareOpen, setShareOpen] = useState(false);
   const onPublish = (action: string) => {
@@ -264,12 +302,12 @@ function ProjectShell({ project }: { project: StoredProject }) {
 
   const [exportingImage, setExportingImage] = useState(false);
   const exportActiveImage = async (format: "png" | "svg") => {
-    const el = paneRefs.current[active];
+    const el = active ? paneRefs.current[active] : null;
     if (!el) return;
     setExportingImage(true);
     const safe = project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
-    const activeKind = panes.find(p => p.key === active)?.kind;
-    const suffix = activeKind === "process" ? "process-map" : "bmc";
+    const activeName = panes.find(p => p.key === active)?.name ?? "canvas";
+    const suffix = activeName.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
     try {
       if (format === "png") await exportElementToPng(`${safe || "visuail"}-${suffix}.png`, el);
       else await exportElementToSvg(`${safe || "visuail"}-${suffix}.svg`, el);
@@ -287,7 +325,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
     const originalActive = active;
     try {
       const sections: ExportSection[] = panes.map(p => ({
-        title: `${project.name} — ${p.kind === "process" ? "Process map" : "Business Model Canvas"}`,
+        title: `${project.name} — ${p.name}`,
         getElement: async () => {
           setActive(p.key);
           await new Promise<void>((r) =>
@@ -388,7 +426,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" disabled={exportingImage || panes.length === 0}>
+                <Button size="sm" variant="outline" disabled={exportingImage || !active} title={!active ? "Open an artifact first" : undefined}>
                   {exportingImage
                     ? <><Loader2 className="size-3.5 animate-spin" /> Exporting…</>
                     : <><ImageDown className="size-3.5" /> Export this canvas</>}
@@ -449,24 +487,34 @@ function ProjectShell({ project }: { project: StoredProject }) {
                   )}
                 </div>
               </div>
-              <div role="tablist" className="flex items-center gap-1 rounded-md border bg-muted/40 p-1">
-                {panes.map(p => (
+              {active ? (
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setActive(null)}>
+                    <ArrowLeft className="size-3.5" /> All artifacts
+                  </Button>
+                  <span className="text-sm font-medium truncate max-w-[240px]">
+                    {panes.find(p => p.key === active)?.name}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 rounded-md border bg-muted/40 p-1">
                   <button
-                    key={p.key} type="button" onClick={() => setActive(p.key)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-xs font-medium transition",
-                      active === p.key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                    )}
+                    onClick={() => setBoardView("sidebar")}
+                    className={cn("px-2.5 py-1 rounded text-xs font-medium transition", boardView === "sidebar" ? "bg-card shadow-sm" : "text-muted-foreground")}
                   >
-                    {p.kind === "process"
-                      ? <><Workflow className="size-3.5" /> Process map</>
-                      : <><LayoutGrid className="size-3.5" /> Business Model Canvas</>}
+                    List
                   </button>
-                ))}
-              </div>
+                  <button
+                    onClick={() => setBoardView("board")}
+                    className={cn("px-2.5 py-1 rounded text-xs font-medium transition", boardView === "board" ? "bg-card shadow-sm" : "text-muted-foreground")}
+                  >
+                    Board
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="relative">
+            <div className={cn("relative", !active && "hidden")}>
               {panes.map(pane => (
                 <CanvasPaneMount
                   key={`${pane.key}-${canvasVersion}`}
@@ -482,6 +530,25 @@ function ProjectShell({ project }: { project: StoredProject }) {
                 />
               ))}
             </div>
+
+            {!active && (
+              boardView === "sidebar" ? (
+                <ArtifactSidebar
+                  canvases={canvasOverride ?? project.canvases}
+                  kinds={project.kinds}
+                  onOpen={setActive}
+                  onCreate={createInstance}
+                />
+              ) : (
+                <ArtifactBoard
+                  canvases={canvasOverride ?? project.canvases}
+                  kinds={project.kinds}
+                  onOpen={setActive}
+                  onCreate={createInstance}
+                  onFrameChange={onFrameChange}
+                />
+              )
+            )}
           </>
         )}
       </main>
@@ -503,7 +570,7 @@ function CanvasPaneMount({
   onCommentCountChange: (itemId: string, delta: number) => void;
   focusItemId?: string;
 }) {
-  const editing = useArtifactEditing(pane.initial, { channelName: `project:${projectId}:${pane.kind}` });
+  const editing = useArtifactEditing(pane.initial, { channelName: `project:${projectId}:${pane.id}` });
   const st = stats(editing.model);
   const changeRef = useRef(onModelChange);
   useEffect(() => { changeRef.current = onModelChange; });
@@ -740,7 +807,11 @@ function AddSourceDialog({
       return;
     }
     if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "extraction_run", project.id, { sourceCount: allSources.length });
-    const canvases: { kind: ArtifactKind; model: ArtifactModel }[] = [];
+    // Re-extraction only knows "kind", not which specific named instance to
+    // update -- so it always targets the first/original instance of each
+    // kind. Any additional hand-created instance of that kind is preserved
+    // untouched below, same as recheckDrift in the parent component.
+    const canvases: StoredCanvas[] = [];
     for (const kind of project.kinds) {
       const models: ArtifactModel[] = [];
       const labels: string[] = [];
@@ -752,11 +823,15 @@ function AddSourceDialog({
       const merged = mergeByKind(models, labels);
       if (!merged) continue;
       if (checkRefusal(merged).refuse) continue;
-      canvases.push({ kind, model: merged });
+      const primaryExisting = project.canvases.find(c => c.kind === kind);
+      canvases.push(primaryExisting
+        ? { ...primaryExisting, model: merged }
+        : { id: crypto.randomUUID(), name: defaultCanvasName(kind), kind, model: merged });
     }
-    // Preserve any existing canvas whose kind didn't get produced by extraction.
+    // Preserve every existing canvas the loop above didn't touch -- kinds
+    // with no extraction hit, and any additional same-kind instance.
     for (const existing of project.canvases) {
-      if (!canvases.find(c => c.kind === existing.kind)) canvases.push(existing);
+      if (!canvases.find(c => c.id === existing.id)) canvases.push(existing);
     }
 
     try {

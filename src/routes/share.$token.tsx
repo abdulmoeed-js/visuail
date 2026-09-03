@@ -90,7 +90,10 @@ function SharePage() {
 
         <div className="mt-4 space-y-6">
           {project.canvases.map((c) => (
-            <SharedCanvas key={c.kind} model={c.model} />
+            <div key={c.id}>
+              <h2 className="text-sm font-semibold text-muted-foreground mb-2">{c.name}</h2>
+              <SharedCanvas model={c.model} />
+            </div>
           ))}
           {project.canvases.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-12">This project has no canvases yet.</p>
