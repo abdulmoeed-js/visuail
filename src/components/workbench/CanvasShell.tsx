@@ -277,7 +277,16 @@ export function CanvasShell({
       {overlay}
 
       {bottomLeft && <div className="absolute bottom-3 left-3 z-20 flex flex-wrap gap-2" data-no-pan>{bottomLeft}</div>}
-      {bottomRight && <div className="absolute bottom-3 right-3 z-20" data-no-pan>{bottomRight}</div>}
+      {/* The minimap (below) pins to the same bottom-right corner at a higher
+       *  z-index, and its up-to-150px box was sitting directly on top of
+       *  whatever this slot renders -- e.g. State Diagram's "add state"
+       *  confirm/cancel buttons, silently unclickable behind it. Shift left
+       *  to clear the minimap's width whenever both are present. */}
+      {bottomRight && (
+        <div className={cn("absolute bottom-3 z-20", minimap ? "right-[168px]" : "right-3")} data-no-pan>
+          {bottomRight}
+        </div>
+      )}
 
       {minimap && (
         <Minimap contentW={contentWidth} contentH={contentHeight}
