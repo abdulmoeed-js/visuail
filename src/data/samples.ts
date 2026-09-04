@@ -169,6 +169,15 @@ export interface BusinessCase {
   runCost?: string;
 }
 
+/** Named prioritization techniques a plan can point to -- general, public
+ *  practice (MoSCoW etc.), not sourced from any one book. Selecting one in
+ *  the UI inserts its starter template into prioritizationApproach rather
+ *  than replacing free text, since the approach itself stays free-form. */
+export const PRIORITIZATION_TECHNIQUES = [
+  "MoSCoW", "Weighted scoring", "Kano model", "Value vs. effort", "Stack ranking", "Cost of Delay (WSJF)",
+] as const;
+export type PrioritizationTechnique = (typeof PRIORITIZATION_TECHNIQUES)[number];
+
 /** Requirements Management Plan -- purpose/scope/elicitation/change-control,
  *  from the corpus's Requirements Management Plan Template (Corporate
  *  Education Group + TheBAGuide variants). Also a single document. */
@@ -177,6 +186,7 @@ export interface RequirementsManagementPlan {
   scope?: string;
   elicitationApproach?: string;
   changeControlProcess?: string;
+  prioritizationTechniques?: PrioritizationTechnique[];
   prioritizationApproach?: string;
   traceabilityApproach?: string;
 }
