@@ -210,7 +210,7 @@ export function Workbench() {
           {state.status === "extracting" && <ExtractingState />}
           {state.status === "refused" && <RefusedState reason={state.reason} onRetry={() => setState({ status: "empty" })} />}
           {state.status === "ready" && s && (
-            <ArtifactView editing={editing} stats={s} onPublish={openWall} />
+            <ArtifactView editing={editing} stats={s} onPublish={openWall} demoHints />
           )}
         </div>
       </div>
@@ -241,7 +241,11 @@ function ExtractingState() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-16">
       <div className="w-72 space-y-2">
-        {["Tokenizing transcript…", "Building typed IR…", "Scoring confidence per item…", "Rendering artifact…"].map((t, i) => (
+        {/* The 900ms wait is the one moment a first-time visitor is guaranteed
+         *  to be reading -- spend it on what the product does in plain BA
+         *  language, not compiler vocabulary ("tokenizing", "typed IR"). Each
+         *  line maps to a real step: extraction, typing, confidence, grounding. */}
+        {["Reading the transcript…", "Finding actors, steps and decisions…", "Scoring how sure it is about each one…", "Flagging anything the source didn't actually say…"].map((t, i) => (
           <div key={t} className="flex items-center gap-2 text-xs font-mono-tight text-muted-foreground">
             <Loader2 className="size-3 animate-spin" style={{ animationDelay: `${i * 120}ms` }} />
             <span>{t}</span>
@@ -285,7 +289,7 @@ function RefusedState({ reason, onRetry }: { reason: string; onRetry: () => void
  */
 export function ArtifactView({
   editing, stats: st, onPublish, canvasRef, extraHeaderRight,
-  projectId, commentCounts, onCommentCountChange, focusItemId, initialTab,
+  projectId, commentCounts, onCommentCountChange, focusItemId, initialTab, demoHints,
 }: {
   editing: ArtifactEditing;
   stats: ReturnType<typeof stats>;
@@ -303,12 +307,19 @@ export function ArtifactView({
    *  "dfd" here so it lands on that lens by default. focusItemId still wins
    *  when both are set (an inbox deep link takes priority). */
   initialTab?: ArtifactTab;
+  /** Marketing-demo only. A first-time visitor sees a nice diagram and reads
+   *  "diagram tool" -- the whole differentiator (drift) sits behind a button
+   *  they have no reason to click. This surfaces a one-time nudge toward it.
+   *  Never set on the real project page or the share page. */
+  demoHints?: boolean;
 }) {
   const { model, drifted } = editing;
   const avgPct = Math.round(st.avg * 100);
   const avgTone = avgPct >= 85 ? "text-confident" : avgPct >= 70 ? "text-unresolved" : "text-drift";
   const drift = drifted ? driftSummary(model) : { count: 0, label: "" };
   const [drilldownStepId, setDrilldownStepId] = useState<string | null>(null);
+  const [hintDismissed, setHintDismissed] = useState(false);
+  const showDriftHint = !!demoHints && !drifted && !hintDismissed;
 
   const tabs: { value: ArtifactTab; label: ReactNode }[] = [
     { value: "artifact", label: model.kind === "process" ? "Process map" : "Canvas" },
@@ -570,13 +581,25 @@ export function ArtifactView({
       )}
 
       <div className="border-t bg-muted/40 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant={drifted ? "secondary" : "outline"}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant={drifted ? "secondary" : showDriftHint ? "default" : "outline"}
             onClick={drifted ? editing.onClearDrift : editing.onSimulateDrift}>
             <Shuffle className="size-3.5" />
             {drifted ? "Restore source" : "Simulate source change"}
           </Button>
           {drifted && <Badge variant="destructive" className="bg-drift">{drift.count} drifted</Badge>}
+          {showDriftHint && (
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-xs text-foreground">
+              Now the part nobody else does — see what happens when the client changes their mind.
+              <button
+                type="button" onClick={() => setHintDismissed(true)}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Dismiss hint"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] font-mono-tight text-muted-foreground mr-1">PUBLISH</span>
