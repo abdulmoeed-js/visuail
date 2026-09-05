@@ -15,7 +15,7 @@
 // apart from each other.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { callAnthropicExtraction, MIN_TEXT_CHARS } from "../_shared/extraction.ts";
+import { ANTHROPIC_MODEL, callAnthropicExtraction, MIN_TEXT_CHARS } from "../_shared/extraction.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -46,11 +46,16 @@ Deno.serve(async (req: Request) => {
     }
     const userId = userData.user.id;
 
+    // Interactive limit only. The nightly scan also logs rows under the
+    // project creator's user_id (source = 'scan'); those must not count
+    // against the person's own 30/hour, or a user with several monitored
+    // projects wakes up to a partly-spent budget every day.
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const { count, error: countErr } = await supabase
       .from("extraction_log")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId)
+      .or("source.is.null,source.eq.interactive")
       .gte("created_at", oneHourAgo);
     if (countErr) return json({ error: "Couldn't check rate limit. Try again." }, 500);
     if ((count ?? 0) >= RATE_LIMIT_PER_HOUR) {
@@ -76,16 +81,23 @@ Deno.serve(async (req: Request) => {
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) return json({ error: "Extraction isn't configured yet (missing API key)." }, 500);
 
-    let results;
+    let results, usage;
     try {
-      results = await callAnthropicExtraction(trimmed, kinds, apiKey);
+      ({ results, usage } = await callAnthropicExtraction(trimmed, kinds, apiKey));
     } catch (e) {
       console.error("[extract-artifact] Anthropic error", e);
       return json({ error: "Extraction failed upstream. Try again." }, 502);
     }
 
-    // Logged only once the call actually succeeded and cost money.
-    await supabase.from("extraction_log").insert({ user_id: userId });
+    // Logged only once the call actually succeeded and cost money. The usage
+    // meters are what prove prompt caching is working: on a warm call,
+    // cache_read_input_tokens should cover the fixed prefix (~2,600 tokens).
+    await supabase.from("extraction_log").insert({
+      user_id: userId,
+      source: "interactive",
+      model: ANTHROPIC_MODEL,
+      ...usage,
+    });
 
     return json({ results });
   } catch (e) {

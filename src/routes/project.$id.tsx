@@ -30,7 +30,7 @@ import { CommentsDialog } from "@/components/CommentsDialog";
 import { ShareLinkDialog } from "@/components/ShareLinkDialog";
 import { SignupWallModal } from "@/components/SignupWallModal";
 import { SourceIntake, makeSource, type SourceDraft } from "@/components/workbench/SourceIntake";
-import { extractFromSource, type ArtifactKind } from "@/lib/extract";
+import { extractFromSource, extractSources, type ArtifactKind } from "@/lib/extract";
 import { mergeByKind } from "@/lib/merge";
 import { checkRefusal } from "@/lib/refusal";
 import { diffModels } from "@/lib/diff";
@@ -227,10 +227,8 @@ function ProjectShell({ project }: { project: StoredProject }) {
       // can occasionally surface trivial rephrasing as "drift" -- that's an
       // honest limitation of re-checking via re-extraction rather than a bug
       // to paper over, and it's also useful diagnostic signal on its own.
-      const perSource = await Promise.all(project.sources.map(async (s, i) => ({
-        label: s.label,
-        results: await extractFromSource({ label: s.label, text: s.text, index: i }, project.kinds),
-      })));
+      // First source alone, then the rest -- see extractSources for why.
+      const perSource = await extractSources(project.sources, project.kinds);
 
       const latest = await sessionStore.listSnapshots(project.id);
       const baseline = latest.length > 0 ? await sessionStore.getSnapshotCanvases(latest[0].id) : project.canvases;
@@ -802,10 +800,8 @@ function AddSourceDialog({
     // overwrite manual canvas edits made after the last source-based generation.
     let perSource: { label: string; results: Awaited<ReturnType<typeof extractFromSource>> }[];
     try {
-      perSource = await Promise.all(allSources.map(async (s, i) => ({
-        label: s.label,
-        results: await extractFromSource({ label: s.label, text: s.text, index: i }, project.kinds),
-      })));
+      // First source alone, then the rest -- see extractSources for why.
+      perSource = await extractSources(allSources, project.kinds);
     } catch (err) {
       setBusy(false);
       alert(err instanceof Error ? err.message : "Extraction failed. Try again.");

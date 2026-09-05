@@ -211,3 +211,26 @@ export async function extractFromSource(
   if (!REAL_EXTRACTION_ENABLED) return extractFromSourceMock(input, allowedKinds);
   return extractFromSourceReal(input, allowedKinds);
 }
+
+/**
+ * Extract several sources with the first awaited alone, then the rest in
+ * parallel. The edge function prompt-caches the fixed prefix (system prompt +
+ * tool schema, ~2,600 tokens); a cache entry only becomes readable once the
+ * first response has started, so N parallel first-requests would all pay the
+ * cache write. Warming it with one call lets every sibling read at 0.1x.
+ * Trade-off: multi-source projects wait one extraction longer before the rest
+ * start. Use this instead of Promise.all over extractFromSource.
+ */
+export async function extractSources(
+  sources: { label: string; text: string }[],
+  allowedKinds: ArtifactKind[],
+): Promise<{ label: string; results: ExtractionResult[] }[]> {
+  if (sources.length === 0) return [];
+  const run = async (s: { label: string; text: string }, index: number) => ({
+    label: s.label,
+    results: await extractFromSource({ label: s.label, text: s.text, index }, allowedKinds),
+  });
+  const first = await run(sources[0], 0);
+  const rest = await Promise.all(sources.slice(1).map((s, i) => run(s, i + 1)));
+  return [first, ...rest];
+}

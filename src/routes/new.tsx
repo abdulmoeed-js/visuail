@@ -11,7 +11,7 @@ import {
   PenLine, Loader2, Sparkles, Check, ArrowLeft, FolderPlus,
 } from "lucide-react";
 import { SourceIntake, makeSource, type SourceDraft } from "@/components/workbench/SourceIntake";
-import { extractFromSource, type ArtifactKind } from "@/lib/extract";
+import { extractFromSource, extractSources, type ArtifactKind } from "@/lib/extract";
 import { mergeByKind } from "@/lib/merge";
 import { checkRefusal } from "@/lib/refusal";
 import { SAMPLES } from "@/data/samples";
@@ -132,10 +132,8 @@ function NewProjectPage() {
     if (mode === "sources") {
       let perSource: { label: string; results: Awaited<ReturnType<typeof extractFromSource>> }[];
       try {
-        perSource = await Promise.all(readySources.map(async (s, i) => ({
-          label: s.label,
-          results: await extractFromSource({ label: s.label, text: s.text, index: i }, underlyingKinds),
-        })));
+        // First source alone, then the rest -- see extractSources for why.
+        perSource = await extractSources(readySources, underlyingKinds);
       } catch (err) {
         setCreating(false);
         setError(err instanceof Error ? err.message : "Extraction failed. Try again.");

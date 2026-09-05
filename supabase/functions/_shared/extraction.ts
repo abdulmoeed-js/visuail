@@ -126,14 +126,25 @@ export function systemPrompt(allowedKinds: string[]): string {
 
 export interface ExtractionResult { kind: "process" | "bmc"; model: Record<string, unknown> }
 
+/** Anthropic's per-request usage meters. cache_read_input_tokens > 0 on a
+ *  warm call is the only real proof the prompt cache is working -- the
+ *  callers log these to extraction_log so it can be checked from SQL. */
+export interface ExtractionUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+}
+
 /** Calls Claude for one source's text, returns the requested kinds it could
- *  ground in the text. Throws on any upstream failure -- callers decide how
- *  to handle that (interactive: surface an error; scheduled: skip and log). */
+ *  ground in the text plus the usage meters. Throws on any upstream failure
+ *  -- callers decide how to handle that (interactive: surface an error;
+ *  scheduled: skip and log). */
 export async function callAnthropicExtraction(
   text: string,
   allowedKinds: string[],
   apiKey: string,
-): Promise<ExtractionResult[]> {
+): Promise<{ results: ExtractionResult[]; usage: ExtractionUsage }> {
   const clipped = text.trim().slice(0, MAX_TEXT_CHARS);
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -145,7 +156,18 @@ export async function callAnthropicExtraction(
     body: JSON.stringify({
       model: ANTHROPIC_MODEL,
       max_tokens: 8000,
-      system: systemPrompt(allowedKinds),
+      // Prompt caching. Render order is tools -> system -> messages, so a
+      // breakpoint on the (single) system block caches the tool schema AND
+      // the system prompt together: ~2,600 tokens including the tool-use
+      // system prompt Anthropic adds, comfortably above Sonnet 4.5's
+      // 1,024-token minimum. The only variable in the prefix is
+      // allowedKinds (3 possible values), so at most 3 cache entries exist.
+      // The transcript sits in the user message, after the breakpoint.
+      // Cache reads bill at 0.1x input; writes at 1.25x -- pays back on the
+      // second call within 5 minutes. Parallel first-calls all miss (an entry
+      // is readable only once the first response starts), so fan-out callers
+      // send one request first, then the rest.
+      system: [{ type: "text", text: systemPrompt(allowedKinds), cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: `Source transcript:\n\n${clipped}` }],
       tools: [TOOL],
       tool_choice: { type: "tool", name: "submit_extraction" },
@@ -169,5 +191,12 @@ export async function callAnthropicExtraction(
   if (allowedKinds.includes("bmc") && input.bmc) {
     results.push({ kind: "bmc", model: { kind: "bmc", ...input.bmc } });
   }
-  return results;
+  const u = (data.usage ?? {}) as Partial<ExtractionUsage>;
+  const usage: ExtractionUsage = {
+    input_tokens: u.input_tokens ?? 0,
+    output_tokens: u.output_tokens ?? 0,
+    cache_creation_input_tokens: u.cache_creation_input_tokens ?? 0,
+    cache_read_input_tokens: u.cache_read_input_tokens ?? 0,
+  };
+  return { results, usage };
 }
