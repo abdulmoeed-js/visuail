@@ -35,12 +35,12 @@ export function Hero() {
               For business analysts &amp; PMs
             </div>
             <h1 className="font-display text-[44px] leading-[1.02] md:text-[72px] md:leading-[0.98] tracking-tight text-balance">
-              Your <span className="italic text-primary">AI Business Analyst.</span>
+              Diagrams that know <span className="italic text-primary">when they drift.</span>
             </h1>
             <p className="mt-6 text-lg md:text-xl text-muted-foreground max-w-xl leading-relaxed">
               Turns a discovery call into a full BA workstream — diagrams, RACI, risk log, business case —{" "}
               <span className="text-foreground font-medium">
-                traced to source and flagged the moment it drifts.
+                traced to source and flagged the moment the source changes.
               </span>
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
