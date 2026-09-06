@@ -341,10 +341,10 @@ function DashboardPage() {
         open={upgradeOpen}
         onOpenChange={setUpgradeOpen}
         tier="Pro"
-        price="$6/mo"
+        price="$9/mo"
         unlocks={[
           "Unlimited projects and transcripts",
-          "Drift detection & reconciliation",
+          "Drift detection & alerts",
           "Story → source traceability",
           "Version history per artifact",
         ]}

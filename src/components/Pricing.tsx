@@ -24,13 +24,13 @@ const tiers: Array<{
     period: "mo",
     tagline: "Try the workbench on real transcripts. No card required.",
     features: [
-      "2 projects, 4 transcripts each",
-      "Process map + Business Model Canvas",
-      "Full BA toolkit: use cases, RACI, risk log, stakeholder analysis, business case & more",
-      "Generated BRD & summary briefs",
-      "Confidence scoring per item",
+      "2 projects, up to 4 transcripts each",
+      "All 7 diagram types: process map, Business Model Canvas, DFD, RACI, decision tree, state diagram, activity",
+      "BA toolkit: use cases, business case, requirements plan, stakeholder analysis, risk log, test cases, change requests, comms plan",
+      "Generated BRD, traced backlog and one-page brief",
+      "A confidence score and verbatim source quote on every item",
       "PDF export",
-      "No drift detection or traceability",
+      "Drift detection and version history are Pro and up",
     ],
     cta: "Start free",
     highlight: false,
@@ -38,22 +38,23 @@ const tiers: Array<{
   {
     kind: "pro",
     name: "Pro",
-    price: "$6",
+    price: "$9",
     period: "mo",
-    tagline: "The moat, for a single analyst: drift, traceability, versions.",
+    tagline: "Everything in Free, plus the part nobody else does: knowing when your diagrams drift.",
     features: [
       "Unlimited projects and transcripts",
       "Everything in Free",
-      "Drift detection & reconciliation",
-      "Traceability from story → source",
+      "Drift detection: re-check any project against its sources and reconcile what changed",
+      "Drift alerts by email or Slack when a source changes",
+      "Traceability from every backlog story back to the source line",
       "Version history per artifact",
-      "Single user",
+      "1 seat",
     ],
     cta: "Upgrade to Pro",
     highlight: true,
     unlocks: [
       "Unlimited projects and transcripts",
-      "Drift detection & reconciliation",
+      "Drift detection & alerts",
       "Story → source traceability",
       "Version history per artifact",
     ],
@@ -61,20 +62,21 @@ const tiers: Array<{
   {
     kind: "team",
     name: "Team",
-    price: "$15",
+    price: "$18",
     period: "mo · 3 seats",
     tagline: "Flat rate for a squad, all seeing the same workspace.",
     features: [
       "Everything in Pro",
-      "Up to 3 seats bundled (flat rate)",
-      "Shared workspaces & commenting",
+      "3 seats bundled, one flat rate",
+      "Shared workspace with comments and @mentions",
+      "One drift inbox for the whole team",
       "Additional seats — contact us",
     ],
     cta: "Upgrade to Team",
     highlight: false,
     unlocks: [
       "3 bundled seats on one workspace",
-      "Shared workspaces & commenting",
+      "Shared workspace, comments & @mentions",
       "Everything in Pro",
     ],
   },
@@ -105,7 +107,7 @@ export function Pricing() {
           <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">Pricing</div>
           <h2 className="font-display text-4xl md:text-5xl mt-2 leading-[1.05]">Straightforward pricing for real BA work.</h2>
           <p className="text-muted-foreground mt-4 text-lg">
-            The full artifact suite — traceability, drift detection, the works — lives in Pro and up. That's what you're actually paying for.
+            Every diagram type is free. Knowing when they drift — and tracing every story back to its source — is what you pay for.
           </p>
         </div>
         <div className="grid gap-px bg-border md:grid-cols-3 border rounded-lg overflow-hidden">

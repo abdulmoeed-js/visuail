@@ -131,8 +131,8 @@ export function Nav() {
           />
           <CheckoutModal
             open={upgradeOpen} onOpenChange={setUpgradeOpen}
-            tier="Team" price="$15/mo"
-            unlocks={["3 bundled seats on one workspace", "Shared workspaces & commenting", "Everything in Pro"]}
+            tier="Team" price="$18/mo"
+            unlocks={["3 bundled seats on one workspace", "Shared workspace, comments & @mentions", "Everything in Pro"]}
           />
         </>
       )}
