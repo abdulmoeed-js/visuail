@@ -3,6 +3,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { SignupWallModal } from "./SignupWallModal";
 import { CheckoutModal } from "./CheckoutModal";
+import { HELP_URL, SUPPORT_EMAIL } from "@/lib/links";
 
 type TierKind = "free" | "pro" | "team";
 
@@ -182,7 +183,17 @@ export function Footer() {
           <a className="hover:text-foreground" href="#workbench">Workbench</a>
           <a className="hover:text-foreground" href="#why-not-miro">What you get</a>
           <a className="hover:text-foreground" href="#pricing">Pricing</a>
-
+          <a
+            className="hover:text-foreground"
+            href={HELP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Help
+          </a>
+          <a className="hover:text-foreground" href={`mailto:${SUPPORT_EMAIL}`}>
+            {SUPPORT_EMAIL}
+          </a>
           <span>© 2026</span>
         </div>
       </div>

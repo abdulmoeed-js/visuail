@@ -4,6 +4,7 @@ import { LayoutDashboard, LogOut, Building2, Check, ChevronDown, Users2 } from "
 import { cn } from "@/lib/utils";
 import { scrollToId } from "@/lib/scroll";
 import { sessionStore, useSession, type Session } from "@/lib/session";
+import { HELP_URL } from "@/lib/links";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
@@ -85,6 +86,17 @@ export function Nav() {
         )}
 
         <div className="flex items-center gap-2">
+          {/* Help is the one link that belongs in both states: a stranger
+           *  deciding whether to sign up and a customer mid-task both need it.
+           *  Same 44px effective hit area trick as the icon buttons below. */}
+          <a
+            href={HELP_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="relative h-8 px-2.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition inline-flex items-center before:absolute before:-inset-[6px] before:content-['']"
+          >
+            Help
+          </a>
           {session.signedIn && <OrgSwitcher session={session} />}
           {session.signedIn && currentOrg && (
             <button
