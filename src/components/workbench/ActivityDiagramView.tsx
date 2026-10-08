@@ -209,8 +209,10 @@ export function ActivityDiagramView({ model, editing }: Props) {
       viewId="activity"
       apiRef={shellApi}
       // The lanes and the rows in them, not the padded sheet (min 900x560).
-      drawnBounds={lanes.length === 0 ? null : {
-        x: LEFT_PAD, y: 0, w: lanes.length * LANE_W,
+      // Steps are drawn even when there are no actors yet (a from-scratch
+      // flow), in the space the first lane would take.
+      drawnBounds={lanes.length === 0 && placed.length === 0 ? null : {
+        x: LEFT_PAD, y: 0, w: Math.max(1, lanes.length) * LANE_W,
         h: placed.length ? TOP_PAD + (Math.max(...placed.map((p) => p.row)) + 1) * ROW_H : LANE_HEADER_H,
       }}
       bottomLeft={

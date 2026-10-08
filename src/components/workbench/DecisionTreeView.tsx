@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { ProcessModel, RuleNode, DecisionBranch } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { Plus, X, GripVertical, Wand2 } from "lucide-react";
-import { CanvasShell } from "./CanvasShell";
+import { CanvasShell, boundsOf } from "./CanvasShell";
 import { InlineEdit } from "./InlineEdit";
 import { IdChip } from "./atoms";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -121,6 +121,9 @@ export function DecisionTreeView({ model, editing }: Props) {
       minimap
       fullscreenLabel="Decision tree — fullscreen"
       viewId="decisiontree"
+      // What is drawn, not the padded sheet: an empty tree has nothing that
+      // could be "off-screen".
+      drawnBounds={placed.length === 0 ? null : boundsOf(placed.map((p) => ({ x: p.cx - NODE_W / 2, y: p.cy - NODE_H / 2, w: NODE_W, h: NODE_H })))}
       // The root sits centred over its subtree, so a wide tree opened on its
       // left edge would start with the root question off-screen. With no
       // tree yet, aim at the middle, where the empty state is drawn.

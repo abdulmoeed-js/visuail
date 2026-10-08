@@ -51,7 +51,10 @@ async function withNeutralizedTransform<T>(
     // when its own value changes, so it would never correct it.
     if (inner.style.transform === "none") inner.style.transform = prevTransform;
     if (inner.style.visibility === "visible") inner.style.visibility = prevVisibility;
-    inner.style.transition = prevTransition;
+    // Same test for the transition: two exports of one canvas can overlap
+    // (nothing disables the buttons), and the second would otherwise save
+    // the first one's "none" and write it back for good.
+    if (inner.style.transition === "none") inner.style.transition = prevTransition;
     pinned.forEach((p, i) => { if (p.style.transform === "none") p.style.transform = prevPinned[i]; });
   }
 }

@@ -312,25 +312,27 @@ let lastHistoryToast: string | number | undefined;
 function historyToast(
   title: string,
   extra: { description?: string; action?: { label: string; onClick: () => void } } = {},
-) {
+): string | number {
   const { action } = extra;
   if (lastHistoryToast !== undefined) toast.dismiss(lastHistoryToast);
   lastHistoryToast = toast(title, {
     description: extra.description,
     action: action && {
       label: action.label,
-      onClick: (e) => {
-        // A mouse click leaves focus on this button, inside the toaster.
-        // sonner remembers what had focus before and hands it back the next
-        // time focus leaves -- which is the person's next click, so that
-        // click (into a text field, say) lost its focus. Letting go now
-        // makes the hand-back happen here instead. A keyboard press keeps
-        // focus, so the button can be pressed again.
-        if (e.detail > 0) e.currentTarget.blur();
+      onClick: () => {
+        // Pressing this leaves focus inside the toaster: on the button, or
+        // (Safari, which does not focus a clicked button) on the notice
+        // around it. sonner remembers what had focus before and hands it
+        // back the next time focus leaves the toaster -- seconds later, in
+        // the middle of whatever the person is typing by then. Letting go
+        // now makes the hand-back happen here, at once, instead.
+        const held = document.activeElement;
+        if (held instanceof HTMLElement && held.closest("[data-sonner-toaster]")) held.blur();
         action.onClick();
       },
     },
   });
+  return lastHistoryToast;
 }
 
 /**
@@ -421,7 +423,21 @@ export function ArtifactView({
   /** Undo or redo, and say what it did. The edit being stepped over is often
    *  in another tab or off-screen; done silently, undo either looks broken
    *  or removes something the person never sees go. */
+  // A notice lives at the app root and can outlast this view (a route
+  // change, the panes remounting after a re-check). Its Undo/Redo button
+  // must not act on a view that is gone -- the step would be consumed and
+  // reported, and nothing saved -- so the view takes its notice with it.
+  const mounted = useRef(true);
+  const ownNotice = useRef<string | number | undefined>(undefined);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (ownNotice.current !== undefined) toast.dismiss(ownNotice.current);
+    };
+  }, []);
   const runHistory = useCallback((direction: "undo" | "redo") => {
+    if (!mounted.current) return;
     const ed = editingRef.current;
     const other = direction === "undo" ? "redo" : "undo";
     // Undo steps through edits to the content, not through where shapes sit.
@@ -430,21 +446,21 @@ export function ArtifactView({
     // surprise. Say so once; the next press steps back as normal.
     if (direction === "undo" && viewStore.get(LAYOUT_MOVED_KEY) === ed.model) {
       viewStore.delete(LAYOUT_MOVED_KEY);
-      historyToast("Moving or resizing a shape can't be undone", {
+      ownNotice.current = historyToast("Moving or resizing a shape can't be undone", {
         description: ed.canUndo ? "Undo again to step back through your edits instead." : undefined,
       });
       return;
     }
     const summary = direction === "undo" ? ed.onUndo() : ed.onRedo();
     if (!summary) {
-      historyToast(
+      ownNotice.current = historyToast(
         direction === "redo" ? "Nothing to redo"
           : ed.undoClearedByPeer ? "Undo history was cleared when someone else edited this"
           : "Nothing to undo",
       );
       return;
     }
-    historyToast(historyNotice(direction, summary), {
+    ownNotice.current = historyToast(historyNotice(direction, summary), {
       action: { label: other === "redo" ? "Redo" : "Undo", onClick: () => runHistory(other) },
     });
   }, [viewStore]);

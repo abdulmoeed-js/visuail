@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
+import { CANVAS_FULLSCREEN_EVENT } from "@/lib/canvas-events";
 
 function NotFoundComponent() {
   return (
@@ -152,13 +153,22 @@ function AppToaster() {
     setContainer(el);
     const sync = () => {
       const host = document.fullscreenElement;
-      (host ?? document.body).appendChild(el);
-      setInFullscreen(!!host);
+      const home = host ?? document.body;
+      // Only when it actually has to move: re-inserting a node restarts the
+      // animations inside it.
+      if (el.parentElement !== home) home.appendChild(el);
+      // Where the browser refuses real fullscreen (iPhone, an embedded
+      // preview) the canvas fills the window by itself instead and marks
+      // itself. The toaster can stay in <body> there -- it is drawn above --
+      // but it needs the same lower position to clear the canvas's top rows.
+      setInFullscreen(!!host || !!document.querySelector("[data-canvas-fs]"));
     };
     sync();
     document.addEventListener("fullscreenchange", sync);
+    document.addEventListener(CANVAS_FULLSCREEN_EVENT, sync);
     return () => {
       document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener(CANVAS_FULLSCREEN_EVENT, sync);
       el.remove();
     };
   }, []);

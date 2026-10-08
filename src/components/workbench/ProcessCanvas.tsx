@@ -571,9 +571,14 @@ export function ProcessCanvas({
       && !NON_FLOW_SHAPES.has(previous.shape)
     ) {
       const conns = model.connections ?? [];
-      const leadsIn = conns.some((c) => c.toId === previous.id);
-      const leadsOut = conns.filter((c) => c.fromId === previous.id).length;
       const isDecision = previous !== lastStep;
+      // A decision's branches are arrows too, once they point at something
+      // that is on the canvas -- both into other shapes and out of this one.
+      const branchInto = (targetId: string) =>
+        model.decisions.some((d) => decisionBranches(d).some((b) => b.targetId === targetId));
+      const leadsIn = conns.some((c) => c.toId === previous.id) || branchInto(previous.id);
+      const leadsOut = conns.filter((c) => c.fromId === previous.id).length
+        + (isDecision ? decisionBranches(previous as Decision).filter((b) => geomById.has(b.targetId)).length : 0);
       if (leadsIn && (isDecision ? leadsOut < 2 : leadsOut === 0)) onAddConnection(previous.id, id);
     }
     announce(`Step added, ${who ? `assigned to ${who}` : "not assigned to anyone yet"}: ${text}`);

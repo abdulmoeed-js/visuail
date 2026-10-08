@@ -7,6 +7,7 @@ import { Maximize2, Minimize2, ZoomIn, ZoomOut, LocateFixed, X } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCanvasViewStore } from "./canvas-view-store";
+import { CANVAS_FULLSCREEN_EVENT } from "@/lib/canvas-events";
 
 interface CanvasState {
   zoom: number;
@@ -348,7 +349,10 @@ export function CanvasShell({
     // Show the whole node when it fits; when it is bigger than the frame (a
     // tall BMC block, anything zoomed in), showing its top-left corner would
     // leave the focused field itself out of view, so aim at the field.
-    const fits = !frame || (whole.width <= frame.width - 2 * EDGE && whole.height <= frame.height - TOP_BAR - 2 * EDGE);
+    // "Fits" by the same measure reveal() uses to decide between centring a
+    // rectangle and pinning its top-left corner: the safe area, less a margin.
+    const area = frame ? safeArea(frame.width, frame.height) : null;
+    const fits = !area || (whole.width <= area.w - 24 && whole.height <= area.h - 24);
     const node = fits ? enclosing : target;
     const n = node.getBoundingClientRect();
     const z = view.zoom || 1;
@@ -489,6 +493,20 @@ export function CanvasShell({
       window.removeEventListener("keydown", onKey);
     };
   }, [fs, cssFs]);
+
+  // The fallback fullscreen is this component's own doing, so nothing else
+  // can know about it unless told. Effects run after the commit, when the
+  // marker attribute is (or is no longer) in the page. Said only when the
+  // state really flips, and once more if the canvas goes away while in it.
+  const announcedCssFs = useRef(false);
+  useEffect(() => {
+    if (cssFs === announcedCssFs.current) return;
+    announcedCssFs.current = cssFs;
+    document.dispatchEvent(new Event(CANVAS_FULLSCREEN_EVENT));
+  }, [cssFs]);
+  useEffect(() => () => {
+    if (announcedCssFs.current) document.dispatchEvent(new Event(CANVAS_FULLSCREEN_EVENT));
+  }, []);
 
   // Non-passive wheel listener — needed so ctrl/pinch-zoom can call preventDefault
   // (React's synthetic onWheel is passive by default and would let the browser
