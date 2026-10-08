@@ -63,6 +63,12 @@ function patchItemFields(yMap: Y.Map<unknown>, prev: PlainItem, next: PlainItem)
     const prevVal = prev[key];
     const nextVal = next[key];
     if (prevVal === nextVal) continue;
+    // Arrays and objects (branches, sections, test steps) are compared by
+    // content: a model that came back from history is a different object
+    // graph with the same values, and rewriting every nested field of every
+    // item would broadcast changes that are not changes.
+    if (typeof prevVal === "object" && typeof nextVal === "object" && prevVal !== null && nextVal !== null
+      && JSON.stringify(prevVal) === JSON.stringify(nextVal)) continue;
     if (key === "text") {
       const yText = yMap.get("text");
       if (yText instanceof Y.Text) patchYText(yText, String(nextVal ?? ""));
@@ -84,10 +90,15 @@ function patchItemArray(yArray: Y.Array<Y.Map<unknown>>, prevItems: PlainItem[],
     const id = yArray.get(idx).get("id") as string;
     if (!nextById.has(id)) yArray.delete(idx, 1);
   }
-  // Additions, in next's relative order.
-  for (const item of nextItems) {
-    if (!prevById.has(item.id)) yArray.push([itemToYMap(item)]);
-  }
+  // Additions go to the position they hold in `next`, not the end. Array
+  // order is meaningful (for steps it IS the process spine): appending put
+  // the second half of a split step at the bottom of the diagram, and would
+  // bring an undone delete back as the last step instead of where it was.
+  // Correct whenever the surviving items keep their relative order, which
+  // every action and every history step does.
+  nextItems.forEach((item, idx) => {
+    if (!prevById.has(item.id)) yArray.insert(Math.min(idx, yArray.length), [itemToYMap(item)]);
+  });
   // Field-level updates for items present in both with a changed reference.
   for (let idx = 0; idx < yArray.length; idx++) {
     const yMap = yArray.get(idx);

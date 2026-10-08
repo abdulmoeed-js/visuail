@@ -122,7 +122,7 @@ export function TemplateGallery({ onPick }: { onPick: (sample: Sample) => void }
                 <span className="font-mono-tight text-muted-foreground">
                   {t.kind === "process" ? "Process map" : "Business Model Canvas"}
                 </span>
-                <span className="inline-flex items-center gap-1 text-primary opacity-0 group-hover:opacity-100 transition">
+                <span className="inline-flex items-center gap-1 text-primary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition">
                   Use template <ArrowRight className="size-3" />
                 </span>
               </div>

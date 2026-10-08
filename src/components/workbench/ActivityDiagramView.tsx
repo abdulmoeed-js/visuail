@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ProcessModel, Step, Decision } from "@/data/samples";
 import { decisionBranches } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { Plus, X, GripVertical } from "lucide-react";
-import { CanvasShell } from "./CanvasShell";
+import { cn } from "@/lib/utils";
+import { CanvasShell, useCanvas, CANVAS_TOP_INSET, CANVAS_GLIDE_CLASS, type RevealTarget } from "./CanvasShell";
+import { useRevealNew, FlashRing, FlashOutline } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { IdChip, ConfidenceBadge } from "./atoms";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -102,27 +104,100 @@ interface Props {
   editing: ArtifactEditing;
 }
 
+/** Focus target for "the Add lane button", alongside lane ids. */
+const ADD_LANE = "__add_lane__";
+
+/** Lane header that stays in view while the diagram is read downwards.
+ *
+ *  The lane name is the "who" of every step beneath it. The header used to
+ *  carry `sticky top-0`, which does nothing here: the canvas content is a
+ *  transformed layer, not a scroll container. That did not show while the
+ *  whole diagram was shrunk to fit; opened at a readable size, one scroll
+ *  and nobody could tell whose lane was whose. So it follows the camera by
+ *  hand, parked just under the canvas's toolbar row.
+ *
+ *  Marked `data-canvas-pinned` so export (export-pdf.ts) can put it back at
+ *  the top of the lane for the picture. */
+function LaneHeader({ maxOffset, flash, children }: { maxOffset: number; flash?: boolean; children: ReactNode }) {
+  const { zoom, pan, gliding } = useCanvas();
+  const offset = Math.min(Math.max(0, maxOffset), Math.max(0, (CANVAS_TOP_INSET - pan.y) / zoom));
+  return (
+    <div
+      data-canvas-pinned
+      // While the camera glides, the header counter-moves on the same curve;
+      // moved instantly it would jump ahead and wait for the diagram. (Exact
+      // because only pan-only moves glide -- see glide() in CanvasShell.)
+      className={cn(
+        "relative z-30 flex items-center justify-between gap-1 border-b bg-muted px-2",
+        gliding && CANVAS_GLIDE_CLASS,
+      )}
+      style={{ height: LANE_HEADER_H, transform: `translateY(${offset}px)` }}
+    >
+      {/* While pinned, the header sits one toolbar-row below the top of the
+       *  canvas, and step cards scrolling up behind it used to reappear in
+       *  that strip, above their own lane's name. This closes the strip. It
+       *  is above y=0 of the diagram, so an export never includes it. */}
+      {offset > 0 && (
+        <span
+          aria-hidden
+          className="absolute inset-x-0 bottom-full bg-background"
+          style={{ height: CANVAS_TOP_INSET / zoom + 1 }}
+        />
+      )}
+      {children}
+      {flash && <FlashOutline />}
+    </div>
+  );
+}
+
 export function ActivityDiagramView({ model, editing }: Props) {
   const { placed, lanes, width, height } = useMemo(() => layout(model), [model]);
   const byId = useMemo(() => new Map(placed.map((p) => [p.ref.id, p])), [placed]);
 
+  // A step added from a lane header joins the END of the sequence, which is
+  // the bottom of the diagram; a new lane lands at the far right. Either can
+  // be well out of view, so both are revealed.
+  const rectFor = (id: string): RevealTarget | null => {
+    const p = byId.get(id);
+    if (p) return { x: p.cx - p.w / 2, y: p.cy - p.h / 2, w: p.w, h: p.h };
+    const lane = lanes.findIndex((a) => a.id === id);
+    // A lane's header is pinned to the top of the view wherever the camera
+    // is, so showing a new lane only ever means moving sideways. Asking for
+    // its (y: 0) rectangle on both axes would drag a reader who is halfway
+    // down the diagram back to the top.
+    return lane >= 0 ? { x: LEFT_PAD + lane * LANE_W, y: 0, w: LANE_W, h: LANE_HEADER_H, axis: "x" } : null;
+  };
+  const { apiRef: shellApi, revealNew, flashId } = useRevealNew(rectFor);
+
+  // Closing an add form removes the field that had focus. Hand focus back to
+  // the button that opened it, or a keyboard user is dropped at the top of
+  // the page after every single step.
+  const laneButtons = useRef(new Map<string, HTMLButtonElement | null>());
+  const addLaneButton = useRef<HTMLButtonElement | null>(null);
+  const [refocus, setRefocus] = useState<string | null>(null);
+  useEffect(() => {
+    if (!refocus) return;
+    const el = refocus === ADD_LANE ? addLaneButton.current : laneButtons.current.get(refocus);
+    el?.focus({ preventScroll: true });
+    setRefocus(null);
+  }, [refocus]);
+
   const [addingLane, setAddingLane] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const closeAdd = (actorId: string) => { setDraft(""); setAddingLane(null); setRefocus(actorId); };
   const commitAdd = (actorId: string) => {
     const t = draft.trim();
-    if (t) {
-      const newId = editing.onAddStep(t);
-      if (typeof newId === "string") editing.onUpdateItem(newId, { actorId });
-    }
-    setDraft(""); setAddingLane(null);
+    if (t) revealNew(editing.onAddStep(t, undefined, actorId));
+    closeAdd(actorId);
   };
 
   const [addingActor, setAddingActor] = useState(false);
   const [actorDraft, setActorDraft] = useState("");
+  const closeActor = () => { setActorDraft(""); setAddingActor(false); setRefocus(ADD_LANE); };
   const commitActor = () => {
     const t = actorDraft.trim();
-    if (t) editing.onAddActor(t);
-    setActorDraft(""); setAddingActor(false);
+    if (t) revealNew(editing.onAddActor(t));
+    closeActor();
   };
 
   return (
@@ -131,8 +206,15 @@ export function ActivityDiagramView({ model, editing }: Props) {
       contentHeight={height}
       minimap
       fullscreenLabel="Activity diagram — fullscreen"
+      viewId="activity"
+      apiRef={shellApi}
+      // The lanes and the rows in them, not the padded sheet (min 900x560).
+      drawnBounds={lanes.length === 0 ? null : {
+        x: LEFT_PAD, y: 0, w: lanes.length * LANE_W,
+        h: placed.length ? TOP_PAD + (Math.max(...placed.map((p) => p.row)) + 1) * ROW_H : LANE_HEADER_H,
+      }}
       bottomLeft={
-        <span className="flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground">
+        <span className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground">
           One lane per actor · sequence flows top-to-bottom, lane shows who
         </span>
       }
@@ -140,13 +222,17 @@ export function ActivityDiagramView({ model, editing }: Props) {
         addingActor ? (
           <div className="flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
             <input autoFocus value={actorDraft} onChange={(e) => setActorDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") commitActor(); if (e.key === "Escape") { setAddingActor(false); setActorDraft(""); } }}
-              placeholder="New lane (actor)" className="h-8 w-40 text-sm px-2 rounded border bg-background" />
-            <button onClick={commitActor} className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><Plus className="size-4" /></button>
-            <button onClick={() => { setAddingActor(false); setActorDraft(""); }} className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><X className="size-4" /></button>
+              // preventDefault: committing hands focus back to the button that
+              // opened this form, and the same keystroke's keypress would land
+              // on that button and open the form again.
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitActor(); } if (e.key === "Escape") closeActor(); }}
+              placeholder="New lane (actor)" aria-label="Name of the new lane's actor"
+              className="h-8 w-40 text-sm px-2 rounded border bg-background" />
+            <button onClick={commitActor} title="Add lane" aria-label="Add lane" className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><Plus className="size-4" /></button>
+            <button onClick={closeActor} title="Cancel" aria-label="Cancel" className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><X className="size-4" /></button>
           </div>
         ) : (
-          <button onClick={() => setAddingActor(true)} data-no-pan className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
+          <button ref={addLaneButton} onClick={() => setAddingActor(true)} data-no-pan className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
             <Plus className="size-3.5 text-primary" /> Add lane
           </button>
         )
@@ -154,21 +240,25 @@ export function ActivityDiagramView({ model, editing }: Props) {
     >
       {lanes.map((a, i) => (
         <div key={a.id} className="absolute top-0 bottom-0 border-r border-dashed border-border/70" style={{ left: LEFT_PAD + i * LANE_W, width: LANE_W }}>
-          <div className="sticky top-0 flex items-center justify-between gap-1 border-b bg-muted/40 px-2" style={{ height: LANE_HEADER_H }} data-no-pan>
+          <LaneHeader maxOffset={height - LANE_HEADER_H} flash={flashId === a.id}>
             <span className="text-xs font-semibold truncate">{a.text}</span>
             {addingLane === a.id ? (
               <div className="flex items-center gap-0.5 shrink-0">
                 <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") commitAdd(a.id); if (e.key === "Escape") { setAddingLane(null); setDraft(""); } }}
-                  placeholder="New step" className="h-6 w-24 text-[11px] px-1.5 rounded border bg-background" />
-                <button onClick={() => commitAdd(a.id)} className="text-primary"><Plus className="size-3.5" /></button>
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(a.id); } if (e.key === "Escape") closeAdd(a.id); }}
+                  placeholder="New step" aria-label={`New step for ${a.text}`}
+                  className="h-6 w-24 text-[11px] px-1.5 rounded border bg-background" />
+                <button onClick={() => commitAdd(a.id)} title="Add step" aria-label={`Add this step for ${a.text}`} className="text-primary"><Plus className="size-3.5" /></button>
               </div>
             ) : (
-              <button onClick={() => setAddingLane(a.id)} className="text-muted-foreground hover:text-primary transition shrink-0"><Plus className="size-3.5" /></button>
+              <button ref={(el) => { laneButtons.current.set(a.id, el); }} onClick={() => { setDraft(""); setAddingLane(a.id); }} title={`Add a step for ${a.text}`} aria-label={`Add a step for ${a.text}`} className="text-muted-foreground hover:text-primary transition shrink-0"><Plus className="size-3.5" /></button>
             )}
-          </div>
+          </LaneHeader>
         </div>
       ))}
+
+      {/* Nodes only: a lane's ring is drawn inside its pinned header. */}
+      <FlashRing key={flashId ?? "idle"} rect={flashId && byId.has(flashId) ? rectFor(flashId) : null} />
 
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none" }}>
         <defs>
@@ -256,7 +346,7 @@ function ActivityStepNode({
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <ConfidenceBadge item={step} />
-          <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+          <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
@@ -289,7 +379,7 @@ function ActivityDecisionNode({
         style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: 10 }}
         title="Fork / join"
       >
-        <button onClick={onDelete} data-no-pan className="absolute -top-4 right-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+        <button onClick={onDelete} data-no-pan className="absolute -top-4 right-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
           <X className="size-3" />
         </button>
         <IdChip id={d.id} />
@@ -305,7 +395,7 @@ function ActivityDecisionNode({
     >
       <div className="flex items-center justify-between gap-1">
         <IdChip id={d.id} />
-        <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+        <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
           <X className="size-3" />
         </button>
       </div>

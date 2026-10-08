@@ -89,7 +89,7 @@ export function ItemCommentsPopover({ projectId, itemId, count, onCountChange, a
         <button
           className={cn(
             "inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] transition",
-            count > 0 ? "text-primary hover:bg-primary/10" : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted",
+            count > 0 ? "text-primary hover:bg-primary/10" : "text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-muted",
           )}
           aria-label={`${count} comment${count === 1 ? "" : "s"}`}
         >

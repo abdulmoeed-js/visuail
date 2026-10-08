@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef, useEffect, type ReactNode } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback, type ReactNode } from "react";
+import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Sparkles, RotateCcw, AlertOctagon, Share2, FileDown,
   LayoutList, Shuffle, ShieldCheck, Loader2, Info,
-  FolderOpen, X as XIcon,
+  FolderOpen, X as XIcon, Undo2, Redo2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -17,6 +18,10 @@ import { EditableList } from "./workbench/EditableList";
 import { ProcessCanvas } from "./workbench/ProcessCanvas";
 import { BMCCanvas } from "./workbench/BMCCanvas";
 import { CanvasErrorBoundary } from "./workbench/CanvasErrorBoundary";
+import {
+  CanvasViewStoreProvider, useCanvasViewStore, useNewCanvasViewStore, LAYOUT_MOVED_KEY,
+} from "./workbench/canvas-view-store";
+import { historyNotice } from "@/lib/describe-edit";
 import { BRDTab, BacklogTab, BriefTab, QuestionsTab } from "./workbench/DownstreamTabs";
 import { UseCaseDiagramView } from "./workbench/UseCaseDiagramView";
 import { DFDView } from "./workbench/DFDView";
@@ -282,6 +287,52 @@ function RefusedState({ reason, onRetry }: { reason: string; onRetry: () => void
   );
 }
 
+/** The ArtifactView the person last clicked or focused in. More than one can
+ *  be mounted at once (project mode), and Ctrl/Cmd+Z must only ever act on
+ *  the one they are working in. */
+let activeArtifactRoot: HTMLElement | null = null;
+
+/** Somewhere the browser's own text undo applies, so Ctrl/Cmd+Z must be left
+ *  to it. A <select> is not one: it has no text history, and treating it as
+ *  one made the shortcut go dead after any dropdown was used. */
+const isTextEntry = (t: EventTarget | null) =>
+  t instanceof HTMLElement &&
+  (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+
+/** One notice at a time for edit history, and a NEW one each time.
+ *
+ *  The obvious way -- one fixed toast id, updated in place -- has two traps
+ *  in sonner: an update is merged into the toast on screen, so any field the
+ *  new call leaves out keeps its old value (the last notice's second line and
+ *  button lingered under the next title); and an update that lands in the
+ *  fraction of a second while the old toast is fading out is thrown away with
+ *  it, so that undo showed no notice at all. Dismissing the previous notice
+ *  and raising a fresh one has neither problem. */
+let lastHistoryToast: string | number | undefined;
+function historyToast(
+  title: string,
+  extra: { description?: string; action?: { label: string; onClick: () => void } } = {},
+) {
+  const { action } = extra;
+  if (lastHistoryToast !== undefined) toast.dismiss(lastHistoryToast);
+  lastHistoryToast = toast(title, {
+    description: extra.description,
+    action: action && {
+      label: action.label,
+      onClick: (e) => {
+        // A mouse click leaves focus on this button, inside the toaster.
+        // sonner remembers what had focus before and hands it back the next
+        // time focus leaves -- which is the person's next click, so that
+        // click (into a text field, say) lost its focus. Letting go now
+        // makes the hand-back happen here instead. A keyboard press keeps
+        // focus, so the button can be pressed again.
+        if (e.detail > 0) e.currentTarget.blur();
+        action.onClick();
+      },
+    },
+  });
+}
+
 /**
  * ArtifactView — renders a single artifact model with all editing controls,
  * downstream tabs, and publish/export actions. Extracted so the multi-canvas
@@ -354,8 +405,99 @@ export function ArtifactView({
     activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [tab]);
 
+  // Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl+Y) for model edits. Three guards
+  // keep this from ever surprising anyone: it only fires for the artifact
+  // last clicked in; never while typing, where the browser's own text undo
+  // must win; and never from inside something layered over the artifact (a
+  // dialog or popover lives outside this element), where the person is
+  // plainly not addressing the diagram.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // Created here rather than inside the provider below, because the undo
+  // handler in this component needs to read it too.
+  const viewStore = useNewCanvasViewStore();
+  const editingRef = useRef(editing);
+  useEffect(() => { editingRef.current = editing; });
+
+  /** Undo or redo, and say what it did. The edit being stepped over is often
+   *  in another tab or off-screen; done silently, undo either looks broken
+   *  or removes something the person never sees go. */
+  const runHistory = useCallback((direction: "undo" | "redo") => {
+    const ed = editingRef.current;
+    const other = direction === "undo" ? "redo" : "undo";
+    // Undo steps through edits to the content, not through where shapes sit.
+    // If the last thing done was a drag or resize, the person is asking to
+    // undo THAT -- reverting some older edit instead would be a nasty
+    // surprise. Say so once; the next press steps back as normal.
+    if (direction === "undo" && viewStore.get(LAYOUT_MOVED_KEY) === ed.model) {
+      viewStore.delete(LAYOUT_MOVED_KEY);
+      historyToast("Moving or resizing a shape can't be undone", {
+        description: ed.canUndo ? "Undo again to step back through your edits instead." : undefined,
+      });
+      return;
+    }
+    const summary = direction === "undo" ? ed.onUndo() : ed.onRedo();
+    if (!summary) {
+      historyToast(
+        direction === "redo" ? "Nothing to redo"
+          : ed.undoClearedByPeer ? "Undo history was cleared when someone else edited this"
+          : "Nothing to undo",
+      );
+      return;
+    }
+    historyToast(historyNotice(direction, summary), {
+      action: { label: other === "redo" ? "Redo" : "Undo", onClick: () => runHistory(other) },
+    });
+  }, [viewStore]);
+  const runHistoryRef = useRef(runHistory);
+  useEffect(() => { runHistoryRef.current = runHistory; });
+  // "The last thing done was a move" stops being true the moment the model
+  // changes, whatever changed it. (Comparing objects alone is not enough:
+  // "Restore source" puts the original model object back.)
+  useEffect(() => { viewStore.delete(LAYOUT_MOVED_KEY); }, [editing.model, viewStore]);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const claim = () => { activeArtifactRoot = root; };
+    root.addEventListener("pointerdown", claim, true);
+    root.addEventListener("focusin", claim);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing) return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      const undo = key === "z" && !e.shiftKey;
+      // Ctrl+Y is redo on Windows and Linux only. Cmd+Y on a Mac opens the
+      // browser's history, and must be left alone.
+      const redo = (key === "z" && e.shiftKey) || (key === "y" && e.ctrlKey && !e.metaKey && !e.shiftKey);
+      if (!undo && !redo) return;
+      if (activeArtifactRoot !== root) return;
+      // The project page keeps every artifact mounted and hides the ones
+      // not open; a hidden one has no boxes and must never act.
+      if (root.getClientRects().length === 0) return;
+      if (isTextEntry(e.target)) return;
+      const t = e.target;
+      // Focus must be somewhere that belongs to this artifact: inside it, on
+      // nothing in particular, on the history notice itself (its Undo/Redo
+      // button keeps focus after a click), or inside this artifact's canvas
+      // while the CSS-fallback fullscreen has moved that canvas to <body>.
+      const el = t instanceof Element ? t : null;
+      const ours = t === document.body || (t instanceof Node && root.contains(t))
+        || !!el?.closest("[data-sonner-toaster], [data-canvas-fs]");
+      if (!ours) return;
+      e.preventDefault();
+      runHistoryRef.current(redo ? "redo" : "undo");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      root.removeEventListener("pointerdown", claim, true);
+      root.removeEventListener("focusin", claim);
+      window.removeEventListener("keydown", onKey);
+      if (activeArtifactRoot === root) activeArtifactRoot = null;
+    };
+  }, []);
+
   return (
-    <div className="flex-1 flex flex-col">
+    <CanvasViewStoreProvider store={viewStore}>
+    <div ref={rootRef} className="flex-1 flex flex-col">
       {/* Header */}
       <div className="border-b p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
@@ -403,14 +545,14 @@ export function ArtifactView({
       )}
 
       <div className="flex-1 flex min-h-0 flex-col isolate">
-        <div className="relative z-40 border-b bg-card px-4" data-no-pan>
+        <div className="relative z-40 flex items-center gap-2 border-b bg-card px-4" data-no-pan>
           {/* Scrolls instead of overflowing -- with 11 tabs (7 diagram types plus
            *  Toolkit/Items/BRD/Traced backlog) this row is wider than the container
            *  at any normal viewport width. It used to just overflow silently with no
            *  scroll affordance, making Items/BRD/Traced backlog unreachable by click. */}
           <div
             role="tablist" aria-label="Artifact views"
-            className="flex h-11 items-center gap-1 overflow-x-auto [scrollbar-width:thin]"
+            className="flex h-11 min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:thin]"
           >
             {tabs.map((item) => {
               const active = tab === item.value;
@@ -431,17 +573,43 @@ export function ArtifactView({
               );
             })}
           </div>
+          {/* Outside the scrolling tab list on purpose: history applies to
+           *  every tab, so it must not scroll away with the tabs. */}
+          <div role="group" aria-label="Edit history" className="flex shrink-0 items-center gap-1.5 border-l pl-2">
+            {/* aria-disabled, not disabled: a button that disables itself the
+             *  moment it is used throws keyboard focus back to the top of the
+             *  page. These stay focusable and just report there is nothing
+             *  to step to. */}
+            <Button
+              size="icon" variant="ghost"
+              className="relative h-8 w-8 before:absolute before:-inset-x-[3px] before:-inset-y-[6px] before:content-[''] aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:cursor-default"
+              onClick={() => runHistory("undo")} aria-disabled={!editing.canUndo}
+              title="Undo last edit (Ctrl/Cmd+Z). Moving or resizing shapes is not included."
+              aria-label="Undo last edit"
+            >
+              <Undo2 className="size-4" />
+            </Button>
+            <Button
+              size="icon" variant="ghost"
+              className="relative h-8 w-8 before:absolute before:-inset-x-[3px] before:-inset-y-[6px] before:content-[''] aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:cursor-default"
+              onClick={() => runHistory("redo")} aria-disabled={!editing.canRedo}
+              title="Redo (Ctrl/Cmd+Shift+Z)" aria-label="Redo"
+            >
+              <Redo2 className="size-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="relative z-0 flex-1 min-h-0 overflow-hidden" ref={canvasRef}>
           {tab === "artifact" && (
             <div className="h-full p-4">
               <div className="h-[640px]">
-                <CanvasErrorBoundary onRemoveLastAdded={editing.onRemoveLastAdded}>
+                <RecoverableCanvas onRemoveLastAdded={editing.onRemoveLastAdded}>
                   {model.kind === "process" ? (
                     <ProcessCanvas
                       model={model}
                       onAddStep={editing.onAddStep}
+                      onAddActor={editing.onAddActor}
                       onAddDecision={editing.onAddDecision}
                       onAddException={editing.onAddException}
                       onAddConnection={editing.onAddConnection}
@@ -461,7 +629,7 @@ export function ArtifactView({
                       onUpdate={editing.onUpdateItem}
                     />
                   )}
-                </CanvasErrorBoundary>
+                </RecoverableCanvas>
               </div>
             </div>
           )}
@@ -612,6 +780,24 @@ export function ArtifactView({
         </div>
       </div>
     </div>
+    </CanvasViewStoreProvider>
+  );
+}
+
+/** The canvas error boundary, plus the one thing only a child of the view
+ *  store can do for it: on recovery, forget the parked layout (positions,
+ *  sizes, palette) so the canvas really does come back clean. The camera
+ *  entries ("shell:…") are kept; where the person was looking is harmless. */
+function RecoverableCanvas({ onRemoveLastAdded, children }: { onRemoveLastAdded: () => void; children: ReactNode }) {
+  const store = useCanvasViewStore();
+  const forgetLayout = () => {
+    if (!store) return;
+    for (const key of [...store.keys()]) if (!key.startsWith("shell:")) store.delete(key);
+  };
+  return (
+    <CanvasErrorBoundary onRemoveLastAdded={onRemoveLastAdded} onRecover={forgetLayout}>
+      {children}
+    </CanvasErrorBoundary>
   );
 }
 

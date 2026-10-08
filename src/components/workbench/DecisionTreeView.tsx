@@ -120,8 +120,18 @@ export function DecisionTreeView({ model, editing }: Props) {
       contentHeight={height}
       minimap
       fullscreenLabel="Decision tree — fullscreen"
+      viewId="decisiontree"
+      // The root sits centred over its subtree, so a wide tree opened on its
+      // left edge would start with the root question off-screen. With no
+      // tree yet, aim at the middle, where the empty state is drawn.
+      initialFocus={(() => {
+        const r = root ? placed.find((p) => p.id === root.id) : undefined;
+        return r
+          ? { x: r.cx - NODE_W / 2, y: r.cy - NODE_H / 2, w: NODE_W, h: NODE_H }
+          : { x: width / 2, y: 0, w: 0, h: 0 };
+      })()}
       bottomLeft={
-        <span className="flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground">
+        <span className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground">
           Click "N branches" to edit · "add branch" turns a leaf into a question
         </span>
       }
@@ -208,7 +218,7 @@ function RuleNodeView({
           <GripVertical className="size-3.5 text-muted-foreground/70 shrink-0" />
           <IdChip id={node.id} tone={isRoot ? "primary" : "muted"} />
         </div>
-        <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+        <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
           <X className="size-3" />
         </button>
       </div>
@@ -240,7 +250,7 @@ function RuleNodeView({
         </Popover>
       )}
       {isLeaf && (
-        <button onClick={onAddBranch} data-no-pan className="opacity-0 group-hover:opacity-100 text-[9px] font-mono-tight text-muted-foreground hover:text-primary transition flex items-center gap-0.5">
+        <button onClick={onAddBranch} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-[9px] font-mono-tight text-muted-foreground hover:text-primary transition flex items-center gap-0.5">
           <Plus className="size-2.5" /> add branch
         </button>
       )}

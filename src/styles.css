@@ -171,6 +171,24 @@
 }
 
 @utility animate-item-in { animation: item-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+/* Ring around a node that was just added (canvas-reveal.tsx). Fades itself
+   out; with reduced motion it holds still instead of scaling in. */
+@keyframes node-flash {
+  0% { opacity: 0; transform: scale(0.96); }
+  14% { opacity: 1; transform: scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes node-flash-still {
+  0%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@utility animate-node-flash {
+  animation: node-flash 1.8s ease-out forwards;
+  @media (prefers-reduced-motion: reduce) {
+    animation: node-flash-still 1.8s linear forwards;
+  }
+}
 @utility animate-drift  { animation: drift-pulse 1.6s ease-in-out infinite; }
 @utility animate-shimmer {
   background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 15%, transparent), transparent);

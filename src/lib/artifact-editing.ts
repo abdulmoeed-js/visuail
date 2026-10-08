@@ -31,6 +31,7 @@ import { diffModels } from "@/lib/diff";
 import { perturb } from "@/lib/extract";
 import { modelToYDoc, yDocToModel, applyModelDiffToYDoc } from "@/lib/yjs-model";
 import { connectYjsProvider, type YjsProviderHandle } from "@/lib/yjs-provider";
+import { summariseEdit, type EditSummary } from "@/lib/describe-edit";
 
 let uid = 1000;
 
@@ -71,6 +72,69 @@ const newUserItem = (prefix: string, text: string): BaseItem => ({
   id: nextId(prefix), text, confidence: 1, userAdded: true,
 });
 
+interface HistoryEntry {
+  model: ArtifactModel;
+  drifted: boolean;
+  /** Name of the action that made this entry, for the few that are better
+   *  named than described item by item (a source re-check). Travels with the
+   *  entry as it moves between the undo and redo stacks. */
+  label?: string;
+}
+const HISTORY_CAP = 60;
+const MERGE_WINDOW_MS = 1000;
+
+/** The model without the item `id`, wherever it lives, and without any
+ *  connection that touched it. Pure; shared by delete and crash recovery. */
+function removeById(m: ArtifactModel, id: string): ArtifactModel {
+  const shared = {
+    riskLog: (m.riskLog ?? []).filter(x => x.id !== id),
+    changeRequests: (m.changeRequests ?? []).filter(x => x.id !== id),
+    communicationPlan: (m.communicationPlan ?? []).filter(x => x.id !== id),
+    businessCase: m.businessCase && { ...m.businessCase, options: (m.businessCase.options ?? []).filter(x => x.id !== id) },
+  };
+  if (m.kind === "process") {
+    return {
+      ...m, ...shared,
+      actors: m.actors.filter(x => x.id !== id),
+      steps: m.steps.filter(x => x.id !== id),
+      decisions: m.decisions.filter(x => x.id !== id),
+      exceptions: m.exceptions.filter(x => x.id !== id),
+      systems: m.systems.filter(x => x.id !== id),
+      connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
+      nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).filter(x => x.id !== id),
+      testCases: (m.testCases ?? []).filter(x => x.id !== id),
+      dataStores: (m.dataStores ?? []).filter(x => x.id !== id),
+      externalEntities: (m.externalEntities ?? []).filter(x => x.id !== id),
+      decisionTree: (m.decisionTree ?? []).filter(x => x.id !== id),
+      states: (m.states ?? []).filter(x => x.id !== id),
+    };
+  }
+  return {
+    ...m, ...shared,
+    blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })),
+    stakeholders: (m.stakeholders ?? []).filter(x => x.id !== id),
+  };
+}
+
+/** Undo-merge key for an edit that may be arriving once per keystroke.
+ *  Only text does that. A patch carrying anything else -- a list of branches,
+ *  a number, a flag -- is a deliberate, separate action each time, and two of
+ *  them in the same second (add a branch, add another) must stay two undo
+ *  steps, so it gets no key. */
+function typingKey(prefix: string, patch: object): string | undefined {
+  const entries = Object.entries(patch);
+  if (entries.length === 0 || !entries.every(([, v]) => typeof v === "string")) return undefined;
+  return `${prefix}:${entries.map(([k]) => k).sort().join(",")}`;
+}
+
+/** Structural equality for two models. They are plain JSON by construction
+ *  (they round-trip through Postgres jsonb and Yjs), and small -- tens of
+ *  items -- so serialising both is cheap and exact enough to decide whether
+ *  an edit changed anything. */
+function sameModel(a: ArtifactModel, b: ArtifactModel): boolean {
+  try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
+}
+
 export interface ArtifactEditing {
   model: ArtifactModel;
   drifted: boolean;
@@ -79,8 +143,12 @@ export interface ArtifactEditing {
   onSimulateDrift: () => void;
   onClearDrift: () => void;
   onAddActor: (t: string) => string;
-  onAddStep: (t: string) => string;
-  onAddDecision: (t: string) => string;
+  /** `actorId` is who performs the step. Omitted, it falls back to the
+   *  previous step's actor -- callers that can ask the person should pass it
+   *  rather than let the model assume. An empty string means "nobody yet",
+   *  on purpose. */
+  onAddStep: (t: string, shape?: Step["shape"], actorId?: string) => string;
+  onAddDecision: (t: string, shape?: Decision["shape"]) => string;
   onAddException: (t: string) => string;
   onAddSystem: (t: string) => string;
   onAddNFR: (category: NFRCategory, t: string) => string;
@@ -113,6 +181,25 @@ export interface ArtifactEditing {
   /** Recovery: remove the most recently user-added item (used by canvas
    * error boundary to un-brick a project after a bad shape drop). */
   onRemoveLastAdded: () => void;
+
+  /** Step back / forward through edits to the MODEL: items added, removed,
+   *  reworded or re-linked, in any tab of the artifact. One user gesture is
+   *  one step, even when it takes several model changes to carry out.
+   *  Not covered: where nodes sit on a canvas, their size or stacking (view
+   *  state, not part of the model). History is dropped when the model is
+   *  replaced wholesale or a collaborator's change arrives, because a
+   *  whole-model step taken after that would silently undo their work.
+   *  Each returns what the step changed, for the caller to tell the person
+   *  (the change is often in another tab or off-screen), or null when there
+   *  was nothing to step to. */
+  onUndo: () => EditSummary | null;
+  onRedo: () => EditSummary | null;
+  canUndo: boolean;
+  canRedo: boolean;
+  /** True from the moment a collaborator's change emptied a history that had
+   *  something in it, until the next local edit. Lets the caller explain an
+   *  otherwise baffling "nothing to undo" seconds after the person edited. */
+  undoClearedByPeer: boolean;
 }
 
 export interface CollabOptions {
@@ -131,6 +218,61 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   // need to diff/mutate against the LATEST model, not a stale closure.
   const modelRef = useRef(model);
   useEffect(() => { modelRef.current = model; }, [model]);
+  const driftedRef = useRef(drifted);
+  useEffect(() => { driftedRef.current = drifted; }, [drifted]);
+
+  // Mirror of lastAddedId for code that must read it without a render
+  // (crash recovery below); always set through noteLastAdded.
+  const lastAddedIdRef = useRef<string | null>(null);
+  const noteLastAdded = (id: string | null) => { lastAddedIdRef.current = id; setLastAddedId(id); };
+
+  // Undo/redo. Every edit already funnels through mutate() below, so history
+  // is just the model (plus the one companion flag that travels with it) as
+  // it stood before each change. Bounded and in memory. Everything here
+  // touches only refs and stable setters, so closures captured on the first
+  // render (the collab observer, onRemoveLastAdded) stay correct.
+  const historyRef = useRef<{ past: HistoryEntry[]; future: HistoryEntry[] }>({ past: [], future: [] });
+  const [historySize, setHistorySize] = useState({ past: 0, future: 0 });
+  const [undoClearedByPeer, setUndoClearedByPeer] = useState(false);
+  const syncHistorySize = () => {
+    const { past, future } = historyRef.current;
+    setHistorySize((cur) => (cur.past === past.length && cur.future === future.length
+      ? cur : { past: past.length, future: future.length }));
+  };
+  // One click is often several model changes: dropping a class shape adds the
+  // node then seeds its sections; the starter flow is five calls; adding a
+  // decision-tree branch is two. Those all run inside one event handler, so
+  // a flag that stays up until the current task's microtasks run groups them
+  // under the single "before" snapshot taken by the first.
+  const gestureOpenRef = useRef(false);
+  // A field that writes on every keystroke would otherwise spend the whole
+  // history on one label. Repeat edits to the same target within a second
+  // extend the entry already there.
+  const lastMergeRef = useRef<{ key: string | null; at: number }>({ key: null, at: 0 });
+  const clearHistory = () => {
+    historyRef.current = { past: [], future: [] };
+    lastMergeRef.current = { key: null, at: 0 };
+    syncHistorySize();
+  };
+  const recordHistory = (before: ArtifactModel, mergeKey?: string, label?: string) => {
+    const now = Date.now();
+    const merging = mergeKey != null && mergeKey === lastMergeRef.current.key
+      && now - lastMergeRef.current.at < MERGE_WINDOW_MS;
+    lastMergeRef.current = { key: mergeKey ?? null, at: now };
+    if (gestureOpenRef.current) return;
+    // Opened whether or not this change earns its own entry: a keystroke that
+    // folds into the previous entry can still be the first of several changes
+    // made by one handler, and the rest belong to that same entry too.
+    gestureOpenRef.current = true;
+    queueMicrotask(() => { gestureOpenRef.current = false; });
+    if (merging) return;
+    const h = historyRef.current;
+    h.past.push({ model: before, drifted: driftedRef.current, label });
+    setUndoClearedByPeer(false);
+    if (h.past.length > HISTORY_CAP) h.past.shift();
+    h.future = [];
+    syncHistorySize();
+  };
 
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<YjsProviderHandle | null>(null);
@@ -140,10 +282,18 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     const ydoc = modelToYDoc(modelRef.current);
     ydocRef.current = ydoc;
 
-    const applyFromDoc = () => {
+    const applyFromDoc = (_events: unknown, transaction: Y.Transaction) => {
       const next = yDocToModel(ydoc);
       modelRef.current = next;
       setModel(next);
+      // A history entry is a whole model. Stepping to one after someone
+      // else's edit has landed would take their change out along with ours,
+      // so their arrival ends the undoable run.
+      if (!transaction.local) {
+        const h = historyRef.current;
+        if (h.past.length > 0 || h.future.length > 0) setUndoClearedByPeer(true);
+        clearHistory();
+      }
     };
     ydoc.getMap("root").observeDeep(applyFromDoc);
     providerRef.current = connectYjsProvider(ydoc, collab.channelName);
@@ -159,9 +309,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collab?.channelName]);
 
-  const mutate = (fn: (m: ArtifactModel) => ArtifactModel) => {
-    const current = modelRef.current;
-    const next = fn(current);
+  /** Puts `next` in place of `current` by whichever path this hook is on. */
+  const applyModel = (current: ArtifactModel, next: ArtifactModel) => {
     if (collab && ydocRef.current) {
       // Patches the Y.Doc; the observer above derives the new plain model
       // and calls setModel -- local edits and remote peer edits both flow
@@ -173,9 +322,52 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     }
   };
 
+  const mutate = (
+    fn: (m: ArtifactModel) => ArtifactModel,
+    opts?: { mergeKey?: string; record?: boolean; label?: string },
+  ) => {
+    const current = modelRef.current;
+    const next = fn(current);
+    if (next === current) return;
+    // Recorded on BOTH paths: the real project page always runs on the
+    // shared document, so history that only worked without it would only
+    // ever have worked in the demo. Most actions rebuild the model object
+    // even when nothing changed (deleting an id that is not there, re-saving
+    // the same text); only a real difference earns an entry, or Undo would
+    // sometimes visibly do nothing.
+    if (opts?.record !== false && !sameModel(current, next)) recordHistory(current, opts?.mergeKey, opts?.label);
+    applyModel(current, next);
+  };
+
+  const stepHistory = (from: "past" | "future"): EditSummary | null => {
+    const h = historyRef.current;
+    const entry = h[from].pop();
+    if (!entry) return null;
+    const current = modelRef.current;
+    const summary: EditSummary = { ...summariseEdit(current, entry.model), label: entry.label };
+    h[from === "past" ? "future" : "past"].push({ model: current, drifted: driftedRef.current, label: entry.label });
+    lastMergeRef.current = { key: null, at: 0 };
+    // Through the same door as any other edit, so state, autosave and (on a
+    // project) the shared document all see an ordinary local change.
+    applyModel(current, entry.model);
+    driftedRef.current = entry.drifted;
+    setDrifted(entry.drifted);
+    // The "last added" pointer exists so the canvas error boundary can pull
+    // out a shape that crashed rendering. After travelling through history
+    // it may name something that no longer exists, or the wrong thing.
+    noteLastAdded(null);
+    syncHistorySize();
+    return summary;
+  };
+  const onUndo = () => stepHistory("past");
+  const onRedo = () => stepHistory("future");
+
   const reset = useCallback((m: ArtifactModel) => {
     bumpUidPast(m);
     modelRef.current = m;
+    clearHistory();
+    setUndoClearedByPeer(false);
+    noteLastAdded(null);
     setModel(m); setPristine(m); setDrifted(false);
     if (collab && ydocRef.current) {
       // Not exercised on the real collaborative project page today (only
@@ -190,41 +382,12 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   // (index 1, same source position but a fresh look), then diff the result
   // against the pristine baseline for real -- not a hardcoded set of ids.
   const onSimulateDrift = () => {
-    mutate(() => diffModels(pristine, perturb(pristine, 1)));
+    mutate(() => diffModels(pristine, perturb(pristine, 1)), { label: "simulated source change" });
     setDrifted(true);
   };
-  const onClearDrift = () => { mutate(() => pristine); setDrifted(false); };
+  const onClearDrift = () => { mutate(() => pristine, { label: "source restore" }); setDrifted(false); };
 
-  const onDeleteAny = (id: string) => mutate(m => {
-    const shared = {
-      riskLog: (m.riskLog ?? []).filter(x => x.id !== id),
-      changeRequests: (m.changeRequests ?? []).filter(x => x.id !== id),
-      communicationPlan: (m.communicationPlan ?? []).filter(x => x.id !== id),
-      businessCase: m.businessCase && { ...m.businessCase, options: (m.businessCase.options ?? []).filter(x => x.id !== id) },
-    };
-    if (m.kind === "process") {
-      return {
-        ...m, ...shared,
-        actors: m.actors.filter(x => x.id !== id),
-        steps: m.steps.filter(x => x.id !== id),
-        decisions: m.decisions.filter(x => x.id !== id),
-        exceptions: m.exceptions.filter(x => x.id !== id),
-        systems: m.systems.filter(x => x.id !== id),
-        connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
-        nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).filter(x => x.id !== id),
-        testCases: (m.testCases ?? []).filter(x => x.id !== id),
-        dataStores: (m.dataStores ?? []).filter(x => x.id !== id),
-        externalEntities: (m.externalEntities ?? []).filter(x => x.id !== id),
-        decisionTree: (m.decisionTree ?? []).filter(x => x.id !== id),
-        states: (m.states ?? []).filter(x => x.id !== id),
-      };
-    }
-    return {
-      ...m, ...shared,
-      blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })),
-      stakeholders: (m.stakeholders ?? []).filter(x => x.id !== id),
-    };
-  });
+  const onDeleteAny = (id: string) => mutate((m) => removeById(m, id));
 
   const onUpdateItem = (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => mutate(m => {
     const apply = <T extends BaseItem>(i: T): T => {
@@ -265,52 +428,26 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
       blocks: m.blocks.map(b => ({ ...b, items: b.items.map(apply) })),
       stakeholders: (m.stakeholders ?? []).map(apply),
     };
-  });
+  }, { mergeKey: typingKey(`item:${id}`, patch) });
 
   const addWithId = (mk: () => { id: string; run: (m: ArtifactModel) => ArtifactModel }) => {
     const { id, run } = mk();
     mutate(run);
-    setLastAddedId(id);
+    noteLastAdded(id);
     return id;
   };
 
   const onRemoveLastAdded = useCallback(() => {
-    setLastAddedId(id => {
-      if (!id) return null;
-      // Mirrors onDeleteAny's model-shape-aware removal (hand-duplicated,
-      // not a call to it, to keep this a pure setter callback).
-      mutate(m => {
-        const shared = {
-          riskLog: (m.riskLog ?? []).filter(x => x.id !== id),
-          changeRequests: (m.changeRequests ?? []).filter(x => x.id !== id),
-          communicationPlan: (m.communicationPlan ?? []).filter(x => x.id !== id),
-          businessCase: m.businessCase && { ...m.businessCase, options: (m.businessCase.options ?? []).filter(x => x.id !== id) },
-        };
-        if (m.kind === "process") {
-          return {
-            ...m, ...shared,
-            actors: m.actors.filter(x => x.id !== id),
-            steps: m.steps.filter(x => x.id !== id),
-            decisions: m.decisions.filter(x => x.id !== id),
-            exceptions: m.exceptions.filter(x => x.id !== id),
-            systems: m.systems.filter(x => x.id !== id),
-            connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
-            nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).filter(x => x.id !== id),
-            testCases: (m.testCases ?? []).filter(x => x.id !== id),
-            dataStores: (m.dataStores ?? []).filter(x => x.id !== id),
-            externalEntities: (m.externalEntities ?? []).filter(x => x.id !== id),
-            decisionTree: (m.decisionTree ?? []).filter(x => x.id !== id),
-            states: (m.states ?? []).filter(x => x.id !== id),
-          };
-        }
-        return {
-          ...m, ...shared,
-          blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })),
-          stakeholders: (m.stakeholders ?? []).filter(x => x.id !== id),
-        };
-      });
-      return null;
-    });
+    const id = lastAddedIdRef.current;
+    if (!id) return;
+    // Recovery, not an edit: it must not become something Undo can reverse
+    // (that would put the shape that crashed the canvas straight back), and
+    // the history leading up to it may contain that same shape, so it goes.
+    mutate((m) => removeById(m, id), { record: false });
+    clearHistory();
+    noteLastAdded(null);
+    // Stable identity for the error boundary; everything reached from here
+    // reads refs and stable setters only, so the first render's closures hold.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -318,10 +455,23 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     const item = newUserItem("AC", t);
     return { id: item.id, run: (m) => m.kind === "process" ? { ...m, actors: [...m.actors, item] } : m };
   });
-  const onAddStep = (t: string, shape?: Step["shape"]) => addWithId(() => {
+  const onAddStep = (t: string, shape?: Step["shape"], actorId?: string) => addWithId(() => {
     const item = newUserItem("ST", t);
-    return { id: item.id, run: (m) => m.kind === "process"
-      ? { ...m, steps: [...m.steps, { ...item, actorId: m.actors[0]?.id ?? "AC1", shape }] } : m };
+    return { id: item.id, run: (m) => {
+      if (m.kind !== "process") return m;
+      // An explicit choice wins when it names a real actor. Otherwise carry
+      // on with whoever did the previous step -- a new step far more often
+      // continues that person's work than it belongs to whichever actor
+      // happens to be first in the list, which is what this used to assume.
+      const chosen = actorId !== undefined && (actorId === "" || m.actors.some((a) => a.id === actorId))
+        ? actorId : undefined;
+      const previous = m.steps.at(-1)?.actorId;
+      const fallback = previous && m.actors.some((a) => a.id === previous) ? previous : m.actors[0]?.id;
+      // With no actors at all the step is honestly unowned. This used to store
+      // the literal "AC1", which names nobody in any real project (real ids
+      // look like s0-AC1 or AC-U1001) and only looked like an assignment.
+      return { ...m, steps: [...m.steps, { ...item, actorId: chosen ?? fallback ?? "", shape }] };
+    } };
   });
   const onAddDecision = (t: string, shape?: Decision["shape"]) => addWithId(() => {
     const item = newUserItem("DC", t);
@@ -378,7 +528,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
       ? { ...m, stakeholders: [...(m.stakeholders ?? []), item] } : m };
   });
   const onUpdateBusinessCase = (patch: Partial<BusinessCase>) =>
-    mutate(m => ({ ...m, businessCase: { ...m.businessCase, ...patch } }));
+    mutate(m => ({ ...m, businessCase: { ...m.businessCase, ...patch } }),
+      { mergeKey: typingKey("bc", patch) });
   const onAddBusinessCaseOption = (t: string) => addWithId(() => {
     const item = newUserItem("OPT", t);
     return { id: item.id, run: (m) => ({
@@ -387,7 +538,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     }) };
   });
   const onUpdateRMP = (patch: Partial<RequirementsManagementPlan>) =>
-    mutate(m => ({ ...m, requirementsManagementPlan: { ...m.requirementsManagementPlan, ...patch } }));
+    mutate(m => ({ ...m, requirementsManagementPlan: { ...m.requirementsManagementPlan, ...patch } }),
+      { mergeKey: typingKey("rmp", patch) });
 
   const onAddDataStore = (t: string) => addWithId(() => {
     const item: DataStoreItem = newUserItem("DS", t);
@@ -420,7 +572,8 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   const onDeleteConnection = (id: string) => mutate(m => m.kind === "process"
     ? { ...m, connections: (m.connections ?? []).filter(c => c.id !== id) } : m);
   const onUpdateConnection = (id: string, patch: Partial<Connection>) => mutate(m => m.kind === "process"
-    ? { ...m, connections: (m.connections ?? []).map(c => c.id === id ? { ...c, ...patch } : c) } : m);
+    ? { ...m, connections: (m.connections ?? []).map(c => c.id === id ? { ...c, ...patch } : c) } : m,
+    { mergeKey: typingKey(`conn:${id}`, patch) });
 
   const onApplyRefinement = (p: Proposal) =>
     mutate(m => (m.kind === "process" ? applyProposal(p, m) : m));
@@ -435,5 +588,9 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     onAddDataStore, onAddExternalEntity, onAddRuleNode, onAddState,
     onDeleteAny, onUpdateItem, onApplyRefinement,
     onRemoveLastAdded,
+    onUndo, onRedo,
+    canUndo: historySize.past > 0,
+    canRedo: historySize.future > 0,
+    undoClearedByPeer,
   };
 }

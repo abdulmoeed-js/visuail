@@ -59,7 +59,7 @@ export function RefineControl({ node, model, onApply, className }: Props) {
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            "text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition inline-flex items-center",
+            "text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition inline-flex items-center",
             open && "opacity-100 text-primary",
             className,
           )}

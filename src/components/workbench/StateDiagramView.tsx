@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProcessModel, Connection, StateItem } from "@/data/samples";
 import { Plus, X, GripVertical, CircleDot, Wand2 } from "lucide-react";
-import { CanvasShell, useCanvas } from "./CanvasShell";
+import { CanvasShell, useCanvas, boundsOf } from "./CanvasShell";
+import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
+import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { IdChip } from "./atoms";
 
@@ -68,15 +70,26 @@ interface Props {
 }
 
 export function StateDiagramView({ model, editing }: Props) {
-  const [overrides, setOverrides] = useState<Pos>({});
+  const [overrides, setOverrides] = useCanvasViewState<Pos>("state:overrides", {});
   const [pendingConn, setPendingConn] = useState<null | { fromId: string; fromX: number; fromY: number; toX: number; toY: number }>(null);
   const states = useMemo(() => model.states ?? [], [model.states]);
   const { placed, width, height } = useMemo(() => layout(states, overrides), [states, overrides]);
   const byId = useMemo(() => new Map(placed.map((p) => [p.ref.id, p])), [placed]);
+  const rectFor = (id: string) => {
+    const p = byId.get(id);
+    return p ? { x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H } : null;
+  };
+  const { apiRef: shellApi, revealNew, flashId } = useRevealNew(rectFor);
   const transitions = model.connections ?? [];
 
-  const patchPos = (id: string, cx: number, cy: number) =>
+  const noteMove = useNoteLayoutMove();
+  const patchPos = (id: string, cx: number, cy: number) => {
+    // Only a real move counts: pressing a node's grip without dragging runs
+    // this too, with the position it already has.
+    const at = byId.get(id);
+    if (!at || at.cx !== cx || at.cy !== cy) noteMove(model);
     setOverrides((cur) => ({ ...cur, [id]: { cx, cy } }));
+  };
 
   const startConnDrag = (fromId: string, e: React.PointerEvent, contentEl: HTMLElement | null) => {
     const from = byId.get(fromId);
@@ -103,10 +116,20 @@ export function StateDiagramView({ model, editing }: Props) {
 
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
+  // Closing the form removes the field that had focus; hand it back to the
+  // button that opened it.
+  const addButton = useRef<HTMLButtonElement | null>(null);
+  const [refocus, setRefocus] = useState(false);
+  useEffect(() => {
+    if (!refocus) return;
+    addButton.current?.focus({ preventScroll: true });
+    setRefocus(false);
+  }, [refocus]);
+  const closeAdd = () => { setDraft(""); setAdding(false); setRefocus(true); };
   const commitAdd = () => {
     const t = draft.trim();
-    if (t) editing.onAddState(t);
-    setDraft(""); setAdding(false);
+    if (t) revealNew(editing.onAddState(t));
+    closeAdd();
   };
 
   return (
@@ -115,21 +138,29 @@ export function StateDiagramView({ model, editing }: Props) {
       contentHeight={height}
       minimap
       fullscreenLabel="State diagram — fullscreen"
-      bottomLeft={<Legend />}
+      viewId="state"
+      apiRef={shellApi}
+      drawnBounds={placed.length === 0 ? null : boundsOf(placed.map((p) => ({ x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H })))}
+      // Empty: aim at the middle, where the "add a state" prompt is drawn.
+      initialFocus={states.length === 0 ? { x: width / 2, y: 0, w: 0, h: 0 } : undefined}
+      bottomLeft={adding ? undefined : <Legend />}
       bottomRight={
         adding ? (
           <div className="flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
             <input
               autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") commitAdd(); if (e.key === "Escape") { setAdding(false); setDraft(""); } }}
+              // preventDefault: focus returns to "Add state" on commit, and the
+              // same keystroke's keypress would press it again.
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(); } if (e.key === "Escape") closeAdd(); }}
               placeholder="New state"
-              className="h-8 w-44 text-sm px-2 rounded border bg-background"
+              aria-label="New state name"
+              className="h-8 w-44 min-w-0 flex-1 text-sm px-2 rounded border bg-background"
             />
-            <button onClick={commitAdd} className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><Plus className="size-4" /></button>
-            <button onClick={() => { setAdding(false); setDraft(""); }} className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><X className="size-4" /></button>
+            <button onClick={commitAdd} title="Add state" aria-label="Add state" className="h-8 w-8 shrink-0 flex items-center justify-center rounded hover:bg-muted"><Plus className="size-4" /></button>
+            <button onClick={closeAdd} title="Cancel" aria-label="Cancel" className="h-8 w-8 shrink-0 flex items-center justify-center rounded hover:bg-muted"><X className="size-4" /></button>
           </div>
         ) : (
-          <button onClick={() => setAdding(true)} data-no-pan className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
+          <button ref={addButton} onClick={() => setAdding(true)} data-no-pan className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
             <Plus className="size-3.5 text-primary" /> Add state
           </button>
         )
@@ -143,6 +174,7 @@ export function StateDiagramView({ model, editing }: Props) {
           </button>
         </div>
       )}
+      <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none" }}>
         <defs>
           <marker id="sd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -254,14 +286,14 @@ function StateNodeView({
           <GripVertical data-no-pan onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
           <IdChip id={node.ref.id} tone="primary" />
         </div>
-        <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+        <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
           <X className="size-3" />
         </button>
       </div>
       <div className="text-xs font-medium leading-snug break-words">
         <InlineEdit value={node.ref.text} onChange={onUpdateText} multiline />
       </div>
-      <div className="mt-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 transition" data-no-pan>
+      <div className="mt-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition" data-no-pan>
         <button onClick={onToggleInitial} title="Toggle initial state"
           className={node.ref.isInitial ? "text-primary" : "text-muted-foreground hover:text-foreground"}>
           <CircleDot className="size-3" />
@@ -274,7 +306,7 @@ function StateNodeView({
       <div
         data-no-pan
         onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e, (e.currentTarget.closest("[data-canvas-content]") as HTMLElement) ?? null); }}
-        className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-primary bg-card shadow-sm opacity-0 group-hover:opacity-100 hover:scale-125 transition cursor-crosshair"
+        className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-primary bg-card shadow-sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:scale-125 transition cursor-crosshair"
         title="Drag to another state to connect (drag to itself for a self-transition)"
       />
     </div>
@@ -302,8 +334,13 @@ function TransitionLabel({
           <input
             autoFocus
             defaultValue={conn.label ?? ""}
-            onKeyDown={(e) => { if (e.key === "Enter") { onUpdate({ label: (e.target as HTMLInputElement).value }); setOpen(false); } }}
-            onBlur={(e) => onUpdate({ label: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              const v = (e.target as HTMLInputElement).value;
+              if (v !== (conn.label ?? "")) onUpdate({ label: v });
+              setOpen(false);
+            }}
+            onBlur={(e) => { if (e.target.value !== (conn.label ?? "")) onUpdate({ label: e.target.value }); }}
             placeholder="event [guard] / action"
             className="w-full text-[11px] px-2 py-1 rounded border bg-background"
           />
@@ -317,12 +354,15 @@ function TransitionLabel({
 }
 
 function Legend() {
-  const chip = "flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
+  // `look` carries no display class, so the hint below can be `hidden` on a
+  // narrow canvas without a bare `flex` beside it at the same weight.
+  const look = "items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
+  const chip = `flex ${look}`;
   return (
     <>
       <span className={chip}><span className="h-2.5 w-2.5 rounded-full bg-foreground" /> Initial</span>
       <span className={chip}><span className="h-2.5 w-2.5 rounded-full border-2 border-primary" /> Final (ring)</span>
-      <span className={chip}>Drag connect-handle to link · drag onto self for a self-transition</span>
+      <span className={`hidden @min-[640px]:flex ${look}`}>Drag connect-handle to link · drag onto self for a self-transition</span>
     </>
   );
 }

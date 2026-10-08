@@ -13,6 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CanvasShell, useCanvas } from "./CanvasShell";
+import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
+import { isUserCreatedId } from "@/lib/item-origin";
+import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { RefineControl } from "./RefineControl";
 import { applyProposal, type Proposal } from "@/lib/refine";
@@ -141,7 +144,11 @@ function bottomInsetFor(shape?: string): number {
 function effSize(id: string, defW: number, defH: number, overrides: Overrides, measured: Measured) {
   const o = overrides[id];
   const m = measured[id];
-  return { w: o?.w ?? m?.w ?? defW, h: o?.h ?? m?.h ?? defH };
+  // A measurement of 0 is "not laid out", never a size (see useMeasure).
+  // Belt and braces: `??` alone would accept it and draw the node zero wide.
+  const mw = m && m.w > 0 ? m.w : undefined;
+  const mh = m && m.h > 0 ? m.h : undefined;
+  return { w: o?.w ?? mw ?? defW, h: o?.h ?? mh ?? defH };
 }
 
 function zOf(id: string, overrides: Overrides) {
@@ -279,7 +286,10 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
 
 interface Props {
   model: ProcessModel;
-  onAddStep: (text: string, shape?: Step["shape"]) => string | void;
+  onAddStep: (text: string, shape?: Step["shape"], actorId?: string) => string | void;
+  /** Lets the add bar name a new actor on the spot. Without it the bar can
+   *  only offer the actors that already exist. */
+  onAddActor?: (name: string) => string | void;
   onAddDecision?: (text: string, shape?: Decision["shape"]) => string | void;
   onAddException?: (text: string) => string | void;
   onAddConnection?: (fromId: string, toId: string) => string | void;
@@ -301,6 +311,16 @@ interface PaletteItem {
 }
 
 const PALETTE_MIME = "application/x-visuail-shape";
+/** Width the open palette (toggle + panel) takes from the canvas's left edge,
+ *  beyond the shell's normal margin -- passed to the shell so an opening view
+ *  or a reveal never parks content underneath it. */
+const PALETTE_INSET = 284;
+/** Sentinel value for the add bar's "New actor…" choice. */
+const NEW_ACTOR = "__new_actor__";
+/** Boxes that are not steps in a flow (class, entity, lifeline, lane). They
+ *  share the step model so they can be placed and edited, but no arrow should
+ *  run through them. */
+const NON_FLOW_SHAPES = new Set(["uml-class", "uml-interface", "uml-lifeline", "er-entity", "swimlane"]);
 
 const FLOWCHART_ITEMS: PaletteItem[] = [
   { kind: "step", shape: "step", label: "Step", hint: "Rectangle", Icon: Square },
@@ -340,15 +360,34 @@ const PALETTE_TABS: { id: PaletteTab; label: string; items: PaletteItem[] }[] = 
 ];
 
 export function ProcessCanvas({
-  model, onAddStep, onAddDecision, onAddException,
+  model, onAddStep, onAddActor, onAddDecision, onAddException,
   onAddConnection, onDeleteConnection, onUpdateConnection,
   onDeleteAny, onUpdateItem, onApplyRefinement, onOpenUseCase,
 }: Props) {
 
-  const [overrides, setOverrides] = useState<Overrides>({});
+  // Hand-placed positions, sizes and stacking are view state, not model
+  // state. Parked in the artifact's view store so a trip to another tab and
+  // back does not snap every node to the auto layout again.
+  const [overrides, setOverrides] = useCanvasViewState<Overrides>("process:overrides", {});
   const [measured, setMeasured] = useState<Measured>({});
-  const [paletteOpen, setPaletteOpen] = useState(true);
-  const [zCounter, setZCounter] = useState(1);
+  const [, setZCounter] = useCanvasViewState<number>("process:z", 1);
+
+  const isEmpty = model.steps.length === 0 && model.decisions.length === 0 && model.exceptions.length === 0;
+
+  // The palette used to open by default, on top of the first nodes of every
+  // diagram. Now it is closed unless there is nothing to cover: an empty
+  // canvas, where its starters are the obvious next step. An explicit toggle
+  // wins and is remembered for this artifact while it is open. It is NOT
+  // carried to other diagrams or later visits: an "open" remembered from a
+  // wide project canvas would cover half of a narrow one, on every diagram,
+  // for someone who only ever opened it once.
+  const [paletteChoice, setPaletteChoice] = useCanvasViewState<boolean | null>("process:palette", null);
+  // "Empty" is judged once, when this artifact is first opened, and then
+  // sticks. Re-deriving it would close the palette under the person's hand
+  // the instant they dropped their first shape from it.
+  const [openedEmpty] = useCanvasViewState<boolean>("process:opened-empty", () => isEmpty);
+  const paletteOpen = paletteChoice ?? openedEmpty;
+  const togglePalette = () => setPaletteChoice(!paletteOpen);
   const [pendingConn, setPendingConn] = useState<null | {
     fromId: string; fromX: number; fromY: number; toX: number; toY: number;
   }>(null);
@@ -367,6 +406,40 @@ export function ProcessCanvas({
   );
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
+  const [addActorId, setAddActorId] = useState("");
+  const [newActorName, setNewActorName] = useState("");
+  const [announcement, setAnnouncement] = useState("");
+  // Said a beat AFTER the focus move that follows an add (a screen reader
+  // drops a message that arrives together with a focus change), cleared so
+  // it is not found later lying beside the button as if it were current, and
+  // emptied first so saying the same thing twice is still a change.
+  const announceTimers = useRef<number[]>([]);
+  const announce = (text: string) => {
+    announceTimers.current.forEach((t) => window.clearTimeout(t));
+    setAnnouncement("");
+    announceTimers.current = [
+      window.setTimeout(() => setAnnouncement(text), 200),
+      window.setTimeout(() => setAnnouncement(""), 6000),
+    ];
+  };
+  useEffect(() => () => { announceTimers.current.forEach((t) => window.clearTimeout(t)); }, []);
+  const draftRef = useRef<HTMLInputElement | null>(null);
+  const actorNameRef = useRef<HTMLInputElement | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement | null>(null);
+  // Picking "New actor…" with the pointer means "now I'll type the name", so
+  // focus goes to the name field. Arrowing past it with the keyboard does
+  // not: yanking focus out of a list someone is still stepping through is a
+  // change of context they did not ask for. They reach the field with Tab.
+  const pickedByKey = useRef(false);
+  const [focusActorName, setFocusActorName] = useState(false);
+  // Closing the bar removes the field that had focus; hand it back to the
+  // button that opened the bar instead of letting it fall to the page.
+  const [refocusAdd, setRefocusAdd] = useState(false);
+  useEffect(() => {
+    if (!refocusAdd) return;
+    addButtonRef.current?.focus({ preventScroll: true });
+    setRefocusAdd(false);
+  }, [refocusAdd]);
 
   const patchOverride = (id: string, o: NodeOverride) =>
     setOverrides((cur) => ({ ...cur, [id]: { ...cur[id], ...o } }));
@@ -377,13 +450,13 @@ export function ProcessCanvas({
       setOverrides((cur) => ({ ...cur, [id]: { ...cur[id], z: next } }));
       return next;
     });
-  }, []);
+  }, [setOverrides, setZCounter]);
   const sendToBack = useCallback((id: string) => {
     setOverrides((cur) => {
       const minZ = Math.min(0, ...Object.values(cur).map((o) => o?.z ?? 0)) - 1;
       return { ...cur, [id]: { ...cur[id], z: minZ } };
     });
-  }, []);
+  }, [setOverrides]);
 
   const handleRefine = (p: Proposal) => {
     if (onApplyRefinement) onApplyRefinement(p);
@@ -401,6 +474,116 @@ export function ProcessCanvas({
     return m;
   }, [spine, right]);
 
+  // A drag or resize by hand, as opposed to a position this code assigns
+  // (a palette drop, the starter flow). Noted so Undo can say that moves are
+  // not something it steps back through -- but only when something actually
+  // moved: a click on a node's grip runs the same callback with no distance.
+  const noteMove = useNoteLayoutMove();
+  const moveOverride = (id: string, o: NodeOverride) => {
+    const g = geomById.get(id);
+    const differs = (k: "cx" | "cy" | "w" | "h") => o[k] !== undefined && o[k] !== g?.[k];
+    if (!g || differs("cx") || differs("cy") || differs("w") || differs("h")) noteMove(model);
+    patchOverride(id, o);
+  };
+
+  const { apiRef: shellApi, revealNew, flash, flashId } = useRevealNew((id) => {
+    const g = geomById.get(id);
+    return g ? { x: g.cx - g.w / 2, y: g.cy - g.h / 2, w: g.w, h: g.h } : null;
+  });
+  const flashGeom = flashId ? geomById.get(flashId) : undefined;
+
+  // What is actually drawn, as opposed to the padded sheet it is drawn on
+  // (never smaller than 900x620). The canvas uses it to judge whether part of
+  // the diagram is out of view; null when there is nothing to be out of view.
+  const drawnBounds = useMemo(() => {
+    if (geomById.size === 0) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const g of geomById.values()) {
+      x0 = Math.min(x0, g.cx - g.w / 2); x1 = Math.max(x1, g.cx + g.w / 2);
+      y0 = Math.min(y0, g.cy - g.h / 2); y1 = Math.max(y1, g.cy + g.h / 2);
+    }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }, [geomById]);
+
+  // Adding from the bar asks who does the step instead of assuming. The
+  // select opens on whoever did the previous step -- the likeliest answer --
+  // and is right there to change before the step exists.
+  const openAddBar = () => {
+    const previous = model.steps.at(-1)?.actorId;
+    const preset = previous && model.actors.some((a) => a.id === previous) ? previous : model.actors[0]?.id;
+    // No actors yet (every from-scratch diagram): go straight to naming one,
+    // rather than showing no question at all and saving the step to nobody.
+    setAddActorId(preset ?? (onAddActor ? NEW_ACTOR : ""));
+    setNewActorName("");
+    pickedByKey.current = false;
+    setFocusActorName(false);
+    setAdding(true);
+  };
+  const closeAddBar = () => { setAdding(false); setDraft(""); setNewActorName(""); setRefocusAdd(true); };
+  // The select can outlive its own option: an actor deleted elsewhere while
+  // the bar is open. Fall back to something that exists.
+  const addActorValue = addActorId === NEW_ACTOR || model.actors.some((a) => a.id === addActorId)
+    ? addActorId
+    : model.actors[0]?.id ?? (onAddActor ? NEW_ACTOR : "");
+  // "New actor…" picked from a list of real actors is a statement that this
+  // step belongs to someone new, so it needs their name; leaving it blank
+  // used to save the step to nobody without a word. Only a diagram with no
+  // actors at all may skip the question (the field says it is optional).
+  const needsActorName = addActorValue === NEW_ACTOR && model.actors.length > 0 && !newActorName.trim();
+  const commitAdd = () => {
+    const text = draft.trim();
+    if (!text) { draftRef.current?.focus(); return; }
+    if (needsActorName) {
+      actorNameRef.current?.focus();
+      announce("Name the new actor first");
+      return;
+    }
+    // What the new step will follow in the column: the last step, or the
+    // decision hanging off it.
+    const lastStep = model.steps.at(-1);
+    const previous: Step | Decision | undefined = lastStep
+      ? model.decisions.find((d) => d.afterStepId === lastStep.id) ?? lastStep
+      : undefined;
+    // A new actor and its first step are one gesture: the editing hook groups
+    // changes made in the same handler into a single undo step.
+    let actorId = "";
+    let who: string | undefined;
+    if (addActorValue === NEW_ACTOR) {
+      const name = newActorName.trim();
+      const created = name ? onAddActor?.(name) : undefined;
+      if (typeof created === "string") { actorId = created; who = name; }
+    } else {
+      actorId = addActorValue;
+      who = model.actors.find((a) => a.id === actorId)?.text;
+    }
+    const id = onAddStep(text, undefined, actorId);
+    // No automatic arrow is ever drawn out of a shape the person placed by
+    // hand (see the arrow rule below). So after the starter flow, or a chain
+    // they built from the palette, a step added here used to hang under the
+    // last shape with nothing joining them. If that last shape is the END of
+    // a chain -- something leads into it and nothing leads on from it --
+    // continue the chain to the new step. A decision may already have one
+    // branch drawn back to an earlier shape and still be the end. A shape
+    // nobody connected, or one that only feeds INTO the flow (a Start added
+    // last), is left alone. Same handler as the add: one undo step.
+    if (
+      typeof id === "string" && previous && onAddConnection
+      && isUserCreatedId(previous.id) && previous.shape != null
+      && !NON_FLOW_SHAPES.has(previous.shape)
+    ) {
+      const conns = model.connections ?? [];
+      const leadsIn = conns.some((c) => c.toId === previous.id);
+      const leadsOut = conns.filter((c) => c.fromId === previous.id).length;
+      const isDecision = previous !== lastStep;
+      if (leadsIn && (isDecision ? leadsOut < 2 : leadsOut === 0)) onAddConnection(previous.id, id);
+    }
+    announce(`Step added, ${who ? `assigned to ${who}` : "not assigned to anyone yet"}: ${text}`);
+    closeAddBar();
+    // A step added here goes to the end of the flow, which on any real
+    // diagram is off-screen. Bring it into view and point at it.
+    if (typeof id === "string") revealNew(id);
+  };
+
   const manualConnections = model.connections ?? [];
 
   const handleDrop = (cx: number, cy: number, e: React.DragEvent) => {
@@ -408,12 +591,13 @@ export function ProcessCanvas({
     if (!raw) return;
     let payload: { kind: string; shape?: string };
     try { payload = JSON.parse(raw); } catch { return; }
-    // The palette panel sits top-left (~260x340 open), the same corner shapes
-    // are dragged from — nudge drops that would land underneath it so a new
-    // shape can never be placed somewhere the palette immediately occludes.
-    const PALETTE_W = 280, PALETTE_H = 360;
-    const underPalette = paletteOpen && cx < PALETTE_W && cy < PALETTE_H;
-    const sx = snap(underPalette ? PALETTE_W + 40 : cx), sy = snap(cy);
+    // A drop lands where it was dropped. There used to be a nudge here for
+    // drops "under the palette", but it compared content coordinates with the
+    // palette's size on screen, so at any pan or zoom other than the old
+    // default it moved shapes that were nowhere near it. It was never needed:
+    // the palette sits above the canvas and does not accept drops, so nothing
+    // can be dropped beneath it in the first place.
+    const sx = snap(cx), sy = snap(cy);
     let newId: string | void = undefined;
     if (payload.kind === "step") {
       const label = defaultLabelFor(payload.shape);
@@ -427,6 +611,7 @@ export function ProcessCanvas({
     if (typeof newId === "string") {
       patchOverride(newId, { cx: sx, cy: sy });
       bringToFront(newId);
+      flash(newId);
       // Seed sectioned content for class/interface/entity boxes.
       if (payload.kind === "step") {
         if (payload.shape === "uml-class") {
@@ -460,8 +645,6 @@ export function ProcessCanvas({
     if (typeof a === "string" && typeof b === "string") onAddConnection?.(a, b);
     if (typeof b === "string" && typeof c === "string") onAddConnection?.(b, c);
   };
-
-  const isEmpty = model.steps.length === 0 && model.decisions.length === 0 && model.exceptions.length === 0;
 
   const routeBetween = (fromId: string, toId: string) => {
     const a = geomById.get(fromId);
@@ -527,41 +710,111 @@ export function ProcessCanvas({
       contentHeight={Math.max(height, 620)}
       minimap
       fullscreenLabel="Process map — fullscreen"
-      bottomLeft={<Legend />}
+      viewId="process"
+      apiRef={shellApi}
+      drawnBounds={drawnBounds}
+      leftInset={paletteOpen ? PALETTE_INSET : 0}
+      initialFocus={spine[0] ? {
+        x: spine[0].cx - spine[0].w / 2, y: spine[0].cy - spine[0].h / 2, w: spine[0].w, h: spine[0].h,
+      } : undefined}
+      // The add form needs the row to itself on a narrow canvas; the legend
+      // steps aside while it is open rather than fighting it for space.
+      bottomLeft={adding ? undefined : <Legend />}
       onCanvasDrop={handleDrop}
       overlay={
         <ShapePalette
           open={paletteOpen}
-          onToggle={() => setPaletteOpen((o) => !o)}
+          onToggle={togglePalette}
           showStarter={isEmpty}
           onInsertStarter={insertStarter}
         />
       }
       bottomRight={
-        adding ? (
-          <div className="flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
-            <Input
-              autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && draft.trim()) { onAddStep(draft.trim()); setDraft(""); setAdding(false); }
-                if (e.key === "Escape") { setAdding(false); setDraft(""); }
-              }}
-              placeholder="New step description"
-              className="h-8 w-56 text-sm"
-            />
-            <Button size="icon" variant="ghost" className="h-8 w-8"
-              onClick={() => { if (draft.trim()) { onAddStep(draft.trim()); setDraft(""); setAdding(false); } }}>
-              <Plus className="size-4" />
+        <>
+          <span role="status" aria-live="polite" className="sr-only">{announcement}</span>
+          {adding ? (
+            // A set width so the form is predictable beside the minimap, capped
+            // to the row on a narrow canvas where the actor select then wraps
+            // under the text field instead of crushing it.
+            <div className="flex w-[26rem] max-w-full flex-wrap items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
+              <Input
+                ref={draftRef}
+                autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  // preventDefault: committing hands focus back to the "Add
+                  // step" button, and the same keystroke's keypress would
+                  // then land on that button and open this bar again.
+                  if (e.key === "Enter") { e.preventDefault(); commitAdd(); }
+                  if (e.key === "Escape") closeAddBar();
+                }}
+                placeholder="New step description"
+                aria-label="New step description"
+                className="h-8 min-w-[8rem] flex-1 basis-40 text-sm"
+              />
+              {model.actors.length > 0 && (
+                <select
+                  value={addActorValue}
+                  onChange={(e) => {
+                    setAddActorId(e.target.value);
+                    setFocusActorName(!pickedByKey.current);
+                  }}
+                  onPointerDown={() => { pickedByKey.current = false; }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); commitAdd(); return; }
+                    if (e.key === "Escape") { closeAddBar(); return; }
+                    if (e.key !== "Tab" && e.key !== "Shift") pickedByKey.current = true;
+                  }}
+                  aria-label="Who does this step"
+                  title="Who does this step"
+                  className="h-8 min-w-0 max-w-[10rem] rounded-md border bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {model.actors.map((a) => (
+                    <option key={a.id} value={a.id}>{a.text}</option>
+                  ))}
+                  {onAddActor && <option value={NEW_ACTOR}>New actor…</option>}
+                </select>
+              )}
+              {addActorValue === NEW_ACTOR && (
+                <Input
+                  ref={actorNameRef}
+                  // Chosen from the list with the pointer: the name is the
+                  // next thing to type. On a diagram with no actors this
+                  // field is there from the start, and the step description
+                  // keeps the focus.
+                  autoFocus={model.actors.length > 0 && focusActorName}
+                  aria-required={model.actors.length > 0}
+                  value={newActorName} onChange={(e) => setNewActorName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); commitAdd(); }
+                    if (e.key === "Escape") closeAddBar();
+                  }}
+                  placeholder={model.actors.length ? "New actor's name (required)" : "Who does it? (optional)"}
+                  aria-label={model.actors.length ? "New actor's name (required)" : "Who does this step (optional)"}
+                  className="h-8 min-w-[7rem] flex-1 basis-28 text-sm"
+                />
+              )}
+              {/* aria-disabled, not disabled: a dead button explains nothing.
+               *  This one stays clickable and sends the person to the field
+               *  that still needs filling in. */}
+              <Button size="icon" variant="ghost"
+                className="h-8 w-8 aria-disabled:opacity-50 aria-disabled:hover:bg-transparent"
+                onClick={commitAdd}
+                aria-disabled={!draft.trim() || needsActorName}
+                title={!draft.trim() ? "Describe the step first" : needsActorName ? "Name the new actor first" : "Add step"}
+                aria-label="Add step">
+                <Plus className="size-4" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={closeAddBar}
+                title="Cancel" aria-label="Cancel">
+                <X className="size-4" />
+              </Button>
+            </div>
+          ) : (
+            <Button ref={addButtonRef} size="sm" variant="outline" className="bg-card/95 backdrop-blur" onClick={openAddBar}>
+              <Plus className="size-3.5" /> Add step
             </Button>
-            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setAdding(false); setDraft(""); }}>
-              <X className="size-4" />
-            </Button>
-          </div>
-        ) : (
-          <Button size="sm" variant="outline" className="bg-card/95 backdrop-blur" onClick={() => setAdding(true)}>
-            <Plus className="size-3.5" /> Add step
-          </Button>
-        )
+          )}
+        </>
       }
     >
       <svg
@@ -604,7 +857,22 @@ export function ProcessCanvas({
         {spine.slice(0, -1).map((n, i) => {
           const next = spine[i + 1];
           if (overrides[n.ref.id]?.cx !== undefined || overrides[next.ref.id]?.cx !== undefined) return null;
-          if (n.ref.userAdded || next.ref.userAdded) return null;
+          // An arrow joins two steps of the flow. This used to be skipped for
+          // anything flagged userAdded, to keep palette-dropped boxes loose --
+          // but that flag is also set by adding a step from the bar and by
+          // simply rewording an extracted one, so a new step appeared
+          // disconnected and an edited step lost both its arrows.
+          // What must never be threaded is (a) a box that is not a step, and
+          // (b) a shape the person placed by hand. (b) has to be read from
+          // the saved item, not from where it currently sits: positions are
+          // not saved, so after a reload a dropped shape is back in the
+          // column, and judging by position would wire it into the flow.
+          // A shape placed by hand is one the person created (see
+          // item-origin) WITH an explicit shape: only the palette and the
+          // starter flow pass one; the add bar and the lane "+" never do.
+          const inFlow = (s: SpineNode) => s.kind === "decision" || !NON_FLOW_SHAPES.has((s.ref as Step).shape ?? "step");
+          const placedByHand = (s: SpineNode) => isUserCreatedId(s.ref.id) && (s.ref as Step | Decision).shape != null;
+          if (!inFlow(n) || !inFlow(next) || placedByHand(n) || placedByHand(next)) return null;
           const fromInset = n.kind === "step" ? bottomInsetFor((n.ref as Step).shape) : 0;
           const from = { x: n.cx, y: n.cy + n.h / 2 * (1 - fromInset) };
           const to = { x: next.cx, y: next.cy - next.h / 2 };
@@ -695,8 +963,8 @@ export function ProcessCanvas({
               onMeasure={(w, h) => reportMeasure(s.id, w, h)}
               onDelete={() => onDeleteAny(s.id)}
               onUpdate={(patch) => onUpdateItem(s.id, patch as Record<string, unknown>)}
-              onDrag={(delta) => patchOverride(s.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) })}
-              onResize={(w, h) => patchOverride(s.id, { w: snap(w), h: snap(h) })}
+              onDrag={(delta) => moveOverride(s.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) })}
+              onResize={(w, h) => moveOverride(s.id, { w: snap(w), h: snap(h) })}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(s.id, e) : undefined}
               onSelect={() => bringToFront(s.id)}
@@ -718,8 +986,8 @@ export function ProcessCanvas({
               onMeasure={(w, h) => reportMeasure(d.id, w, h)}
               onDelete={() => onDeleteAny(d.id)}
               onUpdate={(patch) => onUpdateItem(d.id, patch as Record<string, unknown>)}
-              onDrag={(delta) => patchOverride(d.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) })}
-              onResize={(w, h) => patchOverride(d.id, { w: snap(w), h: snap(h) })}
+              onDrag={(delta) => moveOverride(d.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) })}
+              onResize={(w, h) => moveOverride(d.id, { w: snap(w), h: snap(h) })}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(d.id, e) : undefined}
               onSelect={() => bringToFront(d.id)}
@@ -739,8 +1007,8 @@ export function ProcessCanvas({
             onMeasure={(w, h) => reportMeasure(e.id, w, h)}
             onDelete={() => onDeleteAny(e.id)}
             onUpdate={(patch) => onUpdateItem(e.id, patch as Record<string, unknown>)}
-            onDrag={(delta) => patchOverride(e.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) })}
-            onResize={(w, h) => patchOverride(e.id, { w: snap(w), h: snap(h) })}
+            onDrag={(delta) => moveOverride(e.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) })}
+            onResize={(w, h) => moveOverride(e.id, { w: snap(w), h: snap(h) })}
             onRefine={handleRefine}
             onStartConnect={onAddConnection ? (ev) => startConnDrag(e.id, ev) : undefined}
             onSelect={() => bringToFront(e.id)}
@@ -750,6 +1018,10 @@ export function ProcessCanvas({
           />
         );
       })}
+
+      <FlashRing key={flashId ?? "idle"} rect={flashGeom ? {
+        x: flashGeom.cx - flashGeom.w / 2, y: flashGeom.cy - flashGeom.h / 2, w: flashGeom.w, h: flashGeom.h,
+      } : null} />
 
       {manualConnections.map((c) => {
         const a = geomById.get(c.fromId);
@@ -912,6 +1184,10 @@ function ShapePalette({
         className={cn("h-8 bg-card/95 backdrop-blur shadow-sm gap-1.5", open ? "w-8 px-0" : "px-2.5")}
         onClick={onToggle}
         title={open ? "Hide shape palette" : "Show shape palette"}
+        // One name in both states, starting with the word on the button, so
+        // "click Shapes" works by voice; aria-expanded carries open/closed.
+        aria-label="Shapes palette"
+        aria-expanded={open}
       >
         {open ? <PanelRightClose className="size-4" /> : <><PanelRightOpen className="size-4" /><span className="text-xs">Shapes</span></>}
       </Button>
@@ -959,7 +1235,7 @@ function ShapePalette({
               </>
             )}
             <div className="mt-2 text-[10px] text-muted-foreground leading-snug px-1">
-              Hover a node for its connect handle. Snap-to-grid keeps placement tidy.
+              Drag a node by its grip, a corner to resize. Hover a node for its connect handle. Everything snaps to the grid.
             </div>
           </div>
         </div>
@@ -1083,7 +1359,10 @@ function Legend() {
       <span className={chip}><span className="h-2 w-2 rotate-45 border-2 border-primary" /> Decision</span>
       <span className={chip}><span className="h-2 w-3 border border-dashed border-unresolved rounded-sm" /> Unresolved</span>
       <span className={chip}><span className="h-2 w-3 border border-drift rounded-sm bg-drift/20" /> Drifted</span>
-      <span className={chip}><GripVertical className="size-3" /> Drag · corner to resize · snap-to-grid</span>
+      {/* How-to, not legend: shown only where the bar has the room for it
+       *  (the bottom bar is a container-query container). The same words
+       *  live in the shape palette for narrower canvases. */}
+      <span className={cn(chip, "hidden @min-[900px]:flex")}><GripVertical className="size-3" /> Drag · corner to resize · snap-to-grid</span>
     </>
   );
 }
@@ -1133,6 +1412,11 @@ function useMeasure(onMeasure: (w: number, h: number) => void) {
     const report = () => {
       const w = el.offsetWidth;
       const h = el.offsetHeight;
+      // A hidden element (a project pane that is not the open one sits in a
+      // display:none wrapper) measures 0 by 0. That is not a size, and the
+      // layout treats a recorded 0 as real: it would draw the node zero wide.
+      // Say nothing; the observer reports the true size once it is shown.
+      if (w === 0 || h === 0) return;
       // Skip when the box is stable (integer pixel equality). This is a
       // second-line guard on top of the parent's setState guard so a
       // ResizeObserver + layout feedback loop can't run away.
@@ -1178,7 +1462,7 @@ function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: 
     <div
       onPointerDown={onPointerDown}
       data-no-pan
-      className="absolute bottom-0 right-0 w-3 h-3 rounded-sm border border-primary/60 bg-card cursor-nwse-resize opacity-0 group-hover:opacity-100 transition z-10"
+      className="absolute bottom-0 right-0 w-3 h-3 rounded-sm border border-primary/60 bg-card cursor-nwse-resize opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition z-10"
       title="Resize"
     />
   );
@@ -1202,7 +1486,7 @@ function ConnectHandle({ onStartConnect }: { onStartConnect: (e: React.PointerEv
     <div
       data-no-pan
       onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e); }}
-      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 hover:scale-125 transition cursor-crosshair z-10"
+      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:scale-125 transition cursor-crosshair z-10"
       title="Drag to another node to connect"
     />
   );
@@ -1210,7 +1494,7 @@ function ConnectHandle({ onStartConnect }: { onStartConnect: (e: React.PointerEv
 
 function ZOrderButtons({ onFront, onBack }: { onFront: () => void; onBack: () => void }) {
   return (
-    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition" data-no-pan>
+    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition" data-no-pan>
       <button
         onClick={(e) => { e.stopPropagation(); onFront(); }}
         title="Bring to front"
@@ -1428,7 +1712,7 @@ function StepNode({
           </div>
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <button onClick={onDelete} data-no-pan
-            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
@@ -1506,12 +1790,12 @@ function StepNode({
           <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
           {onOpenUseCase && (
             <button onClick={onOpenUseCase} data-no-pan title="View use case description"
-              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition">
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-primary transition">
               <BookOpen className="size-3" />
             </button>
           )}
           <button onClick={onDelete} data-no-pan
-            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
@@ -1645,7 +1929,7 @@ function SectionedNode({
         <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
         <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
         <button onClick={onDelete} data-no-pan
-          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
           <X className="size-3" />
         </button>
       </div>
@@ -1690,7 +1974,7 @@ function SectionList({
         <button
           onClick={onAdd}
           data-no-pan
-          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition"
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-foreground transition"
           title={`Add ${label.slice(0, -1)}`}
         >
           <Plus className="size-3" />
@@ -1726,7 +2010,12 @@ function MetaSelect({
   options: { id: string; text: string }[];
   onChange: (v: string) => void;
 }) {
-  const current = options.find((o) => o.id === value)?.text ?? "—";
+  // A value that matches no option (an unowned step, or one whose actor was
+  // deleted) needs an option of its own. Without one the browser silently
+  // shows the first real option as selected behind the dash, and choosing
+  // that first option then fires no change at all.
+  const known = options.some((o) => o.id === value);
+  const current = known ? options.find((o) => o.id === value)!.text : "Unassigned";
   return (
     <span className="relative inline-flex items-center rounded px-1 -mx-1 hover:bg-verified/10 hover:ring-1 hover:ring-verified/30 transition" data-no-pan>
       <span className="pointer-events-none">{current}</span>
@@ -1738,6 +2027,7 @@ function MetaSelect({
         className="absolute inset-0 opacity-0 cursor-pointer"
         title="Change"
       >
+        {!known && <option value={value}>Unassigned</option>}
         {options.map((o) => (
           <option key={o.id} value={o.id}>{o.text}</option>
         ))}
@@ -1836,7 +2126,7 @@ function DecisionNode({
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: d.id, kind: "decision", text: d.text }} model={model} onApply={onRefine} />
           <button onClick={onDelete} data-no-pan
-            className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition">
+            className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition">
             <X className="size-3" />
           </button>
         </div>
@@ -1952,7 +2242,7 @@ function ExceptionNode({
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: e.id, kind: "exception", text: e.text }} model={model} onApply={onRefine} />
           <button onClick={onDelete} data-no-pan
-            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition">
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>

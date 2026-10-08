@@ -7,10 +7,12 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -122,6 +124,49 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+/** The one place notices appear (currently: what an undo or redo changed).
+ *
+ *  A diagram canvas can take the browser's real fullscreen. The browser then
+ *  draws that element and what is inside it, and nothing else, whatever its
+ *  z-index -- so a toaster sitting at the root was invisible exactly where it
+ *  mattered: in fullscreen the notice is the only sign that Ctrl/Cmd+Z did
+ *  (or deliberately did not do) anything.
+ *
+ *  So the toaster lives in a container of its own, and that container is
+ *  re-homed into whatever is fullscreen and back to <body> afterwards. The
+ *  Toaster component itself stays mounted throughout, so a notice that is on
+ *  screen at the moment of switching survives the move. One toaster rather
+ *  than a second one inside the canvas: two would each show, and announce,
+ *  every notice. Nothing is rendered on the server; there are no notices at
+ *  first paint.
+ *
+ *  Top-centre, under the sticky nav: the canvases keep their own controls
+ *  (legend, add bar, minimap) along the bottom edge, and a notice down there
+ *  sat on the add field. In fullscreen it sits below the canvas toolbar row
+ *  and the row of pinned lane headers an activity diagram keeps under it. */
+function AppToaster() {
+  const [container, setContainer] = useState<HTMLElement | null>(null);
+  const [inFullscreen, setInFullscreen] = useState(false);
+  useEffect(() => {
+    const el = document.createElement("div");
+    setContainer(el);
+    const sync = () => {
+      const host = document.fullscreenElement;
+      (host ?? document.body).appendChild(el);
+      setInFullscreen(!!host);
+    };
+    sync();
+    document.addEventListener("fullscreenchange", sync);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      el.remove();
+    };
+  }, []);
+  if (!container) return null;
+  const top = inFullscreen ? 108 : 72;
+  return createPortal(<Toaster position="top-center" offset={{ top }} mobileOffset={{ top }} />, container);
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
@@ -129,6 +174,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
+      <AppToaster />
     </QueryClientProvider>
   );
 }

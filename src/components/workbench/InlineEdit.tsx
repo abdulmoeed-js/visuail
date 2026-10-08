@@ -24,7 +24,10 @@ export function InlineEdit({
   useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
   useLayoutEffect(() => {
     if (editing && ref.current) {
-      ref.current.focus();
+      // The field appears exactly where the text that was clicked sits, so
+      // there is nothing to scroll to. Left to the browser, focusing one that
+      // pokes out of a canvas frame scrolls the frame and the page.
+      ref.current.focus({ preventScroll: true });
       if ("select" in ref.current) (ref.current as HTMLInputElement).select();
     }
   }, [editing]);

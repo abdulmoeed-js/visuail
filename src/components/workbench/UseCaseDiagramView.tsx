@@ -74,6 +74,7 @@ export function UseCaseDiagramView({
       contentWidth={Math.max(width, 700)}
       contentHeight={Math.max(height, 420)}
       fullscreenLabel="Use case diagram — fullscreen"
+      viewId="usecases"
     >
       <svg
         width={Math.max(width, 700)}

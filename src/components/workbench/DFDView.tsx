@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProcessModel, Connection } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
-import { cn } from "@/lib/utils";
 import { Plus, X, GripVertical, Database, Square, CircleDot } from "lucide-react";
-import { CanvasShell, useCanvas } from "./CanvasShell";
+import { CanvasShell, useCanvas, boundsOf } from "./CanvasShell";
+import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
+import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { IdChip } from "./atoms";
 
@@ -94,14 +95,27 @@ interface Props {
 }
 
 export function DFDView({ model, editing }: Props) {
-  const [overrides, setOverrides] = useState<Pos>({});
+  // Dragged positions are view state; kept in the artifact's view store so
+  // they survive a tab switch (see canvas-view-store.tsx).
+  const [overrides, setOverrides] = useCanvasViewState<Pos>("dfd:overrides", {});
   const [pendingConn, setPendingConn] = useState<null | { fromId: string; fromX: number; fromY: number; toX: number; toY: number }>(null);
   const { nodes, width, height } = useMemo(() => layout(model, overrides), [model, overrides]);
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const rectFor = (id: string) => {
+    const n = byId.get(id);
+    return n ? { x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h } : null;
+  };
+  const { apiRef: shellApi, revealNew, flashId } = useRevealNew(rectFor);
   const flows = model.connections ?? [];
 
-  const patchPos = (id: string, cx: number, cy: number) =>
+  const noteMove = useNoteLayoutMove();
+  const patchPos = (id: string, cx: number, cy: number) => {
+    // Only a real move counts: pressing a node's grip without dragging runs
+    // this too, with the position it already has.
+    const at = byId.get(id);
+    if (!at || at.cx !== cx || at.cy !== cy) noteMove(model);
     setOverrides((cur) => ({ ...cur, [id]: { cx, cy } }));
+  };
 
   const startConnDrag = (fromId: string, e: React.PointerEvent, contentEl: HTMLElement | null) => {
     const from = byId.get(fromId);
@@ -128,13 +142,25 @@ export function DFDView({ model, editing }: Props) {
 
   const [adding, setAdding] = useState<null | "process" | "store" | "entity">(null);
   const [draft, setDraft] = useState("");
+  // Closing the form removes the field that had focus; hand focus back to
+  // whichever of the three buttons opened it.
+  const openers = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [refocus, setRefocus] = useState<string | null>(null);
+  useEffect(() => {
+    if (!refocus) return;
+    openers.current[refocus]?.focus({ preventScroll: true });
+    setRefocus(null);
+  }, [refocus]);
+  const closeAdd = () => { if (adding) setRefocus(adding); setAdding(null); setDraft(""); };
   const commitAdd = () => {
     const t = draft.trim();
-    if (!t || !adding) { setAdding(null); setDraft(""); return; }
-    if (adding === "process") editing.onAddStep(t);
-    else if (adding === "store") editing.onAddDataStore(t);
-    else editing.onAddExternalEntity(t);
-    setDraft(""); setAdding(null);
+    if (!t || !adding) { closeAdd(); return; }
+    const id = adding === "process" ? editing.onAddStep(t)
+      : adding === "store" ? editing.onAddDataStore(t)
+      : editing.onAddExternalEntity(t);
+    closeAdd();
+    // New nodes join the end of their row, usually out of view.
+    revealNew(id);
   };
 
   const isEmpty = model.steps.length === 0 && (model.dataStores ?? []).length === 0 && (model.externalEntities ?? []).length === 0;
@@ -145,28 +171,40 @@ export function DFDView({ model, editing }: Props) {
       contentHeight={height}
       minimap
       fullscreenLabel="Data flow diagram — fullscreen"
-      bottomLeft={<Legend />}
+      viewId="dfd"
+      apiRef={shellApi}
+      drawnBounds={nodes.length === 0 ? null : boundsOf(nodes.map((n) => ({ x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h })))}
+      // Empty: aim at the middle, where the prompt is drawn.
+      initialFocus={isEmpty ? { x: width / 2, y: 0, w: 0, h: 0 } : undefined}
+      bottomLeft={adding ? undefined : <Legend />}
       bottomRight={
         adding ? (
-          <div className="flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
+          <div className="flex max-w-full items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
             <input
               autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") commitAdd(); if (e.key === "Escape") { setAdding(null); setDraft(""); } }}
+              // preventDefault: focus returns to the opener button on commit,
+              // and the same keystroke's keypress would press it again.
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(); } if (e.key === "Escape") closeAdd(); }}
               placeholder={adding === "process" ? "New process" : adding === "store" ? "New data store" : "New external entity"}
-              className="h-8 w-52 text-sm px-2 rounded border bg-background"
+              aria-label={adding === "process" ? "New process name" : adding === "store" ? "New data store name" : "New external entity name"}
+              className="h-8 w-52 min-w-0 flex-1 text-sm px-2 rounded border bg-background"
             />
-            <button onClick={commitAdd} className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><Plus className="size-4" /></button>
-            <button onClick={() => { setAdding(null); setDraft(""); }} className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><X className="size-4" /></button>
+            <button onClick={commitAdd} title="Add" aria-label="Add" className="h-8 w-8 shrink-0 flex items-center justify-center rounded hover:bg-muted"><Plus className="size-4" /></button>
+            <button onClick={closeAdd} title="Cancel" aria-label="Cancel" className="h-8 w-8 shrink-0 flex items-center justify-center rounded hover:bg-muted"><X className="size-4" /></button>
           </div>
         ) : (
-          <div className="flex items-center gap-1" data-no-pan>
-            <button onClick={() => setAdding("process")} className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
+          // These three buttons are also the key to the shapes: each carries
+          // the glyph it creates. The legend used to repeat the same three
+          // labels a few pixels away, and the two rows ran into each other.
+          <div className="flex flex-wrap items-center justify-end gap-1" data-no-pan>
+            <span className="px-1 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">Add</span>
+            <button ref={(el) => { openers.current.process = el; }} onClick={() => setAdding("process")} title="Add a process" className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
               <CircleDot className="size-3.5 text-primary" /> Process
             </button>
-            <button onClick={() => setAdding("store")} className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
+            <button ref={(el) => { openers.current.store = el; }} onClick={() => setAdding("store")} title="Add a data store" className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
               <Database className="size-3.5 text-primary" /> Data store
             </button>
-            <button onClick={() => setAdding("entity")} className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
+            <button ref={(el) => { openers.current.entity = el; }} onClick={() => setAdding("entity")} title="Add an external entity" className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
               <Square className="size-3.5 text-primary" /> External entity
             </button>
           </div>
@@ -178,6 +216,7 @@ export function DFDView({ model, editing }: Props) {
           Add a process, data store, or external entity below to start the diagram.
         </div>
       )}
+      <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none" }}>
         <defs>
           <marker id="dfd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -273,7 +312,7 @@ function DFDNodeView({
         <GripVertical data-no-pan onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
         {node.label && <IdChip id={node.label} tone="primary" />}
       </div>
-      <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+      <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
         <X className="size-3" />
       </button>
     </div>
@@ -283,7 +322,7 @@ function DFDNodeView({
     <div
       data-no-pan
       onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e, (e.currentTarget.closest("[data-canvas-content]") as HTMLElement) ?? null); }}
-      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 hover:scale-125 transition cursor-crosshair"
+      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:scale-125 transition cursor-crosshair"
       title="Drag to another node to connect"
     />
   );
@@ -342,8 +381,13 @@ function FlowLabel({
           <input
             autoFocus
             defaultValue={conn.label ?? ""}
-            onKeyDown={(e) => { if (e.key === "Enter") { onUpdate({ label: (e.target as HTMLInputElement).value }); setOpen(false); } }}
-            onBlur={(e) => onUpdate({ label: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              const v = (e.target as HTMLInputElement).value;
+              if (v !== (conn.label ?? "")) onUpdate({ label: v });
+              setOpen(false);
+            }}
+            onBlur={(e) => { if (e.target.value !== (conn.label ?? "")) onUpdate({ label: e.target.value }); }}
             placeholder="Data flow label"
             className="w-full text-[11px] px-2 py-1 rounded border bg-background"
           />
@@ -357,13 +401,12 @@ function FlowLabel({
 }
 
 function Legend() {
-  const chip = "flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
+  // No bare `flex` here: it would sit beside `hidden` at the same weight and
+  // leave which one wins to the order the stylesheet happens to be built in.
+  const hint = "hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
   return (
     <>
-      <span className={chip}><CircleDot className="size-3 text-primary" /> Process</span>
-      <span className={cn(chip)}><Database className="size-3 text-primary" /> Data store</span>
-      <span className={chip}><Square className="size-3 text-primary" /> External entity</span>
-      <span className={chip}>Drag connect-handle to link · click a flow label to rename</span>
+      <span className={hint}>Drag a node's handle to link · click a flow label to rename</span>
     </>
   );
 }

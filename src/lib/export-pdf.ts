@@ -25,15 +25,34 @@ async function withNeutralizedTransform<T>(
   const inner = el.querySelector<HTMLElement>("[data-canvas-content]") ?? el;
   const prevTransform = inner.style.transform;
   const prevTransition = inner.style.transition;
+  const prevVisibility = inner.style.visibility;
   inner.style.transition = "none";
   inner.style.transform = "none";
+  // The canvas keeps its content hidden until it has been laid out once. A
+  // pane shown only for this snapshot may be caught before that; the picture
+  // must not come out blank because of it.
+  inner.style.visibility = "visible";
+  // Anything a view keeps pinned to the visible canvas (activity lane
+  // headers follow the camera) is offset by the current pan. In the picture
+  // the camera is gone, so those go back to where they belong in the layout.
+  const pinned = Array.from(inner.querySelectorAll<HTMLElement>("[data-canvas-pinned]"));
+  const prevPinned = pinned.map((p) => p.style.transform);
+  pinned.forEach((p) => { p.style.transform = "none"; });
   const width = inner.offsetWidth;
   const height = inner.offsetHeight;
   try {
     return await fn(inner, width, height);
   } finally {
-    inner.style.transform = prevTransform;
+    // Put back only what is still ours. The capture is slow, and a pane shown
+    // just for it gets laid out meanwhile: React then writes the real camera
+    // and makes the content visible. Writing the values saved BEFORE that
+    // back over React's would leave the diagram hidden, at the placeholder
+    // camera, until the canvas next remounts -- React only writes a style
+    // when its own value changes, so it would never correct it.
+    if (inner.style.transform === "none") inner.style.transform = prevTransform;
+    if (inner.style.visibility === "visible") inner.style.visibility = prevVisibility;
     inner.style.transition = prevTransition;
+    pinned.forEach((p, i) => { if (p.style.transform === "none") p.style.transform = prevPinned[i]; });
   }
 }
 

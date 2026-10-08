@@ -4,6 +4,7 @@ import { EditableList } from "./EditableList";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, X } from "lucide-react";
 import { CanvasShell, useCanvas } from "./CanvasShell";
+import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { InlineEdit } from "./InlineEdit";
 import { ConfidenceBadge, IdChip } from "./atoms";
 
@@ -20,9 +21,19 @@ const DEFAULT_H = 720;
 export function BMCCanvas({ model, onAdd, onDelete, onUpdate }: Props) {
   // Per-block minimum-height overrides (resize handle drags this). Blocks are
   // free to grow past this to fit their content.
-  const [heights, setHeights] = useState<Record<string, number>>({});
+  const [heights, setHeights] = useCanvasViewState<Record<string, number>>("bmc:heights", {});
   const h = (id: BMCBlock["id"], base: number) => heights[id] ?? base;
-  const setH = (id: string, v: number) => setHeights((cur) => ({ ...cur, [id]: v }));
+  const noteMove = useNoteLayoutMove();
+  /** Height props for one block. A resize counts as "a move" for Undo only
+   *  when the height really changes -- compared with the height the block has
+   *  now, which for one never resized is its default, not "no entry". */
+  const size = (id: BMCBlock["id"], base: number) => ({
+    h: h(id, base),
+    setH: (v: number) => {
+      if (h(id, base) !== v) noteMove(model);
+      setHeights((cur) => ({ ...cur, [id]: v }));
+    },
+  });
 
   const by = (id: BMCBlock["id"]) => model.blocks.find((b) => b.id === id)!;
 
@@ -48,6 +59,13 @@ export function BMCCanvas({ model, onAdd, onDelete, onUpdate }: Props) {
       contentWidth={dims.w}
       contentHeight={dims.h}
       fullscreenLabel="Business Model Canvas — fullscreen"
+      viewId="bmc"
+      // A canvas is read as a whole: nine blocks side by side, and losing a
+      // column loses the point. So its floor is lower than a flow diagram's:
+      // on a laptop-width canvas it opens whole at around two-thirds size,
+      // still readable, rather than at 80% with Customer Segments cut off.
+      // Narrower than that it opens cut, and the Fit button is picked out.
+      readableZoom={0.6}
       gridClassName="bp-grid-fine"
     >
       <div
@@ -63,32 +81,32 @@ export function BMCCanvas({ model, onAdd, onDelete, onUpdate }: Props) {
             gridAutoRows: "auto",
           }}
         >
-          <Block b={by("partnerships")} h={h("partnerships", 460)} setH={(v) => setH("partnerships", v)}
+          <Block b={by("partnerships")} {...size("partnerships", 460)}
             onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} className="row-span-2" />
 
           <div className="row-span-2 grid grid-rows-2 gap-2">
-            <Block b={by("activities")}  h={h("activities", 220)} setH={(v) => setH("activities", v)}
+            <Block b={by("activities")}  {...size("activities", 220)}
               onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} />
-            <Block b={by("resources")}   h={h("resources", 220)}  setH={(v) => setH("resources", v)}
+            <Block b={by("resources")}   {...size("resources", 220)}
               onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} />
           </div>
 
-          <Block b={by("value")} h={h("value", 460)} setH={(v) => setH("value", v)}
+          <Block b={by("value")} {...size("value", 460)}
             onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} className="row-span-2" emphasis />
 
           <div className="row-span-2 grid grid-rows-2 gap-2">
-            <Block b={by("relationships")} h={h("relationships", 220)} setH={(v) => setH("relationships", v)}
+            <Block b={by("relationships")} {...size("relationships", 220)}
               onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} />
-            <Block b={by("channels")}      h={h("channels", 220)}      setH={(v) => setH("channels", v)}
+            <Block b={by("channels")}      {...size("channels", 220)}
               onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} />
           </div>
 
-          <Block b={by("segments")} h={h("segments", 460)} setH={(v) => setH("segments", v)}
+          <Block b={by("segments")} {...size("segments", 460)}
             onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} className="row-span-2" />
 
-          <Block b={by("costs")}   h={h("costs", 200)}   setH={(v) => setH("costs", v)}
+          <Block b={by("costs")}   {...size("costs", 200)}
             onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} style={{ gridColumn: "span 2" }} />
-          <Block b={by("revenue")} h={h("revenue", 200)} setH={(v) => setH("revenue", v)}
+          <Block b={by("revenue")} {...size("revenue", 200)}
             onAdd={onAdd} onDelete={onDelete} onUpdate={onUpdate} style={{ gridColumn: "span 3" }} />
         </div>
       </div>

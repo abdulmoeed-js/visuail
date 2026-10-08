@@ -94,7 +94,7 @@ export function EditableList({
           )}
           <button
             onClick={() => onDelete(item.id)}
-            className="opacity-0 group-hover:opacity-100 transition text-muted-foreground hover:text-destructive"
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition text-muted-foreground hover:text-destructive"
             aria-label="Delete item"
           >
             <X className="size-3.5" />

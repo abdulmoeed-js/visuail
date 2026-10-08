@@ -11,6 +11,12 @@ interface Props {
   onRemoveLastAdded?: () => void;
   /** Fallback: nuke all user-added items to fully un-brick a project. */
   onResetAll?: () => void;
+  /** Runs on every recovery, before the canvas remounts. Remounting used to
+   *  be enough to discard hand-placed positions and sizes; now that those are
+   *  parked outside the canvas so they survive a tab switch, whoever parks
+   *  them must drop them here, or a layout that crashes rendering would come
+   *  straight back. */
+  onRecover?: () => void;
 }
 
 interface State { error: Error | null; }
@@ -30,7 +36,7 @@ export class CanvasErrorBoundary extends Component<Props, State> {
     reportLovableError(error, { boundary: "CanvasErrorBoundary", info: String(info) });
   }
 
-  private reset = () => this.setState({ error: null });
+  private reset = () => { this.props.onRecover?.(); this.setState({ error: null }); };
 
   private undo = () => {
     this.props.onRemoveLastAdded?.();

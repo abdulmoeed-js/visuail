@@ -76,7 +76,7 @@ export function ArtifactBoard({ canvases, onOpen, onCreate, onFrameChange }: Pro
         ))}
       </div>
       <div className="flex-1 min-h-0">
-        <CanvasShell contentWidth={contentW} contentHeight={contentH} gridClassName="bp-grid-fine">
+        <CanvasShell contentWidth={contentW} contentHeight={contentH} gridClassName="bp-grid-fine" initialView="fit">
           {framed.map(({ canvas, frame }) => (
             <BoardCard
               key={canvas.id} canvas={canvas} frame={frame}

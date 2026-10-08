@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import type { BaseItem } from "@/data/samples";
 import { Check } from "lucide-react";
+import { isUserCreatedId, isRefinementId } from "@/lib/item-origin";
 
 export function ConfidenceDot({ value, className }: { value: number; className?: string }) {
   const tone =
@@ -16,6 +17,15 @@ export function ConfidenceBadge({ item }: { item: BaseItem }) {
   const conflict = item.conflict;
   const low = item.confidence < 0.7;
   const confirmedN = item.confirmedBySources?.length ?? 0;
+  // `userAdded` covers several different histories. Say which, as far as the
+  // id can tell: "added" for something created by hand, "refined" for
+  // something an accepted refinement created, "verified" for something
+  // extracted and then changed -- by hand, or by a refinement that rewrote it
+  // in place (the id cannot tell those two apart, so the wording covers
+  // both). It names no one: the same chip is read by collaborators and on
+  // the public share page, where "by you" is untrue.
+  const created = !!item.userAdded && isUserCreatedId(item.id);
+  const refined = !!item.userAdded && !created && isRefinementId(item.id);
   return (
     <span className="inline-flex items-center gap-1">
       <span
@@ -34,12 +44,15 @@ export function ConfidenceBadge({ item }: { item: BaseItem }) {
         title={
           conflict ? item.conflictNote ?? "Conflicting sources"
           : drift ? "Drifted — source changed"
+          : created ? "Added by hand — not taken from a source"
+          : refined ? "Created by an accepted refinement — not stated in a source as it stands"
+          : item.userAdded ? "Edited after extraction — by hand or by an accepted refinement"
           : low ? "Low confidence — unresolved"
           : "Confident"
         }
       >
         {item.userAdded ? <Check className="!size-2.5" /> : <ConfidenceDot value={item.confidence} />}
-        {conflict ? "conflict" : item.userAdded ? "verified" : `${pct}%`}
+        {conflict ? "conflict" : created ? "added" : refined ? "refined" : item.userAdded ? "verified" : `${pct}%`}
       </span>
       {confirmedN >= 2 && !conflict && (
         <span
