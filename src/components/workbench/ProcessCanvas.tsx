@@ -374,19 +374,18 @@ export function ProcessCanvas({
 
   const isEmpty = model.steps.length === 0 && model.decisions.length === 0 && model.exceptions.length === 0;
 
-  // The palette used to open by default, on top of the first nodes of every
-  // diagram. Now it is closed unless there is nothing to cover: an empty
-  // canvas, where its starters are the obvious next step. An explicit toggle
-  // wins and is remembered for this artifact while it is open. It is NOT
-  // carried to other diagrams or later visits: an "open" remembered from a
-  // wide project canvas would cover half of a narrow one, on every diagram,
-  // for someone who only ever opened it once.
+  // The shape menu (Flowchart / BPMN / UML / Database) starts closed on every
+  // diagram, a newly created empty one included. It used to open by default,
+  // on top of the first nodes of the diagram; then only on an empty canvas,
+  // which still meant every diagram someone had just created greeted them
+  // with a menu over a third of it. An empty canvas instead carries a short
+  // prompt with the same three ways to begin (see EmptyDiagramPrompt), and
+  // "Shapes" is one click away. An explicit toggle is remembered for this
+  // artifact while it is open; it is NOT carried to other diagrams or later
+  // visits, where an "open" remembered from a wide canvas would cover half
+  // of a narrow one.
   const [paletteChoice, setPaletteChoice] = useCanvasViewState<boolean | null>("process:palette", null);
-  // "Empty" is judged once, when this artifact is first opened, and then
-  // sticks. Re-deriving it would close the palette under the person's hand
-  // the instant they dropped their first shape from it.
-  const [openedEmpty] = useCanvasViewState<boolean>("process:opened-empty", () => isEmpty);
-  const paletteOpen = paletteChoice ?? openedEmpty;
+  const paletteOpen = paletteChoice ?? false;
   const togglePalette = () => setPaletteChoice(!paletteOpen);
   const [pendingConn, setPendingConn] = useState<null | {
     fromId: string; fromX: number; fromY: number; toX: number; toY: number;
@@ -722,12 +721,23 @@ export function ProcessCanvas({
       bottomLeft={adding ? undefined : <Legend />}
       onCanvasDrop={handleDrop}
       overlay={
-        <ShapePalette
-          open={paletteOpen}
-          onToggle={togglePalette}
-          showStarter={isEmpty}
-          onInsertStarter={insertStarter}
-        />
+        <>
+          <ShapePalette
+            open={paletteOpen}
+            onToggle={togglePalette}
+            showStarter={isEmpty}
+            onInsertStarter={insertStarter}
+          />
+          {/* Gone as soon as there is anything to look at, and while the
+           *  person is already using one of the ways it offers. */}
+          {isEmpty && !paletteOpen && !adding && (
+            <EmptyDiagramPrompt
+              onStarter={insertStarter}
+              onAddStep={openAddBar}
+              onOpenShapes={() => setPaletteChoice(true)}
+            />
+          )}
+        </>
       }
       bottomRight={
         <>
@@ -1240,6 +1250,43 @@ function ShapePalette({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** What a blank diagram shows instead of an open shape menu: the three ways
+ *  to begin, in the middle of the canvas where the eye already is. The
+ *  wrapper ignores the pointer so the canvas around the card still pans. */
+function EmptyDiagramPrompt({
+  onStarter, onAddStep, onOpenShapes,
+}: {
+  onStarter: () => void; onAddStep: () => void; onOpenShapes: () => void;
+}) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-4">
+      <div
+        className="pointer-events-auto w-full max-w-sm rounded-xl border bg-card/95 p-4 text-center shadow-sm backdrop-blur"
+        data-no-pan
+      >
+        <div className="text-sm font-semibold">Nothing on this diagram yet</div>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          Begin with a ready-made flow, add steps one at a time, or drag shapes in.
+        </p>
+        <div className="mt-3 flex flex-col items-stretch gap-1.5">
+          <Button size="sm" className="h-8 justify-center gap-1.5" onClick={onStarter}>
+            <Wand2 className="size-3.5" />
+            <span className="text-xs">Start with Request → Review → Decision</span>
+          </Button>
+          <div className="flex gap-1.5">
+            <Button size="sm" variant="outline" className="h-8 flex-1 gap-1.5" onClick={onAddStep}>
+              <Plus className="size-3.5" /> <span className="text-xs">Add a step</span>
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 flex-1 gap-1.5" onClick={onOpenShapes}>
+              <PanelRightOpen className="size-3.5" /> <span className="text-xs">Open Shapes</span>
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
