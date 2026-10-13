@@ -342,7 +342,7 @@ function historyToast(
  */
 export function ArtifactView({
   editing, stats: st, onPublish, canvasRef, extraHeaderRight,
-  projectId, commentCounts, onCommentCountChange, focusItemId, initialTab, demoHints,
+  projectId, commentCounts, onCommentCountChange, focusItemId, initialTab, demoHints, viewing,
 }: {
   editing: ArtifactEditing;
   stats: ReturnType<typeof stats>;
@@ -365,6 +365,9 @@ export function ArtifactView({
    *  they have no reason to click. This surfaces a one-time nudge toward it.
    *  Never set on the real project page or the share page. */
   demoHints?: boolean;
+  /** Project page only: someone else is editing this artifact right now, so
+   *  this view is read-only until the person takes over. */
+  viewing?: { editorLabel: string; onTakeOver: () => void };
 }) {
   const { model, drifted } = editing;
   const avgPct = Math.round(st.avg * 100);
@@ -436,8 +439,17 @@ export function ArtifactView({
       if (ownNotice.current !== undefined) toast.dismiss(ownNotice.current);
     };
   }, []);
+  const viewingRef = useRef(viewing);
+  useEffect(() => { viewingRef.current = viewing; });
   const runHistory = useCallback((direction: "undo" | "redo") => {
     if (!mounted.current) return;
+    const v = viewingRef.current;
+    if (v) {
+      ownNotice.current = historyToast(`${v.editorLabel} is editing this artifact`, {
+        description: "Press \u201cTake over editing\u201d to make changes.",
+      });
+      return;
+    }
     const ed = editingRef.current;
     const other = direction === "undo" ? "redo" : "undo";
     // Undo steps through edits to the content, not through where shapes sit.
@@ -514,6 +526,16 @@ export function ArtifactView({
   return (
     <CanvasViewStoreProvider store={viewStore}>
     <div ref={rootRef} className="flex-1 flex flex-col">
+      {viewing && (
+        <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b bg-unresolved/10 px-4 py-2 text-sm">
+          <span>
+            <strong>{viewing.editorLabel}</strong> is editing this artifact. You&rsquo;re viewing; changes appear here as they&rsquo;re made.
+          </span>
+          <Button size="sm" variant="outline" className="bg-card" onClick={viewing.onTakeOver}>
+            Take over editing
+          </Button>
+        </div>
+      )}
       {/* Header */}
       <div className="border-b p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">

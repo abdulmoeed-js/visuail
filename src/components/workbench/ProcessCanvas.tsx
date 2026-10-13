@@ -556,6 +556,9 @@ export function ProcessCanvas({
       who = model.actors.find((a) => a.id === actorId)?.text;
     }
     const id = onAddStep(text, undefined, actorId);
+    // Refused (someone else is editing): keep what was typed for after
+    // "Take over editing"; the refusal itself has already been announced.
+    if (!id) return;
     // No automatic arrow is ever drawn out of a shape the person placed by
     // hand (see the arrow rule below). So after the starter flow, or a chain
     // they built from the palette, a step added here used to hang under the

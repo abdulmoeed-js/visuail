@@ -36,7 +36,8 @@ import { checkRefusal } from "@/lib/refusal";
 import { diffModels } from "@/lib/diff";
 import { DriftNotifier } from "@/components/workbench/DriftNotifier";
 import { buildAuditTrail, type AuditEvent } from "@/lib/audit";
-import { useProjectPresence } from "@/lib/presence";
+import { useProjectPresence, editorOf, type PresentUser } from "@/lib/presence";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/project/$id")({
   head: () => ({
@@ -160,6 +161,20 @@ function ProjectShell({ project }: { project: StoredProject }) {
   // artifact to work in, never assume one for you, even when there's only one.
   const [active, setActive] = useState<string | null>(null);
   const [boardView, setBoardView] = useState<"sidebar" | "board">("sidebar");
+  // One editor per artifact. This tab is told apart from the same person's
+  // other tabs by an id that lives as long as the page. Opening an artifact
+  // records when, and drops any earlier "take over"; all in one update, so
+  // the other tabs hear about it once, with the right time.
+  const tabIdRef = useRef<string | null>(null);
+  if (tabIdRef.current === null) tabIdRef.current = Math.random().toString(36).slice(2, 10);
+  const tabId = tabIdRef.current;
+  const [openedAt, setOpenedAt] = useState(0);
+  const [claim, setClaim] = useState<{ paneId: string; at: number } | null>(null);
+  const openArtifact = useCallback((key: string | null) => {
+    setActive(key);
+    setOpenedAt(Date.now());
+    setClaim(null);
+  }, []);
 
   // Arriving from the dashboard's comments inbox: jump to whichever pane
   // actually contains the linked item and hand it down so that pane opens
@@ -173,12 +188,16 @@ function ProjectShell({ project }: { project: StoredProject }) {
     window.history.replaceState(null, "", window.location.pathname);
     const pane = panes.find((p) => allItems(p.initial).some((i) => i.id === itemId));
     if (!pane) return;
-    setActive(pane.key);
+    openArtifact(pane.key);
     setFocusItemId(itemId);
     // Runs once panes are actually populated, not on every panes identity change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panes.length > 0]);
   const [exporting, setExporting] = useState(false);
+  // "Export all" shows each pane in turn to photograph it. That is not the
+  // person opening an artifact, so it must not touch `active` (which drives
+  // presence and the editor rule); it only changes which pane is visible.
+  const [exportPane, setExportPane] = useState<string | null>(null);
   const paneRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const editingModelsRef = useRef<Record<string, ArtifactModel>>({});
   const frameOverridesRef = useRef<Record<string, Frame>>({});
@@ -189,18 +208,22 @@ function ProjectShell({ project }: { project: StoredProject }) {
   const registerModel = useCallback((key: string, model: ArtifactModel) => {
     editingModelsRef.current[key] = model;
   }, []);
+
   const buildMergedCanvases = useCallback((): StoredCanvas[] => panes.map(p => ({
     id: p.id, name: p.name, kind: p.kind, viewKind: p.viewKind,
     model: editingModelsRef.current[p.key] ?? p.initial,
     frame: frameOverridesRef.current[p.id] ?? p.frame,
   })), [panes]);
-  const persist = useCallback(() => {
-    sessionStore.updateProjectDebounced(project.id, { canvases: buildMergedCanvases() });
-  }, [buildMergedCanvases, project.id]);
+  // Each tab saves only the artifact it is editing (and, from the board, the
+  // frame it dragged). Writing every artifact in one go rewrote the others
+  // from this tab's copy, which could be stale when someone else was editing.
+  const persistPane = useCallback((pane: CanvasPane, model: ArtifactModel) => {
+    sessionStore.updateCanvasDebounced(project.id, pane.id, { model });
+  }, [project.id]);
   const onFrameChange = useCallback((id: string, frame: Frame) => {
     frameOverridesRef.current[id] = frame;
-    persist();
-  }, [persist]);
+    sessionStore.updateCanvasDebounced(project.id, id, { frame });
+  }, [project.id]);
 
   const session = useSession();
   const [savingVersion, setSavingVersion] = useState(false);
@@ -297,11 +320,11 @@ function ProjectShell({ project }: { project: StoredProject }) {
       await sessionStore.updateProject(project.id, patch);
       sessionStore.saveSnapshot(project.id, next, "manual_save", session.userId).catch(() => {});
       onCanvasesRegenerated(next);
-      setActive(fresh.id);
+      openArtifact(fresh.id);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Couldn't create this artifact. Try again.");
     }
-  }, [canvasOverride, project.canvases, project.kinds, project.id, session.userId, onCanvasesRegenerated]);
+  }, [canvasOverride, project.canvases, project.kinds, project.id, session.userId, onCanvasesRegenerated, openArtifact]);
 
   const [shareOpen, setShareOpen] = useState(false);
   const onPublish = (action: string) => {
@@ -337,12 +360,11 @@ function ProjectShell({ project }: { project: StoredProject }) {
   const exportAll = async () => {
     if (project.canvases.length === 0) return;
     setExporting(true);
-    const originalActive = active;
     try {
       const sections: ExportSection[] = panes.map(p => ({
         title: `${project.name} — ${p.name}`,
         getElement: async () => {
-          setActive(p.key);
+          setExportPane(p.key);
           await new Promise<void>((r) =>
             requestAnimationFrame(() => requestAnimationFrame(() => r())),
           );
@@ -355,7 +377,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
     } catch (e) {
       console.error(e); alert("PDF export failed. See console for details.");
     } finally {
-      setActive(originalActive); setExporting(false);
+      setExportPane(null); setExporting(false);
     }
   };
 
@@ -384,7 +406,44 @@ function ProjectShell({ project }: { project: StoredProject }) {
     setCommentCounts((cur) => ({ ...cur, [itemId]: Math.max(0, (cur[itemId] ?? 0) + delta) }));
   }, []);
 
-  const presentUsers = useProjectPresence(project.id, session.userId, session.email);
+  const present = useProjectPresence(project.id, session.userId, session.email, {
+    tabId, paneId: active, openedAt, claimedAt: claim?.paneId === active ? claim.at : null,
+  });
+  // The header shows other people, once each, whatever they have open.
+  const presentUsers = useMemo(() => {
+    const seen = new Set<string>();
+    return present.filter((p) => p.userId !== session.userId && !seen.has(p.userId) && seen.add(p.userId));
+  }, [present, session.userId]);
+  /** This tab edits an artifact only while it is the one on screen here and
+   *  nobody else holds it. Before presence has synced, nobody is known to
+   *  hold it, so a single person never waits. */
+  const roleFor = useCallback((paneKey: string): "editor" | "viewer" => {
+    if (active !== paneKey) return "viewer";
+    const editor = editorOf(present, paneKey);
+    return editor === null || editor.tabId === tabId ? "editor" : "viewer";
+  }, [active, present, tabId]);
+  const labelFor = useCallback((u: PresentUser) =>
+    u.userId === session.userId ? "Another of your tabs" : u.email, [session.userId]);
+  // Adding a source, re-checking drift and restoring a version rewrite every
+  // artifact from the database. While another tab is editing one, it would
+  // keep working on its own copy and save that back over the result.
+  const blockedReason = useMemo(() => {
+    for (const p of panes) {
+      const e = editorOf(present, p.key);
+      if (e && e.tabId !== tabId) return `${labelFor(e)} is editing \u201c${p.name}\u201d. Ask them to leave it first.`;
+    }
+    return null;
+  }, [panes, present, tabId, labelFor]);
+  const lastBlockedToast = useRef(0);
+  const onBlocked = useCallback((paneKey: string) => {
+    const now = Date.now();
+    if (now - lastBlockedToast.current < 2500) return;
+    lastBlockedToast.current = now;
+    const editor = editorOf(present, paneKey);
+    toast(`${editor ? labelFor(editor) : "Someone else"} is editing this artifact`, {
+      description: "Press \u201cTake over editing\u201d to make changes.",
+    });
+  }, [present, labelFor]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -424,16 +483,16 @@ function ProjectShell({ project }: { project: StoredProject }) {
             />
             <Button
               size="sm" variant="outline" onClick={recheckDrift}
-              disabled={checkingDrift || project.sources.length === 0}
-              title={project.sources.length === 0 ? "No sources to re-check against" : undefined}
+              disabled={checkingDrift || project.sources.length === 0 || !!blockedReason}
+              title={blockedReason ?? (project.sources.length === 0 ? "No sources to re-check against" : undefined)}
             >
               {checkingDrift
                 ? <><Loader2 className="size-3.5 animate-spin" /> Re-checking…</>
                 : <><AlertTriangle className="size-3.5" /> Re-check for drift</>}
             </Button>
-            <AddSourceDialog project={project} onCanvasesRegenerated={onCanvasesRegenerated} />
+            <AddSourceDialog project={project} onCanvasesRegenerated={onCanvasesRegenerated} blockedReason={blockedReason} />
             <CommentsDialog projectId={project.id} />
-            <VersionHistoryDialog project={project} />
+            <VersionHistoryDialog project={project} blockedReason={blockedReason} />
             <Button size="sm" variant="outline" onClick={saveVersion} disabled={savingVersion || panes.length === 0}>
               {savingVersion
                 ? <><Loader2 className="size-3.5 animate-spin" /> Saving…</>
@@ -460,7 +519,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
           </div>
         </div>
 
-        <ScheduledDriftBanner project={project} onRecheck={recheckDrift} />
+        <ScheduledDriftBanner project={project} onRecheck={recheckDrift} blockedReason={blockedReason} />
 
         <>
             <div className="rounded-xl border bg-card p-3 flex flex-wrap items-center justify-between gap-3 mb-3">
@@ -495,7 +554,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
               </div>
               {active ? (
                 <div className="flex items-center gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setActive(null)}>
+                  <Button size="sm" variant="ghost" onClick={() => openArtifact(null)}>
                     <ArrowLeft className="size-3.5" /> All artifacts
                   </Button>
                   <span className="text-sm font-medium truncate max-w-[240px]">
@@ -525,14 +584,30 @@ function ProjectShell({ project }: { project: StoredProject }) {
                 <CanvasPaneMount
                   key={`${pane.key}-${canvasVersion}`}
                   pane={pane}
-                  visible={pane.key === active}
+                  visible={pane.key === (exportPane ?? active)}
                   onPublish={onPublish}
                   registerRef={(el) => { paneRefs.current[pane.key] = el; }}
-                  onModelChange={(m) => { registerModel(pane.key, m); persist(); }}
+                  onModelChange={(m, save) => { registerModel(pane.key, m); if (save) persistPane(pane, m); }}
                   projectId={project.id}
                   commentCounts={commentCounts}
                   onCommentCountChange={onCommentCountChange}
                   focusItemId={pane.key === active ? (focusItemId ?? undefined) : undefined}
+                  tabId={tabId}
+                  role={roleFor(pane.key)}
+                  onBlocked={() => onBlocked(pane.key)}
+                  viewing={(() => {
+                    if (pane.key !== active || roleFor(pane.key) === "editor") return undefined;
+                    const editor = editorOf(present, pane.key);
+                    return editor ? {
+                      editorLabel: labelFor(editor),
+                      // Later than whatever the current editor holds, whatever
+                      // their clock says, so pressing it always wins.
+                      onTakeOver: () => setClaim({
+                        paneId: pane.key,
+                        at: Math.max(Date.now(), (editor.claimedAt ?? editor.openedAt) + 1),
+                      }),
+                    } : undefined;
+                  })()}
                 />
               ))}
             </div>
@@ -541,13 +616,13 @@ function ProjectShell({ project }: { project: StoredProject }) {
               boardView === "sidebar" ? (
                 <ArtifactSidebar
                   canvases={canvasOverride ?? project.canvases}
-                  onOpen={setActive}
+                  onOpen={openArtifact}
                   onCreate={createInstance}
                 />
               ) : (
                 <ArtifactBoard
                   canvases={canvasOverride ?? project.canvases}
-                  onOpen={setActive}
+                  onOpen={openArtifact}
                   onCreate={createInstance}
                   onFrameChange={onFrameChange}
                 />
@@ -563,26 +638,44 @@ function ProjectShell({ project }: { project: StoredProject }) {
 
 function CanvasPaneMount({
   pane, visible, onPublish, registerRef, onModelChange, projectId, commentCounts, onCommentCountChange, focusItemId,
+  tabId, role, onBlocked, viewing,
 }: {
   pane: CanvasPane; visible: boolean;
   onPublish: (action: string) => void;
   registerRef: (el: HTMLDivElement | null) => void;
-  onModelChange: (m: ArtifactModel) => void;
+  /** `save` is true only while this tab is the artifact's editor: a viewer's
+   *  copy is kept for the merged save but must never be written itself. */
+  onModelChange: (m: ArtifactModel, save: boolean) => void;
   projectId: string;
   commentCounts: Record<string, number>;
   onCommentCountChange: (itemId: string, delta: number) => void;
   focusItemId?: string;
+  tabId: string;
+  role: "editor" | "viewer";
+  onBlocked: () => void;
+  viewing?: { editorLabel: string; onTakeOver: () => void };
 }) {
-  const editing = useArtifactEditing(pane.initial, { channelName: `project:${projectId}:${pane.id}` });
+  const editing = useArtifactEditing(pane.initial, {
+    channelName: `project:${projectId}:${pane.id}`, tabId, role, onBlocked,
+  });
   const st = stats(editing.model);
   const changeRef = useRef(onModelChange);
   useEffect(() => { changeRef.current = onModelChange; });
+  const roleRef = useRef(role);
+  useEffect(() => { roleRef.current = role; });
   const lastModelRef = useRef<ArtifactModel | null>(null);
   useEffect(() => {
     if (lastModelRef.current === editing.model) return;
     lastModelRef.current = editing.model;
-    changeRef.current(editing.model);
+    changeRef.current(editing.model, roleRef.current === "editor");
   }, [editing.model]);
+  // Handing over: whatever this tab still had waiting to save goes now, so
+  // the next editor starts from it rather than overwriting it.
+  const wasEditor = useRef(role === "editor");
+  useEffect(() => {
+    if (wasEditor.current && role === "viewer") sessionStore.flushCanvasUpdates(projectId);
+    wasEditor.current = role === "editor";
+  }, [role, projectId]);
   return (
     <div
       className={cn("rounded-xl border bg-card min-h-[560px] flex flex-col", !visible && "hidden")}
@@ -592,6 +685,7 @@ function CanvasPaneMount({
         editing={editing} stats={st} onPublish={onPublish}
         projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange}
         focusItemId={focusItemId} initialTab={tabForViewKind(pane.viewKind)}
+        viewing={viewing}
       />
     </div>
   );
@@ -602,7 +696,7 @@ function CanvasPaneMount({
  *  records -- it never touches the canvas -- so this banner's job is to
  *  route a human to the existing "Re-check for drift" button, which does
  *  the real reconcile-with-manual-edits update. */
-function ScheduledDriftBanner({ project, onRecheck }: { project: StoredProject; onRecheck: () => void }) {
+function ScheduledDriftBanner({ project, onRecheck, blockedReason }: { project: StoredProject; onRecheck: () => void; blockedReason?: string | null }) {
   const [alerts, setAlerts] = useState<DriftAlert[]>([]);
 
   useEffect(() => {
@@ -629,7 +723,8 @@ function ScheduledDriftBanner({ project, onRecheck }: { project: StoredProject; 
         </span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <Button size="sm" variant="outline" onClick={() => { onRecheck(); alerts.forEach((a) => dismiss(a.id)); }}>
+        <Button size="sm" variant="outline" disabled={!!blockedReason} title={blockedReason ?? undefined}
+          onClick={() => { onRecheck(); alerts.forEach((a) => dismiss(a.id)); }}>
           Review now
         </Button>
         <Button size="sm" variant="ghost" onClick={() => dismiss(latest.id)}>Dismiss</Button>
@@ -656,7 +751,7 @@ function fmtVersionTime(ts: number) {
   return `${d}d ago`;
 }
 
-function VersionHistoryDialog({ project }: { project: StoredProject }) {
+function VersionHistoryDialog({ project, blockedReason }: { project: StoredProject; blockedReason?: string | null }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"versions" | "activity">("versions");
   const [loading, setLoading] = useState(false);
@@ -744,7 +839,8 @@ function VersionHistoryDialog({ project }: { project: StoredProject }) {
                     </div>
                   </div>
                   <Button
-                    size="sm" variant="ghost" disabled={restoringId === s.id}
+                    size="sm" variant="ghost" disabled={restoringId === s.id || !!blockedReason}
+                    title={blockedReason ?? undefined}
                     onClick={() => restore(s.id)}
                   >
                     {restoringId === s.id
@@ -775,10 +871,11 @@ function VersionHistoryDialog({ project }: { project: StoredProject }) {
 }
 
 function AddSourceDialog({
-  project, onCanvasesRegenerated,
+  project, onCanvasesRegenerated, blockedReason,
 }: {
   project: StoredProject;
   onCanvasesRegenerated: (canvases: StoredProject["canvases"]) => void;
+  blockedReason?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [sources, setSources] = useState<SourceDraft[]>([makeSource(0)]);
@@ -860,7 +957,7 @@ function AddSourceDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setSources([makeSource(0)]); }}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline"><Plus className="size-3.5" /> Add source</Button>
+        <Button size="sm" variant="outline" disabled={!!blockedReason} title={blockedReason ?? undefined}><Plus className="size-3.5" /> Add source</Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>

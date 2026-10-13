@@ -2,18 +2,16 @@
 // workbench and the project (multi-canvas) view use this so behaviour stays
 // identical across entry points.
 //
-// Real-time co-editing: when a `collabChannel` is passed, every mutation
-// still gets computed by the exact same action functions below (they just
-// compute a plain "next model" from a plain "current model", unchanged) --
-// only what `mutate()` DOES with that result differs. Instead of calling
-// setModel directly, it diffs prev/next into a Yjs document
-// (applyModelDiffToYDoc, src/lib/yjs-model.ts), which is what's actually
-// synced across peers; a Yjs observer then re-derives the plain model
-// (locally-caused or from a remote peer, same code path either way) and
-// that's what becomes `model` here. Without collabChannel, this hook
-// behaves exactly as it always has -- plain local useState, no Yjs, no
-// realtime, zero behavior change for the marketing demo or any other
-// caller that doesn't opt in.
+// On a saved project (`collab` passed): one browser edits an artifact at a
+// time, the others view. Every mutation is still computed by the same action
+// functions below; on this path the result goes through a local Yjs document
+// (applyModelDiffToYDoc, src/lib/yjs-model.ts) and an observer derives the
+// plain model that becomes `model`. The editor's browser then sends that
+// model over the artifact channel (src/lib/artifact-channel.ts); a viewer's
+// browser adopts what it receives and refuses its own edits, telling the
+// caller so it can say who is editing. Who is editor and who is viewer is
+// decided by the project page from presence. Without `collab` (the landing
+// demo, the share page) this hook is plain local state.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
@@ -30,7 +28,7 @@ import { applyProposal, type Proposal } from "@/lib/refine";
 import { diffModels } from "@/lib/diff";
 import { perturb } from "@/lib/extract";
 import { modelToYDoc, yDocToModel, applyModelDiffToYDoc } from "@/lib/yjs-model";
-import { connectYjsProvider, type YjsProviderHandle } from "@/lib/yjs-provider";
+import { connectArtifactChannel, type ArtifactChannelHandle } from "@/lib/artifact-channel";
 import { summariseEdit, type EditSummary } from "@/lib/describe-edit";
 
 let uid = 1000;
@@ -203,10 +201,21 @@ export interface ArtifactEditing {
 }
 
 export interface CollabOptions {
-  /** Unique per canvas -- e.g. `project:{projectId}:{kind}`. Everyone with
-   *  the same channel name sees each other's live edits. */
+  /** Unique per artifact -- `project:{projectId}:{paneId}`. Every browser
+   *  with that artifact open joins the same channel. */
   channelName: string;
+  /** This browser tab, so its own messages are told apart from others'. */
+  tabId: string;
+  /** "editor": this tab's changes are applied, saved and sent to the others.
+   *  "viewer": this tab adopts what the editor sends and refuses its own
+   *  edits, calling `onBlocked` each time one is attempted. */
+  role: "editor" | "viewer";
+  onBlocked?: () => void;
 }
+
+/** Origin tag on the local Yjs transaction that applies a model received
+ *  from the editor, so the observer can tell it from this tab's own edits. */
+const PEER_ORIGIN = "peer";
 
 export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOptions): ArtifactEditing {
   const [model, setModel] = useState<ArtifactModel>(() => { bumpUidPast(initial); return initial; });
@@ -275,7 +284,12 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   };
 
   const ydocRef = useRef<Y.Doc | null>(null);
-  const providerRef = useRef<YjsProviderHandle | null>(null);
+  const providerRef = useRef<ArtifactChannelHandle | null>(null);
+  // Role and callback can change on any render (someone takes over); the
+  // channel and observer are set up once, so they read these through refs.
+  const roleRef = useRef(collab?.role);
+  const onBlockedRef = useRef(collab?.onBlocked);
+  useEffect(() => { roleRef.current = collab?.role; onBlockedRef.current = collab?.onBlocked; });
 
   useEffect(() => {
     if (!collab) return;
@@ -286,17 +300,28 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
       const next = yDocToModel(ydoc);
       modelRef.current = next;
       setModel(next);
-      // A history entry is a whole model. Stepping to one after someone
-      // else's edit has landed would take their change out along with ours,
-      // so their arrival ends the undoable run.
-      if (!transaction.local) {
+      if (transaction.origin === PEER_ORIGIN) {
+        // The editor's latest arrived. A history entry is a whole model, so
+        // stepping to one now would take their work out along with ours.
         const h = historyRef.current;
         if (h.past.length > 0 || h.future.length > 0) setUndoClearedByPeer(true);
         clearHistory();
+        noteLastAdded(null);
+      } else if (roleRef.current === "editor") {
+        providerRef.current?.send(next);
       }
     };
     ydoc.getMap("root").observeDeep(applyFromDoc);
-    providerRef.current = connectYjsProvider(ydoc, collab.channelName);
+    providerRef.current = connectArtifactChannel(collab.channelName, collab.tabId, {
+      onModel: (m) => {
+        if (roleRef.current !== "viewer") return;
+        bumpUidPast(m);
+        ydoc.transact(() => applyModelDiffToYDoc(ydoc, yDocToModel(ydoc), m), PEER_ORIGIN);
+      },
+      onSyncRequest: () => {
+        if (roleRef.current === "editor") providerRef.current?.send(modelRef.current);
+      },
+    });
 
     return () => {
       ydoc.getMap("root").unobserveDeep(applyFromDoc);
@@ -322,13 +347,17 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     }
   };
 
+  /** Applies an edit; true when something was applied. */
   const mutate = (
     fn: (m: ArtifactModel) => ArtifactModel,
     opts?: { mergeKey?: string; record?: boolean; label?: string },
-  ) => {
+  ): boolean => {
+    // A viewer's edit is refused here, at the one door every edit goes
+    // through, and the caller is told so it can say who is editing.
+    if (roleRef.current === "viewer") { onBlockedRef.current?.(); return false; }
     const current = modelRef.current;
     const next = fn(current);
-    if (next === current) return;
+    if (next === current) return false;
     // Recorded on BOTH paths: the real project page always runs on the
     // shared document, so history that only worked without it would only
     // ever have worked in the demo. Most actions rebuild the model object
@@ -337,9 +366,11 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     // sometimes visibly do nothing.
     if (opts?.record !== false && !sameModel(current, next)) recordHistory(current, opts?.mergeKey, opts?.label);
     applyModel(current, next);
+    return true;
   };
 
   const stepHistory = (from: "past" | "future"): EditSummary | null => {
+    if (roleRef.current === "viewer") { onBlockedRef.current?.(); return null; }
     const h = historyRef.current;
     const entry = h[from].pop();
     if (!entry) return null;
@@ -382,10 +413,9 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   // (index 1, same source position but a fresh look), then diff the result
   // against the pristine baseline for real -- not a hardcoded set of ids.
   const onSimulateDrift = () => {
-    mutate(() => diffModels(pristine, perturb(pristine, 1)), { label: "simulated source change" });
-    setDrifted(true);
+    if (mutate(() => diffModels(pristine, perturb(pristine, 1)), { label: "simulated source change" })) setDrifted(true);
   };
-  const onClearDrift = () => { mutate(() => pristine, { label: "source restore" }); setDrifted(false); };
+  const onClearDrift = () => { if (mutate(() => pristine, { label: "source restore" })) setDrifted(false); };
 
   const onDeleteAny = (id: string) => mutate((m) => removeById(m, id));
 
@@ -432,7 +462,9 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
 
   const addWithId = (mk: () => { id: string; run: (m: ArtifactModel) => ArtifactModel }) => {
     const { id, run } = mk();
-    mutate(run);
+    // Refused (a viewer): nothing was added, and callers must not announce
+    // or reveal anything. They already treat an empty id as "no item".
+    if (!mutate(run)) return "";
     noteLastAdded(id);
     return id;
   };

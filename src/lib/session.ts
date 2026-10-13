@@ -311,6 +311,16 @@ async function fetchProjects(orgId: string): Promise<StoredProject[]> {
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingPatches = new Map<string, Partial<StoredProject>>();
 
+// Per-artifact autosave (the project page's canvases). One write per artifact
+// per pause, and each write replaces only that artifact in the project's
+// list: the row is re-read first and every other artifact is copied through
+// untouched, so a tab never rewrites artifacts it is not editing from a copy
+// that may be stale. (A database function doing this in one statement is in
+// supabase/migrations/20261013120000_update_canvas_function.sql, not applied.)
+type CanvasPatch = { model?: StoredProject["canvases"][number]["model"]; frame?: StoredProject["canvases"][number]["frame"] };
+const canvasTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const canvasPatches = new Map<string, { projectId: string; canvasId: string } & CanvasPatch>();
+
 export const sessionStore = {
   async sendMagicLink(email: string): Promise<void> {
     const { error } = await supabase.auth.signInWithOtp({
@@ -410,6 +420,53 @@ export const sessionStore = {
         }
       }, delayMs),
     );
+  },
+
+  /** Replace one artifact's model and/or frame, leaving the others as stored. */
+  async updateCanvas(projectId: string, canvasId: string, patch: CanvasPatch): Promise<void> {
+    const { data, error } = await supabase.from("projects").select("canvases").eq("id", projectId).single();
+    if (error) throw error;
+    const current = ((data as { canvases: StoredProject["canvases"] | null }).canvases ?? []);
+    if (!current.some((c) => c.id === canvasId)) return; // removed meanwhile; nothing to write to
+    const next = current.map((c) => c.id !== canvasId ? c : {
+      ...c,
+      ...(patch.model !== undefined ? { model: patch.model } : {}),
+      ...(patch.frame !== undefined ? { frame: patch.frame } : {}),
+    });
+    const { error: writeError } = await supabase
+      .from("projects").update({ canvases: next, updated_at: new Date().toISOString() }).eq("id", projectId);
+    if (writeError) throw writeError;
+    notify();
+  },
+
+  /** Fire-and-forget, coalesced per artifact (canvas autosave). */
+  updateCanvasDebounced(projectId: string, canvasId: string, patch: CanvasPatch, delayMs = 800): void {
+    const key = `${projectId}:${canvasId}`;
+    canvasPatches.set(key, { ...(canvasPatches.get(key) ?? { projectId, canvasId }), ...patch });
+    const existing = canvasTimers.get(key);
+    if (existing) clearTimeout(existing);
+    canvasTimers.set(key, setTimeout(() => sessionStore.flushCanvas(key), delayMs));
+  },
+
+  flushCanvas(key: string): void {
+    const timer = canvasTimers.get(key);
+    if (timer) clearTimeout(timer);
+    canvasTimers.delete(key);
+    const pending = canvasPatches.get(key);
+    canvasPatches.delete(key);
+    if (!pending) return;
+    const { projectId, canvasId, ...patch } = pending;
+    sessionStore.updateCanvas(projectId, canvasId, patch).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.error("[session] canvas autosave failed", e);
+    });
+  },
+
+  /** Send every pending artifact write for a project now. Used when a tab
+   *  stops being the editor of an artifact, so its last change is saved
+   *  before the next editor's first one. */
+  flushCanvasUpdates(projectId: string): void {
+    for (const key of [...canvasPatches.keys()]) if (key.startsWith(`${projectId}:`)) sessionStore.flushCanvas(key);
   },
 
   async deleteProject(id: string): Promise<void> {
