@@ -313,10 +313,8 @@ const pendingPatches = new Map<string, Partial<StoredProject>>();
 
 // Per-artifact autosave (the project page's canvases). One write per artifact
 // per pause, and each write replaces only that artifact in the project's
-// list: the row is re-read first and every other artifact is copied through
-// untouched, so a tab never rewrites artifacts it is not editing from a copy
-// that may be stale. (A database function doing this in one statement is in
-// supabase/migrations/20261013120000_update_canvas_function.sql, not applied.)
+// list, so a tab never rewrites artifacts it is not editing from a copy that
+// may be stale.
 type CanvasPatch = { model?: StoredProject["canvases"][number]["model"]; frame?: StoredProject["canvases"][number]["frame"] };
 const canvasTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const canvasPatches = new Map<string, { projectId: string; canvasId: string } & CanvasPatch>();
@@ -422,20 +420,19 @@ export const sessionStore = {
     );
   },
 
-  /** Replace one artifact's model and/or frame, leaving the others as stored. */
+  /** Replace one artifact's model and/or frame, leaving the others as stored.
+   *  Done by the database in one statement (function `update_canvas`,
+   *  supabase/migrations/20261013120000_update_canvas_function.sql), so
+   *  there is no moment between reading the project and writing it back in
+   *  which someone else's save to another artifact could be lost. */
   async updateCanvas(projectId: string, canvasId: string, patch: CanvasPatch): Promise<void> {
-    const { data, error } = await supabase.from("projects").select("canvases").eq("id", projectId).single();
-    if (error) throw error;
-    const current = ((data as { canvases: StoredProject["canvases"] | null }).canvases ?? []);
-    if (!current.some((c) => c.id === canvasId)) return; // removed meanwhile; nothing to write to
-    const next = current.map((c) => c.id !== canvasId ? c : {
-      ...c,
-      ...(patch.model !== undefined ? { model: patch.model } : {}),
-      ...(patch.frame !== undefined ? { frame: patch.frame } : {}),
+    const { error } = await supabase.rpc("update_canvas", {
+      p_project_id: projectId,
+      p_canvas_id: canvasId,
+      p_model: patch.model ?? null,
+      p_frame: patch.frame ?? null,
     });
-    const { error: writeError } = await supabase
-      .from("projects").update({ canvases: next, updated_at: new Date().toISOString() }).eq("id", projectId);
-    if (writeError) throw writeError;
+    if (error) throw error;
     notify();
   },
 
