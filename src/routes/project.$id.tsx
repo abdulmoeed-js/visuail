@@ -36,7 +36,8 @@ import { checkRefusal } from "@/lib/refusal";
 import { diffModels } from "@/lib/diff";
 import { DriftNotifier } from "@/components/workbench/DriftNotifier";
 import { buildAuditTrail, type AuditEvent } from "@/lib/audit";
-import { useProjectPresence, editorOf, type PresentUser } from "@/lib/presence";
+import { useProjectPresence } from "@/lib/presence";
+import type { Peer } from "@/lib/artifact-channel";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/project/$id")({
@@ -162,18 +163,17 @@ function ProjectShell({ project }: { project: StoredProject }) {
   const [active, setActive] = useState<string | null>(null);
   const [boardView, setBoardView] = useState<"sidebar" | "board">("sidebar");
   // One editor per artifact. This tab is told apart from the same person's
-  // other tabs by an id that lives as long as the page. Opening an artifact
-  // records when, and drops any earlier "take over"; all in one update, so
-  // the other tabs hear about it once, with the right time.
+  // other tabs by an id that lives as long as the page; each pane works out
+  // who edits it from the tabs that have it open (see useArtifactEditing).
   const tabIdRef = useRef<string | null>(null);
   if (tabIdRef.current === null) tabIdRef.current = Math.random().toString(36).slice(2, 10);
   const tabId = tabIdRef.current;
-  const [openedAt, setOpenedAt] = useState(0);
-  const [claim, setClaim] = useState<{ paneId: string; at: number } | null>(null);
-  const openArtifact = useCallback((key: string | null) => {
-    setActive(key);
-    setOpenedAt(Date.now());
-    setClaim(null);
+  const openArtifact = useCallback((key: string | null) => { setActive(key); }, []);
+  // Who edits each artifact, as reported by its pane (another tab's editor
+  // matters even for an artifact this tab is not looking at).
+  const [paneEditors, setPaneEditors] = useState<Record<string, Peer | null>>({});
+  const onEditorChange = useCallback((key: string, editor: Peer | null) => {
+    setPaneEditors((cur) => (cur[key] === editor ? cur : { ...cur, [key]: editor }));
   }, []);
 
   // Arriving from the dashboard's comments inbox: jump to whichever pane
@@ -406,44 +406,17 @@ function ProjectShell({ project }: { project: StoredProject }) {
     setCommentCounts((cur) => ({ ...cur, [itemId]: Math.max(0, (cur[itemId] ?? 0) + delta) }));
   }, []);
 
-  const present = useProjectPresence(project.id, session.userId, session.email, {
-    tabId, paneId: active, openedAt, claimedAt: claim?.paneId === active ? claim.at : null,
-  });
-  // The header shows other people, once each, whatever they have open.
-  const presentUsers = useMemo(() => {
-    const seen = new Set<string>();
-    return present.filter((p) => p.userId !== session.userId && !seen.has(p.userId) && seen.add(p.userId));
-  }, [present, session.userId]);
-  /** This tab edits an artifact only while it is the one on screen here and
-   *  nobody else holds it. Before presence has synced, nobody is known to
-   *  hold it, so a single person never waits. */
-  const roleFor = useCallback((paneKey: string): "editor" | "viewer" => {
-    if (active !== paneKey) return "viewer";
-    const editor = editorOf(present, paneKey);
-    return editor === null || editor.tabId === tabId ? "editor" : "viewer";
-  }, [active, present, tabId]);
-  const labelFor = useCallback((u: PresentUser) =>
-    u.userId === session.userId ? "Another of your tabs" : u.email, [session.userId]);
+  const presentUsers = useProjectPresence(project.id, session.userId, session.email);
   // Adding a source, re-checking drift and restoring a version rewrite every
   // artifact from the database. While another tab is editing one, it would
   // keep working on its own copy and save that back over the result.
   const blockedReason = useMemo(() => {
     for (const p of panes) {
-      const e = editorOf(present, p.key);
-      if (e && e.tabId !== tabId) return `${labelFor(e)} is editing \u201c${p.name}\u201d. Ask them to leave it first.`;
+      const e = paneEditors[p.key];
+      if (e && e.tabId !== tabId) return `${peerLabel(e, session.userId)} is editing \u201c${p.name}\u201d. Ask them to leave it first.`;
     }
     return null;
-  }, [panes, present, tabId, labelFor]);
-  const lastBlockedToast = useRef(0);
-  const onBlocked = useCallback((paneKey: string) => {
-    const now = Date.now();
-    if (now - lastBlockedToast.current < 2500) return;
-    lastBlockedToast.current = now;
-    const editor = editorOf(present, paneKey);
-    toast(`${editor ? labelFor(editor) : "Someone else"} is editing this artifact`, {
-      description: "Press \u201cTake over editing\u201d to make changes.",
-    });
-  }, [present, labelFor]);
+  }, [panes, paneEditors, tabId, session.userId]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -593,21 +566,8 @@ function ProjectShell({ project }: { project: StoredProject }) {
                   onCommentCountChange={onCommentCountChange}
                   focusItemId={pane.key === active ? (focusItemId ?? undefined) : undefined}
                   tabId={tabId}
-                  role={roleFor(pane.key)}
-                  onBlocked={() => onBlocked(pane.key)}
-                  viewing={(() => {
-                    if (pane.key !== active || roleFor(pane.key) === "editor") return undefined;
-                    const editor = editorOf(present, pane.key);
-                    return editor ? {
-                      editorLabel: labelFor(editor),
-                      // Later than whatever the current editor holds, whatever
-                      // their clock says, so pressing it always wins.
-                      onTakeOver: () => setClaim({
-                        paneId: pane.key,
-                        at: Math.max(Date.now(), (editor.claimedAt ?? editor.openedAt) + 1),
-                      }),
-                    } : undefined;
-                  })()}
+                  open={pane.key === active}
+                  onEditorChange={onEditorChange}
                 />
               ))}
             </div>
@@ -636,9 +596,14 @@ function ProjectShell({ project }: { project: StoredProject }) {
   );
 }
 
+/** "Another of your tabs" for the same person, else their email. */
+function peerLabel(peer: Peer, myUserId: string | undefined): string {
+  return peer.userId && peer.userId === myUserId ? "Another of your tabs" : peer.email || "Someone else";
+}
+
 function CanvasPaneMount({
   pane, visible, onPublish, registerRef, onModelChange, projectId, commentCounts, onCommentCountChange, focusItemId,
-  tabId, role, onBlocked, viewing,
+  tabId, open, onEditorChange,
 }: {
   pane: CanvasPane; visible: boolean;
   onPublish: (action: string) => void;
@@ -651,13 +616,32 @@ function CanvasPaneMount({
   onCommentCountChange: (itemId: string, delta: number) => void;
   focusItemId?: string;
   tabId: string;
-  role: "editor" | "viewer";
-  onBlocked: () => void;
-  viewing?: { editorLabel: string; onTakeOver: () => void };
+  /** True while this pane is the one on screen (not merely shown for export). */
+  open: boolean;
+  onEditorChange: (key: string, editor: Peer | null) => void;
 }) {
+  const session = useSession();
+  const lastBlockedToast = useRef(0);
+  const editorRef = useRef<Peer | null>(null);
+  const onBlocked = useCallback(() => {
+    const now = Date.now();
+    if (now - lastBlockedToast.current < 2500) return;
+    lastBlockedToast.current = now;
+    const e = editorRef.current;
+    toast(`${e ? peerLabel(e, session.userId) : "Someone else"} is editing this artifact`, {
+      description: "Press \u201cTake over editing\u201d to make changes.",
+    });
+  }, [session.userId]);
   const editing = useArtifactEditing(pane.initial, {
-    channelName: `project:${projectId}:${pane.id}`, tabId, role, onBlocked,
+    channelName: `project:${projectId}:${pane.id}`, tabId, open,
+    me: { userId: session.userId ?? "", email: session.email ?? "" }, onBlocked,
   });
+  editorRef.current = editing.editor;
+  const role = editing.role;
+  useEffect(() => { onEditorChange(pane.key, editing.editor); }, [editing.editor, pane.key, onEditorChange]);
+  const viewing = open && role === "viewer" && editing.editor
+    ? { editorLabel: peerLabel(editing.editor, session.userId), onTakeOver: editing.takeOver }
+    : undefined;
   const st = stats(editing.model);
   const changeRef = useRef(onModelChange);
   useEffect(() => { changeRef.current = onModelChange; });

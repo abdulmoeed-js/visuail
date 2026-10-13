@@ -28,7 +28,7 @@ import { applyProposal, type Proposal } from "@/lib/refine";
 import { diffModels } from "@/lib/diff";
 import { perturb } from "@/lib/extract";
 import { modelToYDoc, yDocToModel, applyModelDiffToYDoc } from "@/lib/yjs-model";
-import { connectArtifactChannel, type ArtifactChannelHandle } from "@/lib/artifact-channel";
+import { connectArtifactChannel, editorOf, type ArtifactChannelHandle, type Here, type Peer } from "@/lib/artifact-channel";
 import { summariseEdit, type EditSummary } from "@/lib/describe-edit";
 
 let uid = 1000;
@@ -198,6 +198,16 @@ export interface ArtifactEditing {
    *  something in it, until the next local edit. Lets the caller explain an
    *  otherwise baffling "nothing to undo" seconds after the person edited. */
   undoClearedByPeer: boolean;
+
+  /** On a saved project: whether this tab edits the artifact or only views
+   *  it (someone else got there first, or took over). Always "editor"
+   *  without `collab`. */
+  role: EditingRole;
+  /** The tab that edits this artifact right now, as far as this tab knows;
+   *  null when nobody has it open or there is no `collab`. */
+  editor: Peer | null;
+  /** Claim the artifact for this tab. The previous editor becomes a viewer. */
+  takeOver: () => void;
 }
 
 export interface CollabOptions {
@@ -206,12 +216,19 @@ export interface CollabOptions {
   channelName: string;
   /** This browser tab, so its own messages are told apart from others'. */
   tabId: string;
-  /** "editor": this tab's changes are applied, saved and sent to the others.
-   *  "viewer": this tab adopts what the editor sends and refuses its own
-   *  edits, calling `onBlocked` each time one is attempted. */
-  role: "editor" | "viewer";
+  /** True while this tab shows the artifact on screen. Only then does it
+   *  take part in "who edits"; a pane kept mounted but hidden only listens. */
+  open: boolean;
+  me: { userId: string; email: string };
+  /** Called each time an edit is refused because another tab is editing. */
   onBlocked?: () => void;
 }
+
+export type EditingRole = "editor" | "viewer";
+
+const HEARTBEAT_MS = 8_000;   // how often an open tab says "here"
+const STALE_MS = 30_000;      // silence after which a tab is forgotten
+const REPLY_GAP_MS = 2_000;   // how often at most we answer a newcomer's "here"
 
 /** Origin tag on the local Yjs transaction that applies a model received
  *  from the editor, so the observer can tell it from this tab's own edits. */
@@ -285,11 +302,35 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
 
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<ArtifactChannelHandle | null>(null);
-  // Role and callback can change on any render (someone takes over); the
-  // channel and observer are set up once, so they read these through refs.
-  const roleRef = useRef(collab?.role);
+
+  // Who has this artifact open, by tab, from their "here" messages.
+  const [peers, setPeers] = useState<Record<string, Peer>>({});
+  const [openedAt, setOpenedAt] = useState(0);
+  const [claimedAt, setClaimedAt] = useState<number | null>(null);
+  const open = !!collab?.open;
+  const me: Peer | null = collab && open
+    ? { tabId: collab.tabId, userId: collab.me.userId, email: collab.me.email, openedAt, claimedAt, lastSeen: Infinity }
+    : null;
+  const editor = collab ? editorOf(me ? [...Object.values(peers), me] : Object.values(peers)) : null;
+  const role: EditingRole = !collab || (open && editor !== null && editor.tabId === collab.tabId) ? "editor" : "viewer";
+  // The channel and observer are set up once; anything that changes per
+  // render is read through refs.
+  const roleRef = useRef(role);
+  const openRef = useRef(open);
   const onBlockedRef = useRef(collab?.onBlocked);
-  useEffect(() => { roleRef.current = collab?.role; onBlockedRef.current = collab?.onBlocked; });
+  const hereRef = useRef<Here | null>(null);
+  hereRef.current = me ? { tabId: me.tabId, userId: me.userId, email: me.email, openedAt, claimedAt } : null;
+  useEffect(() => { roleRef.current = role; openRef.current = open; onBlockedRef.current = collab?.onBlocked; });
+  const lastReplyRef = useRef(0);
+  const sayHere = (force = false) => {
+    const h = hereRef.current;
+    if (!h || !providerRef.current) return;
+    if (!force && Date.now() - lastReplyRef.current < REPLY_GAP_MS) return;
+    lastReplyRef.current = Date.now();
+    providerRef.current.here(h);
+  };
+  const sayHereRef = useRef(sayHere);
+  sayHereRef.current = sayHere;
 
   useEffect(() => {
     if (!collab) return;
@@ -321,18 +362,79 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
       onSyncRequest: () => {
         if (roleRef.current === "editor") providerRef.current?.send(modelRef.current);
       },
+      onHere: (peer) => {
+        setPeers((cur) => ({ ...cur, [peer.tabId]: { ...peer, lastSeen: Date.now() } }));
+        // Answer a newcomer at once, so it learns who is here without
+        // waiting for the next heartbeat.
+        if (openRef.current) sayHereRef.current();
+      },
+      onBye: (id) => {
+        setPeers((cur) => {
+          if (!(id in cur)) return cur;
+          const next = { ...cur }; delete next[id]; return next;
+        });
+      },
+      onJoined: () => { if (openRef.current) sayHereRef.current(true); },
     });
 
     return () => {
       ydoc.getMap("root").unobserveDeep(applyFromDoc);
+      providerRef.current?.bye(collab.tabId);
       providerRef.current?.destroy();
       providerRef.current = null;
       ydocRef.current = null;
+      setPeers({});
     };
     // Only (re)connect if the channel itself changes -- not on every model
     // update, which would tear down and recreate the whole session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collab?.channelName]);
+
+  // Opening the artifact on screen starts a fresh turn (no earlier claim);
+  // leaving it tells the others.
+  useEffect(() => {
+    if (!collab) return;
+    if (open) { setOpenedAt(Date.now()); setClaimedAt(null); }
+    else { setClaimedAt(null); providerRef.current?.bye(collab.tabId); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // While open: say "here" now and every few seconds, and again whenever
+  // what we say changes (a claim).
+  useEffect(() => {
+    if (!collab || !open) return;
+    sayHereRef.current(true);
+    const t = setInterval(() => sayHereRef.current(true), HEARTBEAT_MS);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab?.channelName, open, openedAt, claimedAt]);
+
+  // Forget tabs that have gone quiet (closed without saying bye, lost).
+  useEffect(() => {
+    if (!collab) return;
+    const t = setInterval(() => setPeers((cur) => {
+      const now = Date.now();
+      const keep = Object.values(cur).filter((p) => now - p.lastSeen <= STALE_MS);
+      if (keep.length === Object.keys(cur).length) return cur;
+      return Object.fromEntries(keep.map((p) => [p.tabId, p]));
+    }), 5_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab?.channelName]);
+
+  // Becoming a viewer: ask the editor for its latest, in case its reply to
+  // our first request arrived while we still thought we were the editor.
+  useEffect(() => {
+    if (!collab || role !== "viewer" || !open) return;
+    providerRef.current?.requestSync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, open]);
+
+  const takeOver = () => {
+    // Later than whatever the current editor holds, whatever its clock says,
+    // so a take-over always wins.
+    setClaimedAt(Math.max(Date.now(), (editor?.claimedAt ?? editor?.openedAt ?? 0) + 1));
+  };
 
   /** Puts `next` in place of `current` by whichever path this hook is on. */
   const applyModel = (current: ArtifactModel, next: ArtifactModel) => {
@@ -624,5 +726,6 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     canUndo: historySize.past > 0,
     canRedo: historySize.future > 0,
     undoClearedByPeer,
+    role, editor, takeOver,
   };
 }
