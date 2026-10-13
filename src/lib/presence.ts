@@ -54,7 +54,10 @@ export function useProjectPresence(
       const state = channel.presenceState<Omit<PresentUser, "userId"> & { userId?: string }>();
       const all: PresentUser[] = [];
       for (const entries of Object.values(state)) {
-        const e = entries[0];
+        // A tab that updates its presence can be listed twice under its key
+        // for a moment, oldest first. The newest entry is the truth; reading
+        // the oldest is how a "take over" went unseen.
+        const e = entries[entries.length - 1];
         if (!e || !e.tabId) continue;
         all.push({
           userId: e.userId ?? "", email: e.email, tabId: e.tabId,
