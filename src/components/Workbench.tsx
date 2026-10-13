@@ -158,7 +158,7 @@ export function Workbench() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
         {/* Source panel */}
         <div className="rounded-xl border bg-card p-4 flex flex-col gap-3 h-fit lg:sticky lg:top-4">
           <div className="flex items-center justify-between">
