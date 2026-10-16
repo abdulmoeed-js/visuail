@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PencilLine, Check, X, AlertTriangle } from "lucide-react";
+import { PencilLine, Check, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -72,7 +72,7 @@ export function RefineControl({ node, model, onApply, className }: Props) {
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-80 p-0 overflow-hidden"
+        className="w-[22rem] max-w-[calc(100vw-1rem)] p-0 overflow-hidden"
         data-no-pan
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
@@ -102,7 +102,7 @@ export function RefineControl({ node, model, onApply, className }: Props) {
             />
             <div className="flex items-center justify-end gap-2">
               <Button size="sm" className="h-7 px-2.5" disabled={!prompt.trim()} onClick={generate}>
-                <PencilLine className="size-3" /> Propose
+                <PencilLine className="size-3" /> Show the change
               </Button>
             </div>
           </div>
@@ -110,14 +110,7 @@ export function RefineControl({ node, model, onApply, className }: Props) {
 
         {proposal && (
           <div className="p-3 space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs font-semibold">{proposalHeadline(proposal)}</div>
-              {proposal.kind === "rewrite" && proposal.lowConfidence && (
-                <span className="inline-flex items-center gap-1 rounded-sm border border-unresolved/60 bg-unresolved/10 px-1.5 py-0.5 text-[9px] font-mono-tight text-unresolved-ink">
-                  <AlertTriangle className="size-2.5" /> low confidence
-                </span>
-              )}
-            </div>
+            <div className="text-xs font-semibold">{proposalHeadline(proposal)}</div>
 
             <ProposalDiff proposal={proposal} />
 
@@ -125,17 +118,21 @@ export function RefineControl({ node, model, onApply, className }: Props) {
               {proposal.note}
             </div>
 
-            <div className="flex items-center justify-between gap-2 pt-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <Button size="sm" variant="ghost" className="h-7 px-2 text-muted-foreground" onClick={reset}>
-                <X className="size-3" /> Reject
+                <X className="size-3" /> Discard
               </Button>
               <div className="flex items-center gap-1">
                 <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => setProposal(null)}>
-                  Edit prompt
+                  Edit request
                 </Button>
-                <Button size="sm" className="h-7 px-2.5" onClick={accept}>
-                  <Check className="size-3" /> Accept
-                </Button>
+                {/* A rewrite that changes nothing (e.g. "merge with next" on the
+                    last step) has nothing to apply; the note says why. */}
+                {!(proposal.kind === "rewrite" && proposal.before === proposal.after) && (
+                  <Button size="sm" className="h-7 px-2.5" onClick={accept}>
+                    <Check className="size-3" /> Apply change
+                  </Button>
+                )}
               </div>
             </div>
           </div>

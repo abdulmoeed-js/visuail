@@ -7,9 +7,10 @@ export interface BaseItem {
   id: string;
   text: string;
   confidence: Confidence;
-  snippet?: string;      // source quote, only for low-confidence items
-  unresolved?: boolean;  // confidence < 0.7
-  drift?: boolean;       // flipped by "simulate source change"
+  snippet?: string;      // word-for-word source quote (every extracted item; samples only on low ones)
+  unresolved?: boolean;  // flagged as open by extraction or by the quote check
+  quoteUnverified?: boolean; // the snippet was not found in the source (grounding.ts)
+  drift?: boolean;       // differs from the source since the last re-check
   userAdded?: boolean;   // added by the user in the workbench
   confirmedBySources?: string[]; // labels of sources that produced a matching item
   conflict?: boolean;    // multiple sources produced different text for the same item

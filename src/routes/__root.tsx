@@ -19,8 +19,7 @@ function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <h1 className="text-xl font-semibold text-foreground">Page not found</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           The page you're looking for doesn't exist or has been moved.
         </p>
@@ -51,7 +50,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
           This page didn't load
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+          Something went wrong while loading it. Try again, or go back to the home page.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
@@ -80,15 +79,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "visu — Your AI Business Analyst" },
+      { title: "visu — Diagrams from your discovery calls" },
       { name: "description", content: "Your AI Business Analyst. Turn a discovery call into a full, traced BA workstream — process maps, BMCs, RACI, risk logs, business cases, and more — grounded in real BA methodology and flagged the moment your source changes." },
       { name: "author", content: "visu" },
-      { property: "og:title", content: "visu — Your AI Business Analyst" },
-      { property: "og:description", content: "Your AI Business Analyst. Turn a discovery call into a full, traced BA workstream — process maps, BMCs, RACI, risk logs, business cases, and more — grounded in real BA methodology and flagged the moment your source changes." },
+      { property: "og:title", content: "visu — Diagrams from your discovery calls" },
+      { property: "og:description", content: "Turn a discovery call into a full, traced BA workstream — process maps, BMCs, RACI, risk logs, business cases, and more — grounded in real BA methodology and flagged the moment your source changes." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "visu — Your AI Business Analyst" },
-      { name: "twitter:description", content: "Your AI Business Analyst. Turn a discovery call into a full, traced BA workstream — process maps, BMCs, RACI, risk logs, business cases, and more — grounded in real BA methodology and flagged the moment your source changes." },
+      { name: "twitter:title", content: "visu — Diagrams from your discovery calls" },
+      { name: "twitter:description", content: "Turn a discovery call into a full, traced BA workstream — process maps, BMCs, RACI, risk logs, business cases, and more — grounded in real BA methodology and flagged the moment your source changes." },
       { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/90037d2d-c249-4433-98a2-32130cde459c/id-preview-4860b5b5--af93f212-53f2-471a-b865-406fc0935f89.lovable.app-1783892301019.png" },
       { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/90037d2d-c249-4433-98a2-32130cde459c/id-preview-4860b5b5--af93f212-53f2-471a-b865-406fc0935f89.lovable.app-1783892301019.png" },
     ],

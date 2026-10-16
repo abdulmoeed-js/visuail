@@ -19,10 +19,13 @@ interface Props {
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   /** The field's name for screen readers; the placeholder is not a label. */
   "aria-label"?: string;
+  /** Points at a message about this field, such as a failed post. */
+  "aria-describedby"?: string;
 }
 
 export function MentionTextarea({
   value, onChange, orgId, placeholder, className, onKeyDown, "aria-label": ariaLabel,
+  "aria-describedby": ariaDescribedBy,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [members, setMembers] = useState<OrgMember[] | null>(null);
@@ -101,6 +104,7 @@ export function MentionTextarea({
         }}
         placeholder={placeholder}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
         className={className}
       />
     </div>

@@ -47,7 +47,7 @@ interface Entry {
 /** Flags the app sets on items as bookkeeping, not content. A drift re-check
  *  stamps these across the whole model; counting them made "two steps
  *  changed" read as "20 items changed". */
-const BOOKKEEPING = new Set(["drift", "conflict", "conflictNote", "blockDrift", "driftNote"]);
+const BOOKKEEPING = new Set(["drift", "conflict", "conflictNote", "blockDrift", "driftNote", "unresolved", "quoteUnverified"]);
 
 /** Parts of a model that are documents rather than lists of items, so an
  *  edit to one has no item to name. Named as a whole instead. */

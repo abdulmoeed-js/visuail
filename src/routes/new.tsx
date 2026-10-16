@@ -20,6 +20,8 @@ import { emptyCanvas } from "@/lib/empty-models";
 import { sessionStore, useSession, defaultCanvasName, type StoredCanvas, type ViewKind } from "@/lib/session";
 import { ALL_VIEW_KINDS, VIEW_KIND_META, underlyingKind } from "@/lib/view-kind-meta";
 import { SignupWallModal } from "@/components/SignupWallModal";
+import { InlineError } from "@/components/ui/inline-error";
+import { friendlyError, type FriendlyError } from "@/lib/friendly-error";
 
 export const Route = createFileRoute("/new")({
   head: () => ({
@@ -44,7 +46,7 @@ interface TemplateChoice {
 }
 
 const TEMPLATES: TemplateChoice[] = [
-  { id: "onboarding", label: "Client onboarding process", desc: "Ops walkthrough → typed process map with actors, systems, exceptions.", sampleId: "banking", kind: "process" },
+  { id: "onboarding", label: "Client onboarding process", desc: "Ops walkthrough → process map with actors, systems and exceptions.", sampleId: "banking", kind: "process" },
   { id: "discovery", label: "Discovery call → BMC", desc: "Founder interview → 9-block Business Model Canvas.", sampleId: "haulpilot", kind: "bmc" },
   { id: "compliance", label: "Compliance / approval workflow", desc: "Decision branches, exceptions, and hand-offs across teams.", sampleId: "banking", kind: "process" },
   { id: "validate", label: "Validate a business idea", desc: "Pressure-test a pitch against the 9 BMC blocks.", sampleId: "haulpilot", kind: "bmc" },
@@ -55,7 +57,7 @@ const DIAGRAM_KINDS: ViewKind[] = ["dfd", "raci", "decisiontree", "statediagram"
 
 const KIND_DESCRIPTIONS: Record<ViewKind, string> = {
   process: "Actors, steps, decisions, exceptions.",
-  bmc: "9 classic blocks with confidence per item.",
+  bmc: "9 classic blocks, each item marked with how clearly the source states it.",
   dfd: "Processes, data stores, external entities — populated from your sources.",
   raci: "Who's Responsible, Accountable, Consulted, Informed — populated from your sources.",
   decisiontree: "Branching rules and outcomes — always starts empty, manual only.",
@@ -85,7 +87,7 @@ function NewProjectPage() {
   const [sources, setSources] = useState<SourceDraft[]>([makeSource(0)]);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Pick<FriendlyError, "title" | "detail"> | null>(null);
 
   const capCheck = sessionStore.canCreateProject(session.projects.length, session.tier);
   const canContinue1 = name.trim().length > 0;
@@ -106,7 +108,10 @@ function NewProjectPage() {
   })();
 
   const create = async () => {
-    if (!capCheck.ok) { setError(capCheck.reason ?? "Project limit reached."); return; }
+    if (!capCheck.ok) {
+      setError({ title: "Couldn't create the project.", detail: capCheck.reason ?? "Your plan's project limit has been reached." });
+      return;
+    }
     setCreating(true);
     setError(null);
     await new Promise(r => setTimeout(r, mode === "sources" ? 600 : 200));
@@ -136,7 +141,9 @@ function NewProjectPage() {
         perSource = await extractSources(readySources, underlyingKinds);
       } catch (err) {
         setCreating(false);
-        setError(err instanceof Error ? err.message : "Extraction failed. Try again.");
+        const fe = friendlyError(err, "read your sources");
+        // Nothing is saved until the sources have been read.
+        setError(fe.kind === "unknown" ? { ...fe, detail: "Nothing was created. Try again in a moment." } : fe);
         return;
       }
       if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "extraction_run", undefined, { sourceCount: readySources.length });
@@ -163,10 +170,11 @@ function NewProjectPage() {
       }));
       if (canvases.length === 0) {
         setCreating(false);
-        setError(
-          refusalReason ??
-          "Not enough structure in these sources to build the selected artifact(s). Try longer or more detailed inputs.",
-        );
+        setError({
+          title: "Couldn't draw what you picked.",
+          detail: refusalReason ??
+            "These sources don't have enough detail for it yet. Add a longer or more detailed transcript and try again.",
+        });
         return;
       }
     } else if (mode === "template" && templateId) {
@@ -182,7 +190,7 @@ function NewProjectPage() {
             canvases.push(mk(viewKind, emptyCanvas(underlying, name.trim())));
           }
         }
-        storedSources = sample ? [{ label: "Template transcript", text: sample.transcript, origin: "paste" }] : [];
+        storedSources = sample ? [{ label: "Example transcript", text: sample.transcript, origin: "paste" }] : [];
       }
     } else {
       // scratch
@@ -193,7 +201,7 @@ function NewProjectPage() {
 
     if (!session.userId || !session.currentOrgId) {
       setCreating(false);
-      setError("You need to be signed in to create a project.");
+      setError({ title: "Couldn't create the project.", detail: "Sign in, then try again." });
       return;
     }
     try {
@@ -213,7 +221,7 @@ function NewProjectPage() {
       navigate({ to: "/project/$id", params: { id: project.id } });
     } catch (err) {
       setCreating(false);
-      setError(err instanceof Error ? err.message : "Couldn't create this project. Try again.");
+      setError(friendlyError(err, "save the new project"));
     }
   };
 
@@ -301,7 +309,7 @@ function NewProjectPage() {
             </div>
             <div className="flex justify-end pt-2">
               <Button disabled={!canContinue1} onClick={() => setStep(2)}>
-                Continue <ChevronRight className="size-4" />
+                Next: pick artifacts <ChevronRight className="size-4" />
               </Button>
             </div>
           </div>
@@ -310,8 +318,8 @@ function NewProjectPage() {
         {step === 2 && (
           <div className="space-y-5 rounded-2xl border bg-card p-6">
             <p className="text-sm text-muted-foreground">
-              What should visu build for this project? Pick as many as you want — each becomes
-              its own independently-named artifact you can open, edit, and reposition on its own.
+              Which artifacts should this project have? Pick as many as you like. Each one becomes
+              its own artifact you can name, open and edit.
             </p>
             <div className="space-y-4">
               <div>
@@ -343,12 +351,12 @@ function NewProjectPage() {
                 </div>
               </div>
             </div>
-            <div className="flex justify-between pt-2">
+            <div className="flex flex-wrap justify-between gap-2 pt-2">
               <Button variant="ghost" onClick={() => setStep(1)}>
                 <ChevronLeft className="size-4" /> Back
               </Button>
-              <Button disabled={!canContinue2} onClick={() => setStep(3)}>
-                Continue <ChevronRight className="size-4" />
+              <Button disabled={!canContinue2} onClick={() => setStep(3)} className="ml-auto">
+                Next: choose a starting point <ChevronRight className="size-4" />
               </Button>
             </div>
           </div>
@@ -359,16 +367,16 @@ function NewProjectPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               <ModeCard
                 active={mode === "sources"} onSelect={() => setMode("sources")}
-                icon={<FileText className="size-4" />} title="Paste / upload sources"
-                desc="Extract from transcripts, PDFs, or DOCX." />
+                icon={<FileText className="size-4" />} title="Paste or add sources"
+                desc="Paste a transcript, or add PDF or Word files." />
               <ModeCard
                 active={mode === "template"} onSelect={() => setMode("template")}
                 icon={<LibraryBig className="size-4" />} title="Start from a template"
-                desc="Pre-filled sample to explore the workbench." />
+                desc="An example call, already filled in, to try things out." />
               <ModeCard
                 active={mode === "scratch"} onSelect={() => setMode("scratch")}
                 icon={<PenLine className="size-4" />} title="Start from scratch"
-                desc="Empty canvas — add items yourself." />
+                desc="A blank artifact you fill in yourself." />
             </div>
 
             <div className="rounded-2xl border bg-card p-6">
@@ -405,7 +413,7 @@ function NewProjectPage() {
               )}
               {mode === "scratch" && (
                 <div className="text-sm text-muted-foreground">
-                  We'll create an empty {kinds.length === 1 ? "canvas" : "set of canvases"} for{" "}
+                  Starts with {kinds.length === 1 ? "a blank artifact" : "blank artifacts"}:{" "}
                   <strong>
                     {kinds.map(k => VIEW_KIND_META[k].label).join(" + ")}
                   </strong>.
@@ -414,11 +422,7 @@ function NewProjectPage() {
               )}
             </div>
 
-            {error && (
-              <div className="rounded-lg border border-drift/40 bg-drift/5 p-3 text-sm text-drift-ink">
-                {error}
-              </div>
-            )}
+            <InlineError error={error} />
 
             <div className="flex items-center justify-between border-t pt-4">
               <Button variant="ghost" onClick={() => setStep(2)}>
@@ -445,7 +449,7 @@ function StepRail({ step }: { step: Step }) {
         <div key={i} className={cn(
           "h-6 w-6 rounded-full grid place-items-center border",
           i < step && "bg-primary/10 border-primary/40 text-primary",
-          i === step && "bg-primary text-primary-foreground border-primary",
+          i === step && "bg-primary/10 text-primary border-primary font-semibold",
           i > step && "text-muted-foreground",
         )}>
           {i < step ? <Check className="size-3" /> : i}

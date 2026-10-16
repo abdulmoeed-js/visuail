@@ -37,13 +37,8 @@ export function isGrounded(snippet: string | undefined, sourceText: string): boo
 
 function flagItem<T extends BaseItem>(item: T, sourceText: string): T {
   if (item.snippet && !isGrounded(item.snippet, sourceText)) {
-    return {
-      ...item,
-      unresolved: true,
-      conflictNote: [item.conflictNote, "Source quote could not be verified against the transcript."]
-        .filter(Boolean)
-        .join(" "),
-    };
+    // grade.ts reads quoteUnverified as "Unclear: the quote wasn't found".
+    return { ...item, unresolved: true, quoteUnverified: true };
   }
   return item;
 }

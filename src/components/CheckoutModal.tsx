@@ -4,6 +4,19 @@ import { Button } from "@/components/ui/button";
 import { LogIn, Loader2, Lock, AlertTriangle } from "lucide-react";
 import { sessionStore, useSession } from "@/lib/session";
 import { SignupWallModal } from "@/components/SignupWallModal";
+import { EdgeError } from "@/lib/edge";
+import { friendlyError } from "@/lib/friendly-error";
+
+/** What to do next when checkout can't open, in words that fit paying. */
+function checkoutErrorDetail(e: unknown): string {
+  const { kind, detail } = friendlyError(e, "start checkout");
+  if (e instanceof EdgeError && e.status === 500 && /configured/i.test(e.serverMessage)) {
+    return "Payments aren't available right now. Try again later.";
+  }
+  if (kind === "not-allowed") return "Only the workspace owner can change the plan. Ask them to upgrade.";
+  // The title above already says checkout couldn't start.
+  return detail;
+}
 
 interface Props {
   open: boolean;
@@ -26,7 +39,7 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
     sessionStore
       .startCheckout(session.currentOrgId, tier === "Pro" ? "pro" : "team")
       .catch((e) => {
-        setErr(e instanceof Error ? e.message : "Couldn't start checkout. Try again.");
+        setErr(checkoutErrorDetail(e));
       });
     // Success path navigates away via window.location.href, so no cleanup needed.
   }, [open, tier, session.currentOrgId, err]);
@@ -44,7 +57,7 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
             <DialogHeader>
               <DialogTitle className="font-display text-2xl leading-tight">Sign in to upgrade.</DialogTitle>
               <DialogDescription className="text-sm">
-                Plans are tied to your account, so we need you signed in before activating {tier ?? "a plan"}.
+                Plans are tied to your account, so sign in before activating {tier ?? "a plan"}.
               </DialogDescription>
             </DialogHeader>
             <Button className="w-full h-11" onClick={() => setSignInOpen(true)}>
@@ -83,8 +96,8 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-drift/15 text-drift-ink">
               <AlertTriangle className="size-6" />
             </div>
-            <p className="text-sm text-muted-foreground">{err}</p>
-            <Button onClick={() => setErr(null)}>Try again</Button>
+            <p role="alert" className="text-sm text-muted-foreground">{err}</p>
+            <Button onClick={() => setErr(null)}>Try checkout again</Button>
           </div>
         ) : (
           <div className="flex flex-col items-center text-center gap-3 py-10">

@@ -1,10 +1,13 @@
-import type { ProcessModel } from "@/data/samples";
+import type { BaseItem, ProcessModel } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { deriveUseCaseDescription } from "@/lib/usecase";
+import { gradeOf, quoteMissing } from "@/lib/grade";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { IdChip } from "./atoms";
+import { ConfidenceBadge, IdChip } from "./atoms";
 import { InlineEdit } from "./InlineEdit";
+
+/** Older projects recorded a failed quote check only as this note (grade.ts). */
 
 // Renders a step as a classic Use Case Description: actor, pre/post-condition,
 // basic flow, alternate flows (from decisions pointing at this step), and
@@ -32,6 +35,7 @@ export function UseCaseDescriptionDialog({
                 Use case <IdChip id={draft.step.id} />
               </div>
               <DialogTitle>{draft.step.text}</DialogTitle>
+              <Certainty step={draft.step} />
             </DialogHeader>
 
             <div className="space-y-4 text-sm">
@@ -103,6 +107,25 @@ export function UseCaseDescriptionDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** How sure the step is, in words, with the reason (which carries the
+ *  percentage, as detail) and the source's own words when the quote check
+ *  found them. An unverified snippet is never shown as a quote. */
+function Certainty({ step }: { step: BaseItem }) {
+  const g = gradeOf(step);
+  const quoteFound = !quoteMissing(step);
+  const quote = !g.provenance && g.grade !== "disagree" && step.snippet && quoteFound ? step.snippet : "";
+  return (
+    <div className="space-y-1 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <ConfidenceBadge item={step} />
+        {/* The chip already gives screen readers the reason. */}
+        <span aria-hidden>{g.reason}</span>
+      </div>
+      {quote && <p className="italic">“{quote}”</p>}
+    </div>
   );
 }
 

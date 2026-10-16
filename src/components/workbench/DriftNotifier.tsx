@@ -43,8 +43,8 @@ export function DriftNotifier({
     count === 0
       ? demo ? "No drift detected." : hasSources ? "Nothing flagged at the last re-check." : "No sources to check yet."
       : demo
-      ? `Drift detected in ${artifactTitle} — ${count} item${count === 1 ? "" : "s"} unresolved`
-      : `${count} item${count === 1 ? "" : "s"} in ${artifactTitle} changed in your sources`;
+      ? `${artifactTitle}: ${count} item${count === 1 ? "" : "s"} changed in the source`
+      : `${count} item${count === 1 ? "" : "s"} in ${artifactTitle} changed in the source`;
 
   const send = () => setSent({ channel, at: Date.now() });
 

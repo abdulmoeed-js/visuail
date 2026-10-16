@@ -15,19 +15,23 @@ export const ALL_VIEW_KINDS: ViewKind[] = [
 ];
 
 interface ViewKindMeta {
+  /** Also the default name of a new artifact, which is stored: keep as is. */
   label: string;
+  /** The kind inside a sentence ("New data flow diagram"); the Business Model
+   *  Canvas keeps its capitals as the method's own name. */
+  noun: string;
   plural: string;
   icon: ComponentType<SVGProps<SVGSVGElement>>;
 }
 
 export const VIEW_KIND_META: Record<ViewKind, ViewKindMeta> = {
-  process: { label: VIEW_KIND_LABELS.process, plural: "Process maps", icon: ProcessMapIcon },
-  bmc: { label: VIEW_KIND_LABELS.bmc, plural: "Business Model Canvases", icon: BMCIcon },
-  dfd: { label: VIEW_KIND_LABELS.dfd, plural: "Data Flow Diagrams", icon: DFDIcon },
-  raci: { label: VIEW_KIND_LABELS.raci, plural: "RACI Matrices", icon: RACIIcon },
-  decisiontree: { label: VIEW_KIND_LABELS.decisiontree, plural: "Decision Trees", icon: DecisionTreeIcon },
-  statediagram: { label: VIEW_KIND_LABELS.statediagram, plural: "State Diagrams", icon: StateDiagramIcon },
-  activity: { label: VIEW_KIND_LABELS.activity, plural: "Activity Diagrams", icon: ActivityIcon },
+  process: { label: VIEW_KIND_LABELS.process, noun: "process map", plural: "Process maps", icon: ProcessMapIcon },
+  bmc: { label: VIEW_KIND_LABELS.bmc, noun: "Business Model Canvas", plural: "Business Model Canvases", icon: BMCIcon },
+  dfd: { label: VIEW_KIND_LABELS.dfd, noun: "data flow diagram", plural: "Data flow diagrams", icon: DFDIcon },
+  raci: { label: VIEW_KIND_LABELS.raci, noun: "RACI matrix", plural: "RACI matrices", icon: RACIIcon },
+  decisiontree: { label: VIEW_KIND_LABELS.decisiontree, noun: "decision tree", plural: "Decision trees", icon: DecisionTreeIcon },
+  statediagram: { label: VIEW_KIND_LABELS.statediagram, noun: "state diagram", plural: "State diagrams", icon: StateDiagramIcon },
+  activity: { label: VIEW_KIND_LABELS.activity, noun: "activity diagram", plural: "Activity diagrams", icon: ActivityIcon },
 };
 
 /** "bmc" is the only viewKind backed by a BMCModel; every other viewKind

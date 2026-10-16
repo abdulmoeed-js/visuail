@@ -515,7 +515,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   // (index 1, same source position but a fresh look), then diff the result
   // against the pristine baseline for real -- not a hardcoded set of ids.
   const onSimulateDrift = () => {
-    if (mutate(() => diffModels(pristine, perturb(pristine, 1)), { label: "simulated source change" })) setDrifted(true);
+    if (mutate(() => diffModels(pristine, perturb(pristine, 1)), { label: "source change" })) setDrifted(true);
   };
   const onClearDrift = () => { if (mutate(() => pristine, { label: "source restore" })) setDrifted(false); };
 
@@ -530,6 +530,11 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
         (merged as BaseItem).confidence = 1;
         (merged as BaseItem).drift = false;
         (merged as BaseItem).conflict = false;
+        // A person wrote this text, so earlier doubts about the extracted
+        // wording no longer apply.
+        delete (merged as BaseItem).conflictNote;
+        delete (merged as BaseItem).unresolved;
+        delete (merged as BaseItem).quoteUnverified;
       }
       return merged;
     };

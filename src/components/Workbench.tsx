@@ -2,8 +2,6 @@ import { useState, useMemo, useRef, useEffect, useCallback, type ReactNode } fro
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import {
   Sparkles, RotateCcw, AlertOctagon, Share2, FileDown,
   LayoutList, Shuffle, ShieldCheck, Loader2, Info,
@@ -11,9 +9,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  SAMPLES, stats, driftSummary,
+  SAMPLES,
   type ArtifactModel, type Sample, type BaseItem,
 } from "@/data/samples";
+import { gradeOf, summarizeGrades } from "@/lib/grade";
+import { GradeBar } from "./workbench/atoms";
 import { EditableList } from "./workbench/EditableList";
 import { ProcessCanvas } from "./workbench/ProcessCanvas";
 import { BMCCanvas } from "./workbench/BMCCanvas";
@@ -80,19 +80,20 @@ export function Workbench() {
     setState({ status: "extracting" });
     setTimeout(() => {
       const rawModel = transcript.trim().length < 120 ? null : activeSample.build();
-      const refusal = checkRefusal(rawModel);
-      if (refusal.refuse) {
+      // Check the quotes first, as the project paths do, so a quote the
+      // text doesn't contain counts as unclear when deciding to refuse.
+      const model = rawModel ? verifyGrounding(rawModel, transcript) : null;
+      const refusal = checkRefusal(model);
+      if (refusal.refuse || !model) {
         setState({ status: "refused", reason: refusal.reason! });
         return;
       }
-      const model = verifyGrounding(rawModel!, transcript);
       editing.reset(model);
       setState({ status: "ready" });
     }, 900);
   };
 
   const openWall = (action: string) => { setWallAction(action); setWallOpen(true); };
-  const s = state.status === "ready" ? stats(editing.model) : null;
 
   // Project mode short-circuits the single-source workbench UI.
   if (project) {
@@ -133,11 +134,11 @@ export function Workbench() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <Link to="/new">
-            <Button variant="default" size="sm" className="h-8 gap-1.5">
+          <Button asChild variant="outline" size="sm" className="h-8 gap-1.5">
+            <Link to="/new">
               <FolderPlus className="size-3.5" /> New project
-            </Button>
-          </Link>
+            </Link>
+          </Button>
           <TemplateGallery onPick={loadSample} />
           <span className="mx-1 h-4 w-px bg-border" aria-hidden />
           {SAMPLES.map((sm) => (
@@ -185,9 +186,12 @@ export function Workbench() {
             className="min-h-[380px] font-mono-tight text-xs leading-relaxed resize-y"
           />
           <div className="flex items-center gap-2">
+            {/* The main action until there is a diagram; after that,
+                extracting again is an ordinary choice. */}
             <Button
               onClick={extract}
               disabled={state.status === "extracting"}
+              variant={state.status === "ready" ? "outline" : "default"}
               className="flex-1 h-10"
             >
               {state.status === "extracting" ? (
@@ -196,7 +200,7 @@ export function Workbench() {
                 <><Sparkles className="size-4" /> Extract artifact</>
               )}
             </Button>
-            <Button variant="ghost" size="icon" title="Reset"
+            <Button variant="ghost" size="icon" title="Reload the sample call" aria-label="Reload the sample call"
               onClick={() => { loadSample(activeSample); }}>
               <RotateCcw className="size-4" />
             </Button>
@@ -209,7 +213,7 @@ export function Workbench() {
                   it doesn't contain. Say so the moment the text stops matching. */}
               {transcript.trim() && transcript.trim() !== activeSample.transcript.trim() ? (
                 <span>
-                  This preview always draws the sample call, not your text. To use your own transcript,{" "}
+                  Only the sample call is drawn here, not your own text. To use your own transcript,{" "}
                   <Link to="/new" className="text-primary underline underline-offset-4">start a free project</Link>.
                 </span>
               ) : (
@@ -224,8 +228,8 @@ export function Workbench() {
           {state.status === "empty" && <EmptyState onClick={extract} />}
           {state.status === "extracting" && <ExtractingState />}
           {state.status === "refused" && <RefusedState reason={state.reason} onRetry={() => setState({ status: "empty" })} />}
-          {state.status === "ready" && s && (
-            <ArtifactView editing={editing} stats={s} onPublish={openWall} demoHints />
+          {state.status === "ready" && (
+            <ArtifactView editing={editing} onPublish={openWall} demoHints />
           )}
         </div>
       </div>
@@ -238,16 +242,15 @@ export function Workbench() {
 function EmptyState({ onClick }: { onClick: () => void }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-16 gap-4 bp-grid-fine rounded-xl m-1">
-      <div className="rounded-md border bg-card px-3 py-1 eyebrow text-muted-foreground">
-        Artifact panel
-      </div>
       <h3 className="font-display text-2xl max-w-md">
         Your typed artifact will render here — not a shape library, a model.
       </h3>
       <p className="text-sm text-muted-foreground max-w-sm">
         Pick a sample call and press <strong>Extract</strong>, or click <strong>New project</strong> to upload your own PDF or Word files.
       </p>
-      <Button onClick={onClick} className="mt-2"><Sparkles className="size-4" /> Extract artifact</Button>
+      {/* Ordinary here: the source panel's Extract button is the main one,
+          and both are on screen together. */}
+      <Button variant="outline" onClick={onClick} className="mt-2"><Sparkles className="size-4" /> Extract artifact</Button>
     </div>
   );
 }
@@ -260,7 +263,7 @@ function ExtractingState() {
          *  to be reading -- spend it on what the product does in plain BA
          *  language, not compiler vocabulary ("tokenizing", "typed IR"). Each
          *  line maps to a real step: extraction, typing, confidence, grounding. */}
-        {["Reading the transcript…", "Finding actors, steps and decisions…", "Scoring how sure it is about each one…", "Flagging anything the source didn't actually say…"].map((t, i) => (
+        {["Reading the transcript…", "Finding actors, steps and decisions…", "Checking how clearly each one is stated…", "Flagging anything the source didn't actually say…"].map((t, i) => (
           <div key={t} className="flex items-center gap-2 text-xs font-mono-tight text-muted-foreground">
             <Loader2 className="size-3 animate-spin" style={{ animationDelay: `${i * 120}ms` }} />
             <span>{t}</span>
@@ -281,18 +284,18 @@ function RefusedState({ reason, onRetry }: { reason: string; onRetry: () => void
         <ShieldCheck className="size-5" />
       </div>
       <div className="max-w-md space-y-1.5">
-        <div className="eyebrow text-unresolved">
-          Refused — not enough structure to draw safely
+        <div className="eyebrow text-unresolved-ink">
+          Not enough to draw from
         </div>
-        <h3 className="font-display text-xl">visu didn't extract this one.</h3>
+        <h3 className="font-display text-xl">Nothing was drawn from this one.</h3>
         <p className="text-sm text-muted-foreground">{reason}</p>
       </div>
       <div className="rounded-md border bg-card p-3 text-xs text-muted-foreground max-w-md text-left">
         <strong className="text-foreground">Why this matters:</strong> most tools would happily
-        fabricate a three-box diagram from a single sentence. visu refuses when a model would
-        require guessing — and shows you why.
+        fabricate a three-box diagram from a single sentence. Here, a diagram that would need
+        guessing isn&rsquo;t drawn, and the reason is shown instead.
       </div>
-      <Button variant="outline" onClick={onRetry}>Back to source</Button>
+      <Button variant="outline" onClick={onRetry}>Back to the transcript</Button>
     </div>
   );
 }
@@ -351,14 +354,16 @@ function historyToast(
  * project view can reuse the exact same UI per artifact.
  */
 export function ArtifactView({
-  editing, stats: st, onPublish, canvasRef, extraHeaderRight,
+  editing, onPublish, exportLabel = "Download as PDF", canvasRef, extraHeaderRight,
   projectId, commentCounts, onCommentCountChange, focusItemId, initialTab, demoHints, viewing,
 }: {
   editing: ArtifactEditing;
-  stats: ReturnType<typeof stats>;
   /** Share and export actions. Omitted on the public share page, where the
    *  reader has nothing to publish. */
   onPublish?: (action: string) => void;
+  /** Names what the footer's PDF button downloads; on the project page it
+   *  runs the same export as the header, every artifact at once. */
+  exportLabel?: string;
   canvasRef?: React.RefObject<HTMLDivElement>;
   extraHeaderRight?: ReactNode;
   /** Only set on the real project page -- omitted in the marketing demo, which has no comments backend. */
@@ -385,9 +390,8 @@ export function ArtifactView({
   viewing?: { editorLabel: string; onTakeOver: () => void };
 }) {
   const { model, drifted } = editing;
-  const avgPct = Math.round(st.avg * 100);
-  const avgTone = avgPct >= 85 ? "text-confident" : avgPct >= 70 ? "text-unresolved" : "text-drift";
-  const drift = drifted ? driftSummary(model) : { count: 0, label: "" };
+  const grades = useMemo(() => summarizeGrades(model), [model]);
+  const changedWords = `${grades.changed} item${grades.changed === 1 ? "" : "s"} changed in the source`;
   const [drilldownStepId, setDrilldownStepId] = useState<string | null>(null);
   const [hintDismissed, setHintDismissed] = useState(false);
   const showDriftHint = !!demoHints && !drifted && !hintDismissed;
@@ -560,20 +564,14 @@ export function ArtifactView({
           <h3 className="font-display text-xl truncate">{model.title}</h3>
         </div>
         <div className="flex flex-wrap items-center gap-4">
-          <MetricBlock label="Items" value={String(st.count)} />
-          <MetricBlock label="Unresolved" value={String(st.unresolved)} tone={st.unresolved ? "warn" : undefined} />
-          <div className="min-w-[140px]">
-            <div className="flex items-center justify-between text-[11px] font-mono-tight text-muted-foreground">
-              <span className="eyebrow">Confidence</span>
-              <span className={cn("font-semibold", avgTone)}>{avgPct}%</span>
-            </div>
-            <Progress value={avgPct} className="h-1.5 mt-1" />
-          </div>
+          {/* How sure each item is, in words with a thin bar (DESIGN 3.3).
+              The percentages stay in each item's own details. */}
+          <GradeBar summary={grades} className="min-w-[160px] max-w-[320px]" />
           {demoHints && (
             <DriftNotifier
               demo
               drifted={drifted}
-              driftedNames={driftedNames(model, drifted)}
+              driftedNames={changedNames(model, drifted)}
               artifactTitle={model.title}
             />
           )}
@@ -585,7 +583,7 @@ export function ArtifactView({
         <div className="flex items-start gap-3 border-b bg-drift/10 px-4 py-3 text-drift-ink">
           <AlertOctagon className="size-5 mt-0.5 shrink-0" />
           <div className="flex-1 text-sm">
-            <div className="font-semibold">Source of truth drifted — {drift.label}.</div>
+            <div className="font-semibold">Drift: {changedWords}.</div>
             <p className="text-[13px] mt-0.5 text-drift-ink">
               {model.kind === "process"
                 ? "A follow-up call revised the KYC path: high-risk customers now bypass Ops entirely and route to a new dedicated onboarding team."
@@ -595,7 +593,7 @@ export function ArtifactView({
           <Button size="sm" variant="outline"
             className="bg-card text-foreground border-drift/40 hover:border-drift/60 hover:bg-card"
             onClick={editing.onClearDrift}>
-            Reconcile
+            Restore source
           </Button>
         </div>
       )}
@@ -808,12 +806,18 @@ export function ArtifactView({
       <div className="border-t bg-muted/40 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         {demoHints && (
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant={drifted ? "secondary" : showDriftHint ? "default" : "outline"}
+          {/* The main action only while the hint points at it; it is the
+              demo's next step then, and an ordinary button otherwise. */}
+          <Button size="sm" variant={showDriftHint ? "default" : "outline"}
             onClick={drifted ? editing.onClearDrift : editing.onSimulateDrift}>
             <Shuffle className="size-3.5" />
             {drifted ? "Restore source" : "Simulate source change"}
           </Button>
-          {drifted && <Badge variant="destructive" className="bg-drift">{drift.count} drifted</Badge>}
+          {drifted && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-drift/10 px-2 py-0.5 text-xs font-medium text-drift-ink">
+              <AlertOctagon className="size-3" aria-hidden /> {changedWords}
+            </span>
+          )}
           {showDriftHint && (
             <span className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-xs text-foreground">
               Now the part nobody else does — see what happens when the client changes their mind.
@@ -830,12 +834,13 @@ export function ArtifactView({
         )}
         {onPublish && (
         <div className="flex flex-wrap items-center gap-1.5 ml-auto">
-          <span className="eyebrow text-muted-foreground mr-1">Publish</span>
+          {/* The strings passed to onPublish are routing keys the callers
+              compare ("Share link", "Export"); only the labels changed. */}
           <Button size="sm" variant="outline" onClick={() => onPublish("Share link")}>
-            <Share2 className="size-3.5" /> Share link
+            <Share2 className="size-3.5" /> Share a link
           </Button>
-          <Button size="sm" onClick={() => onPublish("Export")}>
-            <FileDown className="size-3.5" /> Export
+          <Button size="sm" variant="outline" onClick={() => onPublish("Export")}>
+            <FileDown className="size-3.5" /> {exportLabel}
           </Button>
         </div>
         )}
@@ -860,17 +865,6 @@ function RecoverableCanvas({ onRemoveLastAdded, children }: { onRemoveLastAdded:
     <CanvasErrorBoundary onRemoveLastAdded={onRemoveLastAdded} onRecover={forgetLayout}>
       {children}
     </CanvasErrorBoundary>
-  );
-}
-
-function MetricBlock({ label, value, tone }: { label: string; value: string; tone?: "warn" }) {
-  return (
-    <div>
-      <div className="eyebrow text-muted-foreground">{label}</div>
-      <div className={cn("text-lg font-display leading-none mt-0.5", tone === "warn" && "text-unresolved")}>
-        {value}
-      </div>
-    </div>
   );
 }
 
@@ -899,13 +893,19 @@ function ItemGroup({ title, items, onAdd, onDelete, onEdit, projectId, commentCo
   );
 }
 
-function driftedNames(model: ArtifactModel, drifted: boolean): string[] {
+/** The items graded "Source changed", by name, for the demo's drift alert.
+ *  Same rule as the header bar and the item chips (grade.ts). */
+function changedNames(model: ArtifactModel, drifted: boolean): string[] {
   if (!drifted) return [];
+  const changed = (i: BaseItem) => gradeOf(i).grade === "changed";
   if (model.kind === "process") {
     return [
-      ...model.steps.filter((s) => s.drift).map((s) => s.text),
-      ...model.decisions.filter((d) => d.drift).map((d) => `Decision: ${d.text}`),
+      ...model.actors.filter(changed).map((a) => a.text),
+      ...model.systems.filter(changed).map((s) => s.text),
+      ...model.steps.filter(changed).map((s) => s.text),
+      ...model.decisions.filter(changed).map((d) => `Decision: ${d.text}`),
+      ...model.exceptions.filter(changed).map((e) => `Exception: ${e.text}`),
     ];
   }
-  return model.blocks.filter((b) => b.blockDrift).map((b) => b.title);
+  return model.blocks.flatMap((b) => b.items.filter(changed).map((i) => `${b.title}: ${i.text}`));
 }

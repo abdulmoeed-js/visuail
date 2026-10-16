@@ -1,7 +1,21 @@
-import { ArrowRight, Check, X } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ConfidenceBadge, GradeBar } from "@/components/workbench/atoms";
+import type { BaseItem } from "@/data/samples";
+import { summarizeItems } from "@/lib/grade";
 import { scrollToId } from "@/lib/scroll";
+
+/** The hero card's illustrative items, graded by the product's own rules:
+ *  confirmed by two calls, stated clearly, stated loosely, changed since. */
+const HERO_ITEMS: { item: BaseItem; tone: "ok" | "warn" | "drift" }[] = [
+  { item: { id: "ST1", text: "Receive application", confidence: 0.92, confirmedBySources: ["Call 1", "Call 2"] }, tone: "ok" },
+  { item: { id: "ST2", text: "Verify completeness in CRM", confidence: 0.92 }, tone: "ok" },
+  { item: { id: "ST3", text: "Run KYC checks", confidence: 0.92 }, tone: "ok" },
+  { item: { id: "ST6", text: "Send welcome pack", confidence: 0.52 }, tone: "warn" },
+  { item: { id: "ST7", text: "Notify customer", confidence: 0.9, drift: true }, tone: "drift" },
+];
+const HERO_SUMMARY = summarizeItems(HERO_ITEMS.map((h) => h.item));
 
 export function Hero() {
   const scroll = () => scrollToId("workbench");
@@ -76,40 +90,27 @@ function HeroCard() {
           <span className="text-[10px] font-mono-tight text-muted-foreground">artifact.process.v1</span>
         </div>
         <div className="p-4 bp-grid-fine">
-          {/* mini flow */}
+          {/* mini flow: the same grade chips and bar as the real artifact
+              header and canvas nodes, worked out from these items */}
           <div className="mx-auto max-w-[300px] space-y-2.5">
-            {[
-              { id: "ST1", t: "Receive application", tone: "ok" },
-              { id: "ST2", t: "Verify completeness in CRM", tone: "ok" },
-              { id: "ST3", t: "Run KYC checks", tone: "ok" },
-              { id: "ST6", t: "Send welcome pack", tone: "warn" },
-              { id: "ST7", t: "Notify customer", tone: "drift" },
-            ].map((n) => (
-              <div key={n.id} className={cn(
-                "flex items-center justify-between rounded-md border-2 bg-card px-2.5 py-1.5 text-xs",
-                n.tone === "ok" && "border-primary/40",
-                n.tone === "warn" && "border-dashed border-unresolved bg-unresolved/5",
-                n.tone === "drift" && "border-drift bg-drift/5",
+            {HERO_ITEMS.map(({ item, tone }) => (
+              <div key={item.id} className={cn(
+                "flex items-center justify-between gap-2 rounded-md border-2 bg-card px-2.5 py-1.5 text-xs",
+                tone === "ok" && "border-primary/40",
+                tone === "warn" && "border-dashed border-unresolved bg-unresolved/5",
+                tone === "drift" && "border-drift bg-drift/5",
               )}>
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-mono-tight text-[9px] bg-primary/10 text-primary px-1 py-0.5 rounded">{n.id}</span>
-                  <span className="truncate">{n.t}</span>
+                  <span className="font-mono-tight text-[9px] bg-primary/10 text-primary px-1 py-0.5 rounded">{item.id}</span>
+                  <span className="truncate">{item.text}</span>
                 </div>
-                <span className={cn(
-                  "font-mono-tight text-[9px] px-1.5 rounded",
-                  n.tone === "ok" && "bg-confident/10 text-confident-ink",
-                  n.tone === "warn" && "bg-unresolved/20 text-unresolved-ink",
-                  n.tone === "drift" && "bg-drift/15 text-drift-ink",
-                )}>
-                  {n.tone === "ok" ? "92%" : n.tone === "warn" ? "52%" : "drifted"}
-                </span>
+                <ConfidenceBadge item={item} compact />
               </div>
             ))}
           </div>
         </div>
-        <div className="border-t bg-muted/40 px-3 py-2 flex items-center justify-between text-[11px] font-mono-tight">
-          <span className="text-muted-foreground">avg confidence <span className="text-confident">86%</span></span>
-          <span className="flex items-center gap-1 text-drift"><Check className="size-3" /> 1 drifted · <X className="size-3" /> 1 unresolved</span>
+        <div className="border-t bg-muted/40 px-3 py-2">
+          <GradeBar summary={HERO_SUMMARY} />
         </div>
       </div>
     </div>

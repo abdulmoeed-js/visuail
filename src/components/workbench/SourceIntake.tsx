@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { extractFileText, detectKind } from "@/lib/file-extract";
+import { friendlyError } from "@/lib/friendly-error";
 
 export interface SourceDraft {
   id: string;
@@ -46,19 +47,31 @@ export function SourceIntake({ sources, onChange }: Props) {
 
   const handleFile = useCallback(async (id: string, file: File) => {
     if (detectKind(file) === "unsupported") {
-      updateSource(id, { status: "error", error: "Only .pdf and .docx are supported.", filename: file.name });
+      updateSource(id, {
+        status: "error", filename: file.name,
+        error: `${file.name} isn't a PDF or Word (.docx) file. Add one of those, or paste the text instead.`,
+      });
       return;
     }
     updateSource(id, { status: "parsing", filename: file.name, label: file.name, error: undefined });
     try {
       const text = await extractFileText(file);
       if (!text || text.length < 20) {
-        updateSource(id, { status: "error", error: "Couldn't extract readable text from this file." });
+        updateSource(id, {
+          status: "error",
+          error: `Couldn't find any text in ${file.name}. If it's a scanned image, paste the text instead.`,
+        });
         return;
       }
       updateSource(id, { text, status: "ready" });
     } catch (e) {
-      updateSource(id, { status: "error", error: (e as Error).message || "Failed to parse file." });
+      // The reader's own message ("Invalid PDF structure", zip errors) is
+      // logged by friendlyError, never shown.
+      const fe = friendlyError(e, `read ${file.name}`);
+      const detail = fe.kind === "unknown"
+        ? "It may be damaged. Check it opens on your computer, or paste its text instead."
+        : fe.detail;
+      updateSource(id, { status: "error", error: `${fe.title} ${detail}` });
     }
     // updateSource closes over stale sources; use ref via functional pattern instead
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,10 +91,10 @@ export function SourceIntake({ sources, onChange }: Props) {
       ))}
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={() => addSource("paste")}>
-          <Plus className="size-3.5" /> Add pasted source
+          <Plus className="size-3.5" /> Paste a transcript
         </Button>
         <Button variant="outline" size="sm" onClick={() => addSource("upload")}>
-          <Upload className="size-3.5" /> Add uploaded file
+          <Upload className="size-3.5" /> Add a file
         </Button>
       </div>
     </div>
@@ -135,9 +148,9 @@ function SourceCard({
             source.status === "parsing" && "opacity-70 pointer-events-none",
           )}>
             {source.status === "parsing"
-              ? <><Loader2 className="size-4 animate-spin" /> Parsing {source.filename}…</>
+              ? <><Loader2 className="size-4 animate-spin" /> Reading {source.filename}…</>
               : source.status === "ready" && source.filename
-                ? <><FileText className="size-4" /> {source.filename} — parsed</>
+                ? <><FileText className="size-4" /> {source.filename} — ready</>
                 : <><Upload className="size-4" /> Drop a .pdf or .docx, or click to choose</>}
             <input
               type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -146,11 +159,11 @@ function SourceCard({
             />
           </label>
           {source.status === "error" && (
-            <div className="text-[11px] text-drift-ink">{source.error}</div>
+            <div role="alert" className="text-[13px] leading-snug text-drift-ink">{source.error}</div>
           )}
           {source.status === "ready" && source.text && (
             <details className="rounded-md border bg-muted/40 p-2 text-[11px]">
-              <summary className="cursor-pointer text-muted-foreground">Preview extracted text</summary>
+              <summary className="cursor-pointer text-muted-foreground">Show the text from this file</summary>
               <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap font-mono-tight text-[11px] leading-relaxed text-foreground/90">
                 {source.text.slice(0, 2000)}{source.text.length > 2000 ? "…" : ""}
               </div>

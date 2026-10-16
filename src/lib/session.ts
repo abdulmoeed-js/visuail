@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { invokeEdge } from "@/lib/edge";
 import type { ArtifactModel } from "@/data/samples";
 import type { ArtifactKind } from "@/lib/extract";
 
@@ -339,11 +340,7 @@ export const sessionStore = {
    *  lemonsqueezy-webhook on a verified payment event. This just kicks off
    *  a real LemonSqueezy hosted checkout and redirects to it. */
   async startCheckout(orgId: string, tier: "pro" | "team"): Promise<void> {
-    const { data, error } = await supabase.functions.invoke<{ url?: string; error?: string }>("create-checkout", {
-      body: { orgId, tier },
-    });
-    if (error) throw new Error(error.message || "Couldn't start checkout.");
-    if (data?.error) throw new Error(data.error);
+    const data = await invokeEdge<{ url?: string }>("create-checkout", { orgId, tier });
     if (!data?.url) throw new Error("Checkout didn't return a payment URL.");
     window.location.href = data.url;
   },
@@ -833,27 +830,34 @@ export const sessionStore = {
   /** Kicks off the Slack OAuth flow -- redirects the whole page to Slack's
    *  consent screen, so this never returns under the happy path. */
   async connectSlack(orgId: string): Promise<void> {
-    const { data, error } = await supabase.functions.invoke<{ url?: string; error?: string }>("slack-oauth-start", {
-      body: { orgId, redirectUri: SLACK_CALLBACK_URL },
-    });
-    if (error) throw new Error(error.message || "Couldn't start the Slack connection.");
-    if (data?.error) throw new Error(data.error);
+    const data = await invokeEdge<{ url?: string }>("slack-oauth-start", { orgId, redirectUri: SLACK_CALLBACK_URL });
     if (!data?.url) throw new Error("Slack didn't return a connection URL.");
     window.location.href = data.url;
   },
 
   async disconnectSlack(orgId: string): Promise<void> {
-    const { error } = await supabase.from("org_slack_integration").delete().eq("org_id", orgId);
+    // Only the owner may disconnect. The database refuses others silently
+    // (no error, no rows), so treat "nothing deleted" as not allowed.
+    const { data, error } = await supabase.from("org_slack_integration").delete().eq("org_id", orgId).select("org_id");
     if (error) throw error;
+    if (!data?.length) {
+      // Nothing deleted: either it was already gone (disconnected elsewhere),
+      // which is the outcome asked for, or the database refused a non-owner.
+      const still = await sessionStore.getSlackIntegration(orgId);
+      if (still) throw { code: "42501", message: "Not allowed to disconnect Slack." };
+    }
     notify();
   },
 
   async setNotificationEmail(orgId: string, email: string | null): Promise<void> {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("organizations")
       .update({ notification_email: email })
-      .eq("id", orgId);
+      .eq("id", orgId)
+      .select("id");
     if (error) throw error;
+    // Owner-only: the database refuses others silently, with no rows updated.
+    if (!data?.length) throw { code: "42501", message: "Not allowed to change the alert email." };
     notify();
   },
 

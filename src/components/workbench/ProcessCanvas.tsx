@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { decisionBranches, type ProcessModel, type Step, type Decision, type DecisionBranch, type Exception, type Connection, type CrowMarker } from "@/data/samples";
+import { decisionBranches, type BaseItem, type ProcessModel, type Step, type Decision, type DecisionBranch, type Exception, type Connection, type CrowMarker } from "@/data/samples";
 import { cn } from "@/lib/utils";
+import { gradeOf } from "@/lib/grade";
 import { ConfidenceBadge, IdChip } from "./atoms";
 import {
   Plus, X, GripVertical, Square, Diamond, AlertTriangle, Wand2,
@@ -330,7 +331,7 @@ const FLOWCHART_ITEMS: PaletteItem[] = [
   { kind: "step", shape: "subroutine", label: "Subroutine", hint: "Double bars", Icon: Layers },
   { kind: "step", shape: "offpage", label: "Off-page ref", hint: "Pentagon", Icon: ChevronsRight },
   { kind: "decision", shape: "decision", label: "Decision", hint: "Diamond", Icon: Diamond },
-  { kind: "exception", label: "Exception", hint: "Dashed", Icon: AlertTriangle },
+  { kind: "exception", label: "Exception", hint: "Side path", Icon: AlertTriangle },
 ];
 
 const BPMN_ITEMS: PaletteItem[] = [
@@ -344,7 +345,7 @@ const BPMN_ITEMS: PaletteItem[] = [
 const UML_ITEMS: PaletteItem[] = [
   { kind: "step", shape: "uml-class", label: "Class", hint: "Name / attrs / methods", Icon: Boxes },
   { kind: "step", shape: "uml-interface", label: "Interface", hint: "«interface»", Icon: Boxes },
-  { kind: "step", shape: "uml-lifeline", label: "Lifeline", hint: "Sequence · stub", Icon: GitBranch },
+  { kind: "step", shape: "uml-lifeline", label: "Lifeline", hint: "Sequence diagram", Icon: GitBranch },
 ];
 
 const DB_ITEMS: PaletteItem[] = [
@@ -1292,8 +1293,10 @@ function EmptyDiagramPrompt({
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
           Begin with a ready-made flow, add steps one at a time, or drag shapes in.
         </p>
+        {/* Three equal ways in, all ordinary: the project page's one solid
+         *  button is Re-check (DESIGN.md 6.1). */}
         <div className="mt-3 flex flex-col items-stretch gap-1.5">
-          <Button size="sm" className="h-8 justify-center gap-1.5" onClick={onStarter}>
+          <Button size="sm" variant="outline" className="h-8 justify-center gap-1.5" onClick={onStarter}>
             <Wand2 className="size-3.5" />
             <span className="text-xs">Start with Request → Review → Decision</span>
           </Button>
@@ -1302,7 +1305,7 @@ function EmptyDiagramPrompt({
               <Plus className="size-3.5" /> <span className="text-xs">Add a step</span>
             </Button>
             <Button size="sm" variant="outline" className="h-8 flex-1 gap-1.5" onClick={onOpenShapes}>
-              <PanelRightOpen className="size-3.5" /> <span className="text-xs">Open Shapes</span>
+              <PanelRightOpen className="size-3.5" /> <span className="text-xs">Show shapes</span>
             </Button>
           </div>
         </div>
@@ -1423,12 +1426,15 @@ function Legend() {
     <>
       <span className={chip}><span className="h-2 w-3 border-2 border-primary rounded-[2px]" /> Step</span>
       <span className={chip}><span className="h-2 w-2 rotate-45 border-2 border-primary" /> Decision</span>
-      <span className={chip}><span className="h-2 w-3 border border-dashed border-unresolved rounded-[2px]" /> Unresolved</span>
-      <span className={chip}><span className="h-2 w-3 border border-drift rounded-[2px] bg-drift/20" /> Drifted</span>
+      {/* The grade words from lib/grade, matching the chip on each node. One
+       *  red entry: a changed source and disagreeing sources draw the same
+       *  outline, and the node's chip says which it is. */}
+      <span className={chip}><span className="h-2 w-3 border border-dashed border-unresolved rounded-[2px]" /> Unclear</span>
+      <span className={chip}><span className="h-2 w-3 border border-drift rounded-[2px] bg-drift/20" /> Source changed or sources disagree</span>
       {/* How-to, not legend: shown only where the bar has the room for it
        *  (the bottom bar is a container-query container). The same words
        *  live in the shape palette for narrower canvases. */}
-      <span className={cn(chip, "hidden @min-[900px]:flex")}><GripVertical className="size-3" /> Drag · corner to resize · snap-to-grid</span>
+      <span className={cn(chip, "hidden @min-[900px]:flex")}><GripVertical className="size-3" /> Drag to move · drag a corner to resize</span>
     </>
   );
 }
@@ -1579,24 +1585,41 @@ function ZOrderButtons({ onFront, onBack }: { onFront: () => void; onBack: () =>
   );
 }
 
+// -------- Node outline, from the item's grade --------
+
+/** What a node's outline says. It is read from the same grade as the word on
+ *  the node's chip (lib/grade), so the two never disagree: dashed amber is
+ *  Unclear, red is Source changed or Sources disagree, teal is something a
+ *  person added, refined or edited. Anything else gets the plain outline of
+ *  its type. Exceptions are told apart by their "Exception" label, not by an
+ *  amber outline, which would read as Unclear. */
+type NodeFrame = "plain" | "unclear" | "drift" | "provenance";
+
+function frameOf(item: BaseItem): NodeFrame {
+  const g = gradeOf(item);
+  if (g.grade === "changed" || g.grade === "disagree") return "drift";
+  if (g.provenance) return "provenance";
+  return g.grade === "unclear" ? "unclear" : "plain";
+}
+
 // -------- Shape frame (SVG background for step variants) --------
 
 function ShapeFrame({
-  shape, drift, userAdded, lowConf, children, insetClass,
+  shape, frame, children, insetClass,
 }: {
-  shape?: string; drift?: boolean; userAdded?: boolean; lowConf?: boolean;
+  shape?: string; frame: NodeFrame;
   children: ReactNode;
   insetClass?: string;
 }) {
-  const strokeColor = drift ? "var(--color-drift)"
-    : userAdded ? "var(--color-verified)"
-    : lowConf ? "var(--color-unresolved)"
+  const strokeColor = frame === "drift" ? "var(--color-drift)"
+    : frame === "provenance" ? "var(--color-verified)"
+    : frame === "unclear" ? "var(--color-unresolved)"
     : "var(--color-primary)";
-  const strokeOpacity = drift || userAdded ? 1 : lowConf ? 0.9 : 0.6;
-  const strokeDash = lowConf && !drift && !userAdded ? "5 3" : undefined;
+  const strokeOpacity = frame === "plain" ? 0.6 : frame === "unclear" ? 0.9 : 1;
+  const strokeDash = frame === "unclear" ? "5 3" : undefined;
   const strokeW = 2;
-  const fill = drift ? "color-mix(in oklab, var(--color-drift) 6%, var(--color-card))"
-    : lowConf ? "color-mix(in oklab, var(--color-unresolved) 6%, var(--color-card))"
+  const fill = frame === "drift" ? "color-mix(in oklab, var(--color-drift) 6%, var(--color-card))"
+    : frame === "unclear" ? "color-mix(in oklab, var(--color-unresolved) 6%, var(--color-card))"
     : "var(--color-card)";
 
   const inset = insetClass ?? "inset-0";
@@ -1718,7 +1741,7 @@ function StepNode({
   const isShaped = shape !== "step";
   const isSectioned = shape === "uml-class" || shape === "uml-interface" || shape === "er-entity";
   const isLifeline = shape === "uml-lifeline";
-  const lowConf = step.confidence < 0.7 && !step.drift;
+  const frame = frameOf(step);
 
   // Sectioned box rendering (class / interface / entity): a bordered card with
   // stacked sections that auto-size to their content.
@@ -1768,8 +1791,10 @@ function StepNode({
       >
         <div className={cn(
           "relative rounded-md border-2 bg-card shadow-sm px-3 py-2 w-full flex items-center gap-1",
-          step.userAdded && "!border-verified",
-          !step.userAdded && "border-primary/50",
+          frame === "drift" && "border-drift bg-drift/5",
+          frame === "unclear" && "border-dashed border-unresolved bg-unresolved/5",
+          frame === "provenance" && "!border-verified",
+          frame === "plain" && "border-primary/50",
         )}>
           <DragHandle handlers={drag} />
           <IdChip id={step.id} tone="primary" />
@@ -1783,7 +1808,7 @@ function StepNode({
           </button>
         </div>
         <div className="flex-1 w-px border-l-2 border-dashed border-primary/50" style={{ minHeight: 120 }} />
-        <div className="text-[9px] font-mono-tight text-muted-foreground pt-1">lifeline · stub</div>
+        <div className="text-[9px] font-mono-tight text-muted-foreground pt-1">Lifeline</div>
         {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
         <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
       </div>
@@ -1836,10 +1861,11 @@ function StepNode({
     ? "bg-transparent"
     : cn(
         "rounded-xl border bg-card shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.06)]",
-        step.drift && "border-drift animate-drift bg-drift/5",
-        lowConf && "border-dashed border-unresolved bg-unresolved/5",
-        !step.drift && !lowConf && !step.userAdded && "border-primary/40",
-        step.userAdded && "user-added !border-verified",
+        frame === "drift" && "border-drift bg-drift/5",
+        step.drift && "animate-drift",
+        frame === "unclear" && "border-dashed border-unresolved bg-unresolved/5",
+        frame === "plain" && "border-primary/40",
+        frame === "provenance" && "user-added !border-verified",
       );
 
   const contentInner = (
@@ -1850,7 +1876,7 @@ function StepNode({
           <IdChip id={step.id} tone="primary" />
         </div>
         <div className="flex items-center gap-1">
-          <ConfidenceBadge item={step} />
+          <ConfidenceBadge item={step} compact />
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
           {onOpenUseCase && (
@@ -1905,7 +1931,7 @@ function StepNode({
       }}
     >
       {isShaped ? (
-        <ShapeFrame shape={shape} drift={step.drift} userAdded={step.userAdded} lowConf={lowConf}>
+        <ShapeFrame shape={shape} frame={frame}>
           <div className={cn("relative flex flex-col gap-1 w-full h-full min-h-0", innerPadClass)}>{contentInner}</div>
         </ShapeFrame>
       ) : (
@@ -1962,6 +1988,7 @@ function SectionedNode({
 
   const showMethods = variant !== "er-entity";
   const isEntity = variant === "er-entity";
+  const frame = frameOf(step);
 
   return (
     <div
@@ -1971,8 +1998,11 @@ function SectionedNode({
       onPointerDown={() => onSelect()}
       className={cn(
         "group absolute animate-item-in rounded-lg border-2 bg-card shadow-sm overflow-hidden flex flex-col",
-        step.userAdded ? "border-verified" : "border-primary/50",
-        isEntity && "border-verified/70",
+        frame === "drift" && "border-drift",
+        frame === "unclear" && "border-dashed border-unresolved",
+        frame === "provenance" && "border-verified",
+        // An entity's plain outline has always been teal, as a type colour.
+        frame === "plain" && (isEntity ? "border-verified/70" : "border-primary/50"),
       )}
       style={{
         left: node.cx - node.w / 2,
@@ -2150,12 +2180,23 @@ function DecisionNode({
         targetId: "—",
       }],
     });
-  const stroke = d.drift ? "var(--color-drift)" : d.userAdded ? "var(--color-verified)" : "var(--color-primary)";
+  // Same outline rules as a step (see frameOf): an Unclear decision is dashed
+  // amber too, so the chip is not the only sign of it.
+  const frame = frameOf(d);
+  const stroke = frame === "drift" ? "var(--color-drift)"
+    : frame === "provenance" ? "var(--color-verified)"
+    : frame === "unclear" ? "var(--color-unresolved)"
+    : "var(--color-primary)";
   // The gateway's + or × is a character on the diamond's tint: ink, not stroke.
-  const glyphFill = d.drift ? "var(--color-drift-ink)" : d.userAdded ? "var(--color-verified-ink)" : "var(--color-primary)";
-  const fill = d.drift
+  const glyphFill = frame === "drift" ? "var(--color-drift-ink)"
+    : frame === "provenance" ? "var(--color-verified-ink)"
+    : frame === "unclear" ? "var(--color-unresolved-ink)"
+    : "var(--color-primary)";
+  const fill = frame === "drift"
     ? "color-mix(in oklab, var(--color-drift) 6%, var(--color-card))"
-    : "var(--color-card)";
+    : frame === "unclear"
+      ? "color-mix(in oklab, var(--color-unresolved) 6%, var(--color-card))"
+      : "var(--color-card)";
 
   return (
     <div
@@ -2182,7 +2223,8 @@ function DecisionNode({
           points="50,2 98,50 50,98 2,50"
           fill={fill}
           stroke={stroke}
-          strokeOpacity={d.drift || d.userAdded ? 1 : 0.7}
+          strokeOpacity={frame === "plain" ? 0.7 : frame === "unclear" ? 0.9 : 1}
+          strokeDasharray={frame === "unclear" ? "5 3" : undefined}
           strokeWidth={2}
           vectorEffect="non-scaling-stroke"
         />
@@ -2199,7 +2241,7 @@ function DecisionNode({
         <div className="flex items-center gap-1 flex-wrap justify-center">
           <DragHandle handlers={drag} />
           <IdChip id={d.id} tone="primary" />
-          <ConfidenceBadge item={d} />
+          <ConfidenceBadge item={d} compact />
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: d.id, kind: "decision", text: d.text }} model={model} onApply={onRefine} />
           <button onClick={onDelete} data-no-pan aria-label={`Delete ${d.id}`}
@@ -2286,6 +2328,10 @@ function ExceptionNode({
 }) {
   const drag = useNodeDrag(onDrag, onSelect);
   const ref = useMeasure(onMeasure);
+  // The card used to be dashed amber whatever its grade, which is exactly
+  // what Unclear looks like. Its type now shows in the "Exception" label and
+  // a plain grey outline; the outline colour is left to the grade.
+  const frame = frameOf(e);
   return (
     <div
       ref={ref}
@@ -2293,10 +2339,14 @@ function ExceptionNode({
       data-node-id={e.id}
       onPointerDown={() => onSelect()}
       className={cn(
-        "group absolute rounded-xl border border-dashed bg-unresolved/5 border-unresolved/70 px-2.5 py-2",
+        "group absolute rounded-xl border bg-card px-2.5 py-2",
         "shadow-[0_1px_3px_rgba(0,0,0,0.08)]",
         "flex flex-col gap-1 animate-item-in",
-        e.userAdded && "user-added !border-verified border-solid",
+        frame === "drift" && "border-drift bg-drift/5",
+        e.drift && "animate-drift",
+        frame === "unclear" && "border-dashed border-unresolved bg-unresolved/5",
+        frame === "plain" && "border-muted-foreground/40",
+        frame === "provenance" && "user-added !border-verified",
       )}
       style={{
         left: node.cx - node.w / 2,
@@ -2311,12 +2361,9 @@ function ExceptionNode({
         <div className="flex items-center gap-1 min-w-0">
           <DragHandle handlers={drag} />
           <IdChip id={e.id} />
-          <span className="text-[9px] font-mono-tight uppercase tracking-widest text-unresolved-ink">
-            <Zap className="inline size-2.5 -mt-0.5" /> Exception
-          </span>
         </div>
         <div className="flex items-center gap-1">
-          <ConfidenceBadge item={e} />
+          <ConfidenceBadge item={e} compact />
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: e.id, kind: "exception", text: e.text }} model={model} onApply={onRefine} />
           <button onClick={onDelete} data-no-pan aria-label={`Delete ${e.id}`}
@@ -2325,6 +2372,10 @@ function ExceptionNode({
           </button>
         </div>
       </div>
+      {/* On its own line: in the header it ran under the certainty word. */}
+      <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-muted-foreground">
+        <Zap className="size-3" aria-hidden /> Exception
+      </span>
       <div className="text-[11px] leading-snug break-words">
         <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline />
       </div>

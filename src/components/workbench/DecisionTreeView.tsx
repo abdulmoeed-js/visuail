@@ -135,7 +135,7 @@ export function DecisionTreeView({ model, editing }: Props) {
       })()}
       bottomLeft={
         <span className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground">
-          Click "N branches" to edit · "add branch" turns a leaf into a question
+          Press a question's branch count to edit its answers · add a branch to turn an outcome into a question
         </span>
       }
     >
@@ -254,7 +254,7 @@ function RuleNodeView({
       )}
       {isLeaf && (
         <button onClick={onAddBranch} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-[9px] font-mono-tight text-muted-foreground hover:text-primary transition flex items-center gap-0.5">
-          <Plus className="size-2.5" /> add branch
+          <Plus className="size-2.5" /> Add branch
         </button>
       )}
     </div>

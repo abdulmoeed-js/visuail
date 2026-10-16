@@ -16,9 +16,9 @@ const levelTone = (v: Level) =>
 interface Row { id: string; text: string; role?: string; influence: Level; interest: Level }
 
 const QUADRANTS: { title: string; hint: string; influence: "high" | "low"; interest: "high" | "low" }[] = [
-  { title: "Manage Closely", hint: "High influence, high interest", influence: "high", interest: "high" },
-  { title: "Keep Satisfied", hint: "High influence, lower interest", influence: "high", interest: "low" },
-  { title: "Keep Informed", hint: "Lower influence, high interest", influence: "low", interest: "high" },
+  { title: "Manage closely", hint: "High influence, high interest", influence: "high", interest: "high" },
+  { title: "Keep satisfied", hint: "High influence, lower interest", influence: "high", interest: "low" },
+  { title: "Keep informed", hint: "Lower influence, high interest", influence: "low", interest: "high" },
   { title: "Monitor", hint: "Lower influence, lower interest", influence: "low", interest: "low" },
 ];
 
@@ -72,7 +72,7 @@ export function StakeholderAnalysisView({
                     <span className="text-[10px] font-mono-tight text-muted-foreground">{q.hint}</span>
                   </div>
                   {inQuadrant.length === 0 ? (
-                    <div className="text-xs text-muted-foreground mt-2 italic">none yet</div>
+                    <div className="text-xs text-muted-foreground mt-2 italic">None yet</div>
                   ) : (
                     <ul className="mt-2 flex flex-wrap gap-1.5">
                       {inQuadrant.map((r) => (

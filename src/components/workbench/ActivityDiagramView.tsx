@@ -9,6 +9,7 @@ import { useRevealNew, FlashRing, FlashOutline } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { IdChip, ConfidenceBadge } from "./atoms";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { gradeOf } from "@/lib/grade";
 
 // Activity Diagram with real swimlanes, from the corpus's Activity Diagram
 // material -- the explicit gap it called out was "formalize fork/join and
@@ -335,10 +336,20 @@ function ActivityStepNode({
   onDelete: () => void;
   onUpdate: (t: string) => void;
 }) {
+  // The frame says how sure, with the chip's word beside it: red when the
+  // source changed or the sources disagree, dashed amber when unclear, teal
+  // when a person made or changed it.
+  const g = gradeOf(step);
   return (
     <div
       data-node
-      className="group absolute rounded-xl border-2 border-primary/60 bg-card shadow-sm flex flex-col gap-1 px-2.5 py-2"
+      className={cn(
+        "group absolute rounded-xl border-2 bg-card shadow-sm flex flex-col gap-1 px-2.5 py-2",
+        g.grade === "changed" || g.grade === "disagree" ? "border-drift"
+        : g.grade === "unclear" ? "border-dashed border-unresolved"
+        : g.provenance ? "border-verified"
+        : "border-primary/60",
+      )}
       style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: 10 }}
     >
       <div className="flex items-center justify-between gap-1">
@@ -347,7 +358,7 @@ function ActivityStepNode({
           <IdChip id={step.id} tone="primary" />
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <ConfidenceBadge item={step} />
+          <ConfidenceBadge item={step} compact />
           <button onClick={onDelete} data-no-pan aria-label={`Delete step ${step.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>

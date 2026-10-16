@@ -13,7 +13,6 @@ import { useEffect, useState } from "react";
 import { Loader2, Link2Off, ArrowRight, FileText, PencilOff } from "lucide-react";
 import { ArtifactView, tabForViewKind } from "@/components/Workbench";
 import { useArtifactEditing } from "@/lib/artifact-editing";
-import { stats } from "@/data/samples";
 import { getSharedProject, type SharedProject } from "@/lib/session";
 
 export const Route = createFileRoute("/share/$token")({
@@ -96,7 +95,7 @@ function SharePage() {
             </div>
           ))}
           {project.canvases.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-12">This project has no canvases yet.</p>
+            <p className="text-sm text-muted-foreground text-center py-12">This project has no artifacts yet.</p>
           )}
         </div>
       </main>
@@ -111,15 +110,14 @@ function SharedCanvas({
   viewKind: SharedProject["canvases"][number]["viewKind"];
 }) {
   const editing = useArtifactEditing(model);
-  const st = stats(editing.model);
   return (
     <div className="rounded-xl border bg-card min-h-[480px] flex flex-col">
       <ArtifactView
-        editing={editing} stats={st} initialTab={tabForViewKind(viewKind)}
+        editing={editing} initialTab={tabForViewKind(viewKind)}
         extraHeaderRight={
           <span
             className="inline-flex items-center gap-1 rounded-md border px-2 py-1 eyebrow text-muted-foreground"
-            title="You can try editing, but nothing here is saved -- it resets on refresh."
+            title="You can try editing, but nothing here is saved. It resets when the page reloads."
           >
             <PencilOff className="size-3" /> Edits aren't saved
           </span>

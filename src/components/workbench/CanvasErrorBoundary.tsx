@@ -56,19 +56,19 @@ export class CanvasErrorBoundary extends Component<Props, State> {
           <div className="mx-auto size-10 rounded-full bg-drift/15 text-drift-ink flex items-center justify-center">
             <AlertOctagon className="size-5" />
           </div>
-          <div>
-            <h3 className="font-display text-lg">The canvas hit a snag</h3>
+          {/* The raw error is reported in componentDidCatch, never shown. */}
+          <div role="alert">
+            <h3 className="font-display text-lg">This diagram couldn't be drawn</h3>
             <p className="text-sm text-muted-foreground mt-1">
-              The last change couldn't render. Roll it back to keep going —
-              your other work is safe.
-            </p>
-            <p className="text-[11px] font-mono-tight text-muted-foreground mt-2 break-words">
-              {this.state.error.message}
+              Your last change stopped it from showing. Undo that change to
+              carry on; the rest of your work is safe.
             </p>
           </div>
+          {/* All ordinary buttons: the screen around this card keeps its own
+              main action, and the tinted card already draws the eye. */}
           <div className="flex flex-wrap items-center justify-center gap-2">
             {this.props.onRemoveLastAdded && (
-              <Button size="sm" onClick={this.undo}>
+              <Button size="sm" variant="outline" onClick={this.undo}>
                 <Undo2 className="size-3.5" /> Undo last shape
               </Button>
             )}
@@ -77,8 +77,8 @@ export class CanvasErrorBoundary extends Component<Props, State> {
                 <RotateCcw className="size-3.5" /> Reset my additions
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={this.reset}>
-              Try again
+            <Button size="sm" variant="outline" onClick={this.reset}>
+              Draw it again
             </Button>
           </div>
         </div>

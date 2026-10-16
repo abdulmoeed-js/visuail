@@ -1,14 +1,22 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { InlineError } from "@/components/ui/inline-error";
 import { Nav } from "@/components/Nav";
 import { useSession, sessionStore, FREE_LIMIT, type StoredProject, type Tier, type DriftAlert } from "@/lib/session";
 import { allItems } from "@/data/samples";
+import { addSummaries, summarizeGrades } from "@/lib/grade";
+import { friendlyError, type FriendlyError } from "@/lib/friendly-error";
 import {
-  FolderPlus, Workflow, LayoutGrid, ArrowUpRight, Trash2, ShieldCheck,
+  FolderPlus, Workflow, LayoutGrid, ArrowUpRight, Trash2, Layers,
   Clock, Info, Loader2, LogIn, CheckCircle2, X, MoreHorizontal,
   Pencil, ExternalLink, AlertTriangle, LayoutTemplate, MessageSquare,
 } from "lucide-react";
@@ -126,7 +134,7 @@ function NeedsReviewStrip({ projects }: { projects: StoredProject[] }) {
         <div className="min-w-0">
           <div className="eyebrow text-drift-ink">Needs review</div>
           <h2 className="font-display text-lg leading-tight truncate">
-            {entries.length} project{entries.length === 1 ? "" : "s"} drifted from source
+            {entries.length} project{entries.length === 1 ? "" : "s"} with changes in the source
           </h2>
         </div>
       </div>
@@ -176,14 +184,16 @@ function fmtRel(ts: number) {
   return `${d}d ago`;
 }
 
+/** Items taken from a source, and how many of them need a look (unclear,
+ *  changed in the source, or sources disagree) -- the same grades the
+ *  project page and each item's chip use. */
 function projectStats(p: StoredProject) {
-  let count = 0, unresolved = 0;
-  for (const c of p.canvases) {
-    const items = allItems(c.model);
-    count += items.length;
-    unresolved += items.filter(i => i.confidence < 0.7 || i.conflict).length;
-  }
-  return { count, unresolved };
+  const summary = addSummaries(p.canvases.map((c) => summarizeGrades(c.model)));
+  return { count: summary.total, needsLook: summary.needsLook };
+}
+
+function needsLookWords(n: number) {
+  return `${n} need${n === 1 ? "s" : ""} a look`;
 }
 
 function DashboardPage() {
@@ -210,7 +220,7 @@ function DashboardPage() {
     const remaining: StoredProject[] = [];
     for (const p of others) {
       const st = projectStats(p);
-      if (st.unresolved > 0) attn.push(p); else remaining.push(p);
+      if (st.needsLook > 0) attn.push(p); else remaining.push(p);
     }
     return { continueProject: cont, needsAttention: attn, rest: remaining };
   }, [s.projects]);
@@ -266,7 +276,7 @@ function DashboardPage() {
             {s.tier === "free" && (
               <div className="hidden md:flex flex-col items-end gap-1 mr-1">
                 <div className="eyebrow text-muted-foreground">
-                  Free quota
+                  Free plan
                 </div>
                 <div className="flex items-center gap-2">
                   <Progress value={quotaPct} className="w-32 h-1.5" />
@@ -277,7 +287,9 @@ function DashboardPage() {
               </div>
             )}
             <TierPill tier={s.tier} onUpgrade={() => setUpgradeOpen(true)} />
-            <Button onClick={startNew} className="h-10">
+            {/* With no projects yet, the empty state's New project is the one
+                main action, so this one steps down to ordinary. */}
+            <Button onClick={startNew} className="h-10" variant={s.projects.length === 0 ? "outline" : "default"}>
               <FolderPlus className="size-4" /> New project
             </Button>
           </div>
@@ -308,8 +320,8 @@ function DashboardPage() {
               {needsAttention.length > 0 && (
                 <Section
                   eyebrow="Needs attention"
-                  title="Unresolved items"
-                  hint={`${needsAttention.length} project${needsAttention.length === 1 ? "" : "s"} with low-confidence or conflicting items`}
+                  title="Items to check"
+                  hint={`${needsAttention.length} project${needsAttention.length === 1 ? "" : "s"} with unclear, changed or disagreeing items`}
                   tone="drift"
                 >
                   <ProjectGrid projects={needsAttention} />
@@ -420,11 +432,11 @@ function ContinueCard({ project }: { project: StoredProject }) {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <KindChips kinds={project.kinds} fromScratch={project.fromScratch} />
             <span className="inline-flex items-center gap-1 text-[11px] font-mono-tight text-muted-foreground">
-              <ShieldCheck className="size-3" /> {st.count} item{st.count === 1 ? "" : "s"}
+              <Layers className="size-3" aria-hidden /> {st.count} item{st.count === 1 ? "" : "s"}
             </span>
-            {st.unresolved > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-mono-tight text-drift">
-                <AlertTriangle className="size-3" /> {st.unresolved} unresolved
+            {st.needsLook > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-mono-tight text-unresolved-ink">
+                <AlertTriangle className="size-3" aria-hidden /> {needsLookWords(st.needsLook)}
               </span>
             )}
             <span className="inline-flex items-center gap-1 text-[11px] font-mono-tight text-muted-foreground">
@@ -432,8 +444,8 @@ function ContinueCard({ project }: { project: StoredProject }) {
             </span>
           </div>
         </div>
-        <div className="shrink-0 inline-flex items-center gap-1.5 rounded-md border bg-background/60 px-2.5 py-1.5 text-sm font-medium text-foreground transition group-hover:bg-primary group-hover:text-primary-foreground group-hover:border-primary">
-          Open <ArrowUpRight className="size-4" />
+        <div className="shrink-0 inline-flex items-center gap-1.5 rounded-md border bg-background/60 px-2.5 py-1.5 text-sm font-medium text-foreground transition group-hover:bg-primary/10 group-hover:text-primary group-hover:border-primary/45">
+          Open<span className="hidden sm:inline"> project</span> <ArrowUpRight className="size-4" />
         </div>
       </div>
     </Link>
@@ -453,25 +465,12 @@ function ProjectGrid({ projects }: { projects: StoredProject[] }) {
 function ProjectCard({ project }: { project: StoredProject }) {
   const st = projectStats(project);
   const navigate = useNavigate();
-
-  const onRename = async () => {
-    const next = window.prompt("Rename project", project.name);
-    if (!next || next.trim() === "" || next.trim() === project.name) return;
-    try {
-      await sessionStore.updateProject(project.id, { name: next.trim() });
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't rename this project.");
-    }
-  };
-
-  const onDelete = async () => {
-    if (!confirm(`Delete "${project.name}"? This can't be undone.`)) return;
-    try {
-      await sessionStore.deleteProject(project.id);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't delete this project.");
-    }
-  };
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  // The rename and delete dialogs sit outside the menu. While one is opening,
+  // the closing menu must not pull focus back to its trigger.
+  const openingDialog = useRef(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="group relative rounded-xl border bg-card p-4 flex flex-col gap-3 transition hover:border-primary/50">
@@ -497,25 +496,52 @@ function ProjectCard({ project }: { project: StoredProject }) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
+                ref={triggerRef}
                 className="grid size-7 place-items-center rounded-md border bg-background/60 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-muted transition focus:opacity-100 data-[state=open]:opacity-100"
                 aria-label="Project actions"
               >
                 <MoreHorizontal className="size-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuContent
+              align="end" className="w-40"
+              onCloseAutoFocus={(e) => { if (openingDialog.current) { e.preventDefault(); openingDialog.current = false; } }}
+            >
               <DropdownMenuItem onClick={() => navigate({ to: "/project/$id", params: { id: project.id } })}>
                 <ExternalLink className="size-3.5" /> Open
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={onRename}>
+              <DropdownMenuItem onSelect={() => { openingDialog.current = true; setRenameOpen(true); }}>
                 <Pencil className="size-3.5" /> Rename
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+              <DropdownMenuItem
+                onSelect={() => { openingDialog.current = true; setDeleteOpen(true); }}
+                className="text-destructive focus:text-destructive"
+              >
                 <Trash2 className="size-3.5" /> Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <RenameProjectDialog
+            project={project} open={renameOpen} onOpenChange={setRenameOpen}
+            onClosed={() => triggerRef.current?.focus()}
+          />
+          <ConfirmDialog
+            open={deleteOpen}
+            onOpenChange={setDeleteOpen}
+            title={`Delete \u201c${project.name}\u201d?`}
+            consequence="Its artifacts, sources, saved versions, comments and share links are deleted with it, and anyone with a share link loses access. This can't be undone."
+            confirmLabel="Delete project"
+            busyLabel="Deleting…"
+            cancelLabel="Keep it"
+            doing={`delete \u201c${project.name}\u201d`}
+            onConfirm={() => sessionStore.deleteProject(project.id)}
+            onCloseAutoFocus={(e) => {
+              // Back to the card's menu when the project was kept; after a
+              // delete the card is gone and focus is left to the page.
+              if (triggerRef.current?.isConnected) { e.preventDefault(); triggerRef.current.focus(); }
+            }}
+          />
         </div>
       </div>
 
@@ -525,9 +551,9 @@ function ProjectCard({ project }: { project: StoredProject }) {
 
       <div className="mt-auto flex items-center justify-between border-t pt-2 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1">
-          <ShieldCheck className="size-3" /> {st.count} item{st.count === 1 ? "" : "s"}
-          {st.unresolved > 0 && (
-            <span className="ml-1 text-drift">· {st.unresolved} unresolved</span>
+          <Layers className="size-3" aria-hidden /> {st.count} item{st.count === 1 ? "" : "s"}
+          {st.needsLook > 0 && (
+            <span className="ml-1 text-unresolved-ink">· {needsLookWords(st.needsLook)}</span>
           )}
         </span>
         <span className="inline-flex items-center gap-1">
@@ -535,6 +561,94 @@ function ProjectCard({ project }: { project: StoredProject }) {
         </span>
       </div>
     </div>
+  );
+}
+
+/** Renames in place of the browser's prompt box. Stays open while saving and
+ *  shows a failure under the field, so the typed name is never lost. */
+function RenameProjectDialog({
+  project, open, onOpenChange, onClosed,
+}: {
+  project: StoredProject;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onClosed: () => void;
+}) {
+  const [name, setName] = useState(project.name);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<FriendlyError | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const next = name.trim();
+  const canSave = next.length > 0 && next !== project.name && !busy;
+
+  // Opened from the card's menu: start from the current name each time.
+  useEffect(() => {
+    if (open) { setName(project.name); setError(null); }
+  }, [open, project.name]);
+
+  const change = (o: boolean) => {
+    if (busy) return;
+    onOpenChange(o);
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSave) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await sessionStore.updateProject(project.id, { name: next });
+      setBusy(false);
+      onOpenChange(false);
+    } catch (err) {
+      setBusy(false);
+      setError(friendlyError(err, "rename this project"));
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={change}>
+      <DialogContent
+        className="max-w-sm"
+        onOpenAutoFocus={(e) => {
+          // Start with the whole name selected, ready to type over.
+          e.preventDefault();
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        }}
+        onCloseAutoFocus={(e) => { e.preventDefault(); onClosed(); }}
+        onEscapeKeyDown={(e) => { if (busy) e.preventDefault(); }}
+        onPointerDownOutside={(e) => { if (busy) e.preventDefault(); }}
+      >
+        <form onSubmit={save} className="grid gap-4">
+          <DialogHeader>
+            <DialogTitle>Rename project</DialogTitle>
+            <DialogDescription>The new name shows everywhere this project appears.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <label htmlFor={`rename-${project.id}`} className="text-sm font-medium text-foreground">
+              Project name
+            </label>
+            <Input
+              ref={inputRef}
+              id={`rename-${project.id}`}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+          <InlineError error={error} />
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" disabled={busy} onClick={() => change(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!canSave}>
+              {busy ? <><Loader2 className="animate-spin" aria-hidden /> Renaming…</> : "Rename project"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -724,9 +838,8 @@ function TierPill({ tier, onUpgrade }: { tier: Tier; onUpgrade: () => void }) {
     <button
       onClick={onUpgrade}
       className={cn(base, "border-dashed border-primary/40 text-primary transition hover:bg-primary/5 cursor-pointer")}
-      title="Upgrade"
     >
-      {label} plan
+      Upgrade to Pro
     </button>
   );
 }

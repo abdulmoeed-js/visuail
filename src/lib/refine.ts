@@ -105,7 +105,7 @@ export function proposeRefinement(
           before: node.text,
           after: node.text,
           lowConfidence: true,
-          note: "No next step to merge with — this is the last step on the spine.",
+          note: "There's no next step to merge with: this is the last step in the main flow.",
         };
       }
       return {
@@ -131,7 +131,7 @@ export function proposeRefinement(
         anchorStepId: node.id,
         anchorText: node.text,
         text,
-        note: `New exception item linked to ${node.id}. It will render in the right-hand exception corridor.`,
+        note: `Adds an exception linked to ${node.id}. It appears in the exceptions column on the right.`,
       };
     }
 
@@ -146,7 +146,7 @@ export function proposeRefinement(
         anchorText: node.text,
         approver: clean,
         newDecisionText: `Approved by ${clean}?`,
-        note: `Insert a decision node right after ${node.id}. "yes" continues on the spine; "no" branches to rework.`,
+        note: `Adds an approval decision right after ${node.id}: Yes carries on, No goes back for rework.`,
       };
     }
   }
@@ -160,7 +160,7 @@ export function proposeRefinement(
     before: node.text,
     after: prompt[0].toUpperCase() + prompt.slice(1),
     lowConfidence: true,
-    note: "Prompt didn't match a known refinement pattern. Applying as a direct rewrite of the node's text — review carefully before accepting.",
+    note: "That didn't match a split, merge, exception or approval, so the text will be replaced with what you wrote. Check it before you apply it.",
   };
 }
 
@@ -177,7 +177,7 @@ function nextIdFor(model: ProcessModel, prefix: "ST" | "DC" | "EX"): string {
 }
 
 function marked(base: Partial<Step & Decision & Exception>): Partial<Step & Decision & Exception> {
-  return { ...base, confidence: 1, userAdded: true, drift: false, unresolved: false };
+  return { ...base, confidence: 1, userAdded: true, drift: false, unresolved: false, conflict: false, quoteUnverified: false };
 }
 
 /**
@@ -191,7 +191,7 @@ export function applyProposal(p: Proposal, model: ProcessModel): ProcessModel {
       const patch = (arr: (Step | Decision | Exception)[]) =>
         arr.map((x) =>
           x.id === p.targetId
-            ? ({ ...x, text: p.after, confidence: 1, userAdded: true, drift: false, unresolved: false } as typeof x)
+            ? ({ ...x, text: p.after, confidence: 1, userAdded: true, drift: false, unresolved: false, conflict: false, conflictNote: undefined, quoteUnverified: false } as typeof x)
             : x,
         );
       if (p.targetKind === "step") return { ...model, steps: patch(model.steps) as Step[] };
@@ -279,7 +279,7 @@ export function applyProposal(p: Proposal, model: ProcessModel): ProcessModel {
 export function proposalHeadline(p: Proposal): string {
   switch (p.kind) {
     case "rewrite":
-      return p.lowConfidence ? "Best-effort rewrite" : "Rewrite text";
+      return p.lowConfidence ? "Replace the text" : "Rewrite text";
     case "split":
       return "Split into two steps";
     case "addException":

@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { AlertTriangle, ShieldAlert, GripVertical } from "lucide-react";
+import { GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { allItems, stats } from "@/data/samples";
 import type { StoredCanvas, ViewKind } from "@/lib/session";
 import { CanvasShell, useCanvas } from "@/components/workbench/CanvasShell";
-import { NewInstanceButton } from "@/components/workbench/ArtifactSidebar";
+import { ArtifactCounts, NewInstanceButton } from "@/components/workbench/ArtifactSidebar";
 import { ALL_VIEW_KINDS, VIEW_KIND_META } from "@/lib/view-kind-meta";
 
 type Frame = { x: number; y: number; w: number; h: number };
@@ -72,6 +71,7 @@ export function ArtifactBoard({ canvases, onOpen, onCreate, onFrameChange }: Pro
             key={viewKind} viewKind={viewKind}
             existingCount={canvases.filter((c) => (c.viewKind ?? c.kind) === viewKind).length}
             onCreate={onCreate}
+            namesKind
           />
         ))}
       </div>
@@ -100,8 +100,6 @@ function BoardCard({
   canvas: StoredCanvas; frame: Frame; onOpen: () => void; onDrag: (d: { dx: number; dy: number }) => void;
 }) {
   const drag = useCardDrag(onDrag);
-  const st = stats(canvas.model);
-  const drifted = allItems(canvas.model).some((i) => i.drift);
   const meta = VIEW_KIND_META[canvas.viewKind ?? canvas.kind];
   const Icon = meta.icon;
 
@@ -125,15 +123,7 @@ function BoardCard({
         className={cn("flex-1 flex flex-col justify-between p-2.5 text-left rounded-b-xl hover:bg-muted/30 transition focus-visible:outline-offset-[-2px]")}
       >
         <div className="text-sm font-semibold leading-tight line-clamp-2">{canvas.name}</div>
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          <span>{st.count} item{st.count === 1 ? "" : "s"}</span>
-          {st.unresolved > 0 && (
-            <span className="inline-flex items-center gap-0.5 text-drift"><ShieldAlert className="size-3" /> {st.unresolved}</span>
-          )}
-          {drifted && (
-            <span className="inline-flex items-center gap-0.5 text-drift"><AlertTriangle className="size-3" /></span>
-          )}
-        </div>
+        <ArtifactCounts model={canvas.model} />
       </button>
     </div>
   );

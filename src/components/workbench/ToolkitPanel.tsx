@@ -17,13 +17,13 @@ export function ToolkitPanel({ model, editing }: { model: ArtifactModel; editing
   return (
     <Tabs defaultValue="risks" className="w-full">
       <TabsList className="flex-wrap h-auto">
-        <TabsTrigger value="risks">Risk Log</TabsTrigger>
-        <TabsTrigger value="changes">Change Requests</TabsTrigger>
-        <TabsTrigger value="comms">Communication Plan</TabsTrigger>
-        {model.kind === "process" && <TabsTrigger value="tests">Test Cases</TabsTrigger>}
-        <TabsTrigger value="stakeholders">Stakeholder Analysis</TabsTrigger>
-        <TabsTrigger value="businessCase">Business Case</TabsTrigger>
-        <TabsTrigger value="rmp">Requirements Mgmt Plan</TabsTrigger>
+        <TabsTrigger value="risks">Risk log</TabsTrigger>
+        <TabsTrigger value="changes">Change requests</TabsTrigger>
+        <TabsTrigger value="comms">Communication plan</TabsTrigger>
+        {model.kind === "process" && <TabsTrigger value="tests">Test cases</TabsTrigger>}
+        <TabsTrigger value="stakeholders">Stakeholder analysis</TabsTrigger>
+        <TabsTrigger value="businessCase">Business case</TabsTrigger>
+        <TabsTrigger value="rmp">Requirements plan</TabsTrigger>
       </TabsList>
 
       <TabsContent value="risks">

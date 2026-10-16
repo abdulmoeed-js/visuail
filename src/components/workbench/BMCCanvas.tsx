@@ -6,7 +6,8 @@ import { AlertTriangle, X } from "lucide-react";
 import { CanvasShell, useCanvas } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { InlineEdit } from "./InlineEdit";
-import { ConfidenceBadge, IdChip } from "./atoms";
+import { IdChip } from "./atoms";
+import { gradeOf } from "@/lib/grade";
 
 interface Props {
   model: BMCModel;
@@ -127,13 +128,16 @@ function Block({
   style?: React.CSSProperties;
   emphasis?: boolean;
 }) {
+  // Worked out from the items each time: the stored `blockDrift` flag is not
+  // cleared when the changed items are dealt with, so it goes stale.
+  const changed = b.items.filter((i) => gradeOf(i).grade === "changed").length;
   return (
     <section
       data-node
       className={cn(
         "relative rounded-lg border bg-card p-3 flex flex-col gap-2 group",
         emphasis && "border-primary/50 ring-1 ring-primary/20 bg-gradient-to-b from-primary/5 to-transparent",
-        b.blockDrift && "border-drift bg-drift/5 animate-drift",
+        changed > 0 && "border-drift bg-drift/5 animate-drift",
         className,
       )}
       style={{ ...style, minHeight: h }}
@@ -148,10 +152,10 @@ function Block({
         <span className="text-[10px] font-mono-tight text-muted-foreground">{b.items.length}</span>
       </header>
 
-      {b.blockDrift && (
+      {changed > 0 && (
         <div className="flex items-start gap-1.5 rounded border border-drift/60 bg-drift/10 p-1.5 text-[11px] text-drift-ink">
-          <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
-          <span>{b.driftNote}</span>
+          <AlertTriangle className="size-3.5 shrink-0 mt-0.5" aria-hidden />
+          <span>{changed} {changed === 1 ? "item" : "items"} changed in the source</span>
         </div>
       )}
 
@@ -202,4 +206,4 @@ function BlockResizeHandle({ h, setH }: { h: number; setH: (h: number) => void }
 }
 
 // Unused symbols kept exported off (avoid dead-import warnings).
-export const _BMC_unused = { X, IdChip, ConfidenceBadge, InlineEdit };
+export const _BMC_unused = { X, IdChip, InlineEdit };

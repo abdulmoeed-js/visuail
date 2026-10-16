@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Nav } from "@/components/Nav";
 import { Button } from "@/components/ui/button";
@@ -9,11 +9,11 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft, FileDown, Loader2, Users2,
-  ShieldCheck, Plus, AlertTriangle, History, RotateCcw, Clock, ImageDown,
+  CheckCheck, Split, Plus, AlertTriangle, History, RotateCcw, Clock, ImageDown,
 } from "lucide-react";
 import { ArtifactView, tabForViewKind, type ArtifactTab } from "@/components/Workbench";
 import { useArtifactEditing } from "@/lib/artifact-editing";
-import { stats, allItems, type ArtifactModel } from "@/data/samples";
+import { allItems, type ArtifactModel } from "@/data/samples";
 import { exportSectionsToPdf, exportElementToPng, exportElementToSvg, type ExportSection } from "@/lib/export-pdf";
 import {
   sessionStore, useSession, defaultCanvasName, type StoredProject, type StoredCanvas, type ViewKind,
@@ -39,6 +39,10 @@ import { buildAuditTrail, type AuditEvent } from "@/lib/audit";
 import { useProjectPresence } from "@/lib/presence";
 import type { Peer } from "@/lib/artifact-channel";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { InlineError } from "@/components/ui/inline-error";
+import { friendlyError, type FriendlyError } from "@/lib/friendly-error";
+import { addSummaries, gradeOf, gradedItems, summarizeGrades } from "@/lib/grade";
 
 export const Route = createFileRoute("/project/$id")({
   head: () => ({
@@ -83,9 +87,9 @@ function ProjectPage() {
               ? "It may have been deleted, or belongs to a different account."
               : "Sign in to see your projects."}
           </p>
-          <Link to="/dashboard" className="inline-block mt-6">
-            <Button><ArrowLeft className="size-4" /> Back to dashboard</Button>
-          </Link>
+          <Button asChild className="mt-6">
+            <Link to="/dashboard"><ArrowLeft className="size-4" /> Back to dashboard</Link>
+          </Button>
         </main>
       </div>
     );
@@ -97,14 +101,15 @@ function ProjectPage() {
 type Frame = { x: number; y: number; w: number; h: number };
 interface CanvasPane { key: string; id: string; name: string; kind: ArtifactKind; viewKind?: ViewKind; initial: ArtifactModel; frame?: Frame; }
 
-/** Scans every canvas for items flagged `drift: true` by diffModels(). Derived
- *  fresh from stored data on every render rather than kept in local state, so
- *  it survives the remount recheckDrift() triggers after saving. */
+/** Lists the items whose grade is "Source changed" (flagged `drift: true` by
+ *  diffModels()), counted the same way as every other certainty surface.
+ *  Derived fresh from stored data on every render rather than kept in local
+ *  state, so it survives the remount recheckDrift() triggers after saving. */
 function collectDrift(canvases: StoredProject["canvases"]): { drifted: boolean; driftedNames: string[] } {
   const names: string[] = [];
   for (const c of canvases) {
-    for (const item of allItems(c.model)) {
-      if (item.drift) names.push(item.text);
+    for (const item of gradedItems(c.model)) {
+      if (gradeOf(item).grade === "changed") names.push(item.text);
     }
   }
   return { drifted: names.length > 0, driftedNames: names };
@@ -226,23 +231,37 @@ function ProjectShell({ project }: { project: StoredProject }) {
   }, [project.id]);
 
   const session = useSession();
+  // One status line under the header actions: a failure from any of them
+  // (or from Export on a canvas, which lands here too) is shown there, in
+  // place of a browser alert, and cleared when the next action starts.
+  const [headerError, setHeaderError] = useState<FriendlyError | null>(null);
+  const statusRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (headerError) statusRef.current?.scrollIntoView({ block: "nearest" });
+  }, [headerError]);
+
   const [savingVersion, setSavingVersion] = useState(false);
   const saveVersion = async () => {
     if (!session.userId) return;
+    setHeaderError(null);
     setSavingVersion(true);
     const merged = buildMergedCanvases();
     try {
       await sessionStore.saveSnapshot(project.id, merged, "manual_save", session.userId);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Couldn't save this version. Try again.");
+      setHeaderError(friendlyError(e, "save this version"));
     } finally {
       setSavingVersion(false);
     }
   };
 
   const [checkingDrift, setCheckingDrift] = useState(false);
-  const recheckDrift = async () => {
-    if (!session.userId || project.sources.length === 0) return;
+  /** Returns what went wrong (or null), so the header button and the
+   *  scheduled-check banner can each show it where it was pressed. */
+  const recheckDrift = async (): Promise<FriendlyError | null> => {
+    if (!session.userId || project.sources.length === 0) return null;
+    const userId = session.userId;
+    setHeaderError(null);
     setCheckingDrift(true);
     try {
       // Re-extract from the same stored sources. Real LLM calls aren't
@@ -280,7 +299,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
         // used to merge multiple sources, just applied to "live state" vs
         // "re-checked state" as the two inputs.
         const currentModel = primaryPane ? (editingModelsRef.current[primaryPane.key] ?? primaryPane.initial) : undefined;
-        const reconciled = currentModel ? mergeByKind([currentModel, fresh], ["Current", "Re-checked source"]) : fresh;
+        const reconciled = currentModel ? mergeByKind([currentModel, fresh], ["Current", "Re-checked source"], { stamp: false }) : fresh;
         if (!reconciled) continue;
 
         const baselineModel = (primaryExisting ? baseline.find(c => c.id === primaryExisting.id) : undefined)?.model;
@@ -296,14 +315,32 @@ function ProjectShell({ project }: { project: StoredProject }) {
       }
 
       await sessionStore.updateProject(project.id, { canvases: nextCanvases });
-      await sessionStore.saveSnapshot(project.id, nextCanvases, "drift_recheck", session.userId);
-      if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "drift_recheck", project.id);
+      // The artifacts have changed from here on, so show them even if keeping
+      // a version of them fails below.
       onCanvasesRegenerated(nextCanvases);
+      if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, userId, "drift_recheck", project.id);
+      try {
+        await sessionStore.saveSnapshot(project.id, nextCanvases, "drift_recheck", userId);
+      } catch (err) {
+        setHeaderError({
+          ...friendlyError(err, "save the re-check as a version"),
+          detail: "The artifacts are up to date. Press Save version to keep this point in the history.",
+        });
+      }
+      return null;
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Couldn't re-check for drift. Try again.");
+      const fe = friendlyError(err, "re-check for drift");
+      return fe.kind === "rate-limit"
+        ? { ...fe, detail: "A re-check reads every source again, so it reaches the hourly limit quickly. Try again later this hour." }
+        : fe;
     } finally {
       setCheckingDrift(false);
     }
+  };
+  const recheckFromHeader = async () => {
+    setHeaderError(null);
+    const fe = await recheckDrift();
+    if (fe) setHeaderError(fe);
   };
 
   const createInstance = useCallback(async (viewKind: ViewKind, name: string) => {
@@ -316,13 +353,14 @@ function ProjectShell({ project }: { project: StoredProject }) {
     const next = [...(canvasOverride ?? project.canvases), fresh];
     const patch: Partial<StoredProject> = { canvases: next };
     if (!project.kinds.includes(kind)) patch.kinds = [...project.kinds, kind];
+    setHeaderError(null);
     try {
       await sessionStore.updateProject(project.id, patch);
       sessionStore.saveSnapshot(project.id, next, "manual_save", session.userId).catch(() => {});
       onCanvasesRegenerated(next);
       openArtifact(fresh.id);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Couldn't create this artifact. Try again.");
+      setHeaderError(friendlyError(err, `create \u201c${name}\u201d`));
     }
   }, [canvasOverride, project.canvases, project.kinds, project.id, session.userId, onCanvasesRegenerated, openArtifact]);
 
@@ -342,6 +380,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
   const exportActiveImage = async (format: "png" | "svg") => {
     const el = active ? paneRefs.current[active] : null;
     if (!el) return;
+    setHeaderError(null);
     setExportingImage(true);
     const safe = project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
     const activeName = panes.find(p => p.key === active)?.name ?? "canvas";
@@ -351,7 +390,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
       else await exportElementToSvg(`${safe || "visuail"}-${suffix}.svg`, el);
       if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "export_used", project.id, { format });
     } catch (e) {
-      console.error(e); alert(`${format.toUpperCase()} export failed. See console for details.`);
+      setHeaderError(friendlyError(e, `make the ${format.toUpperCase()} of \u201c${activeName}\u201d`));
     } finally {
       setExportingImage(false);
     }
@@ -359,10 +398,12 @@ function ProjectShell({ project }: { project: StoredProject }) {
 
   const exportAll = async () => {
     if (project.canvases.length === 0) return;
+    setHeaderError(null);
     setExporting(true);
     try {
       const sections: ExportSection[] = panes.map(p => ({
         title: `${project.name} — ${p.name}`,
+        summary: summarizeGrades(editingModelsRef.current[p.key] ?? p.initial),
         getElement: async () => {
           setExportPane(p.key);
           await new Promise<void>((r) =>
@@ -375,24 +416,19 @@ function ProjectShell({ project }: { project: StoredProject }) {
       await exportSectionsToPdf(`${safe || "visuail-project"}.pdf`, sections);
       if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "export_used", project.id, { format: "pdf" });
     } catch (e) {
-      console.error(e); alert("PDF export failed. See console for details.");
+      const fe = friendlyError(e, "create the PDF");
+      setHeaderError(fe.kind === "unknown" ? { ...fe, detail: "Your diagrams are safe. Try again in a moment." } : fe);
     } finally {
       setExportPane(null); setExporting(false);
     }
   };
 
-  const recon = useMemo(() => {
-    let confirmed = 0, conflict = 0, total = 0;
-    for (const c of project.canvases) {
-      const items = allItems(c.model);
-      for (const it of items) {
-        total++;
-        if (it.conflict) conflict++;
-        else if ((it.confirmedBySources?.length ?? 0) >= 2) confirmed++;
-      }
-    }
-    return { confirmed, conflict, total };
-  }, [project]);
+  // How the sources line up across every artifact, graded the same way as
+  // each item's chip (Re-check's own labels never count as a second source).
+  const recon = useMemo(
+    () => addSummaries(project.canvases.map((c) => summarizeGrades(c.model))),
+    [project],
+  );
 
   const driftInfo = useMemo(() => collectDrift(project.canvases), [project]);
 
@@ -455,7 +491,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
               artifactTitle={project.name} hasSources={project.sources.length > 0}
             />
             <Button
-              size="sm" variant="outline" onClick={recheckDrift}
+              size="sm" onClick={recheckFromHeader}
               disabled={checkingDrift || project.sources.length === 0 || !!blockedReason}
               title={blockedReason ?? (project.sources.length === 0 ? "No sources to re-check against" : undefined)}
             >
@@ -465,7 +501,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
             </Button>
             <AddSourceDialog project={project} onCanvasesRegenerated={onCanvasesRegenerated} blockedReason={blockedReason} />
             <CommentsDialog projectId={project.id} />
-            <VersionHistoryDialog project={project} blockedReason={blockedReason} />
+            <VersionHistoryDialog project={project} blockedReason={blockedReason} getCurrentCanvases={buildMergedCanvases} onRestored={onCanvasesRegenerated} />
             <Button size="sm" variant="outline" onClick={saveVersion} disabled={savingVersion || panes.length === 0}>
               {savingVersion
                 ? <><Loader2 className="size-3.5 animate-spin" /> Saving…</>
@@ -475,24 +511,37 @@ function ProjectShell({ project }: { project: StoredProject }) {
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="outline" disabled={exportingImage || !active} title={!active ? "Open an artifact first" : undefined}>
                   {exportingImage
-                    ? <><Loader2 className="size-3.5 animate-spin" /> Exporting…</>
-                    : <><ImageDown className="size-3.5" /> Export this canvas</>}
+                    ? <><Loader2 className="size-3.5 animate-spin" /> Downloading…</>
+                    : <><ImageDown className="size-3.5" /> Download this artifact</>}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => exportActiveImage("png")}>PNG</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => exportActiveImage("svg")}>SVG (vector)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportActiveImage("png")}>As an image (PNG)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportActiveImage("svg")}>As a vector file (SVG)</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button size="sm" onClick={exportAll} disabled={exporting || panes.length === 0}>
+            <Button size="sm" variant="outline" onClick={exportAll} disabled={exporting || panes.length === 0}>
               {exporting
                 ? <><Loader2 className="size-3.5 animate-spin" /> Building PDF…</>
-                : <><FileDown className="size-3.5" /> Export all to PDF</>}
+                : <><FileDown className="size-3.5" /> Download all as PDF</>}
             </Button>
           </div>
         </div>
 
-        <ScheduledDriftBanner project={project} onRecheck={recheckDrift} blockedReason={blockedReason} />
+        <div ref={statusRef} className="scroll-mt-20">
+          {headerError && (
+            <div className="mb-4 flex items-start gap-2">
+              <InlineError error={headerError} className="flex-1" />
+              <Button size="sm" variant="link" className="h-auto py-2" onClick={() => setHeaderError(null)}>
+                Dismiss
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <ScheduledDriftBanner
+          project={project} onRecheck={recheckDrift} checking={checkingDrift} blockedReason={blockedReason}
+        />
 
         <>
             <div className="rounded-xl border bg-card p-3 flex flex-wrap items-center justify-between gap-3 mb-3">
@@ -508,22 +557,30 @@ function ProjectShell({ project }: { project: StoredProject }) {
                     </span>
                   ))}
                 </div>
-                <div className="h-4 w-px bg-border" />
-                <div className="flex items-center gap-3 text-[11px]">
-                  {recon.confirmed > 0 && (
-                    <span className="inline-flex items-center gap-1 text-[color:var(--confident)]">
-                      <ShieldCheck className="size-3.5" /> {recon.confirmed} confirmed by multiple sources
-                    </span>
-                  )}
-                  {recon.conflict > 0 && (
-                    <span className="inline-flex items-center gap-1 text-drift">
-                      <ShieldCheck className="size-3.5" /> {recon.conflict} conflicting item{recon.conflict === 1 ? "" : "s"}
-                    </span>
-                  )}
-                  {recon.confirmed === 0 && recon.conflict === 0 && (
-                    <span className="text-muted-foreground">Single-source project — no reconciliation applied.</span>
-                  )}
-                </div>
+                {project.sources.length > 0 && (
+                  <>
+                    <div className="h-4 w-px bg-border" />
+                    <div className="flex items-center gap-3 text-[11px]">
+                      {recon.confirmed > 0 && (
+                        <span className="inline-flex items-center gap-1 text-confident-ink">
+                          <CheckCheck className="size-3.5" aria-hidden /> {recon.confirmed} confirmed by 2 or more sources
+                        </span>
+                      )}
+                      {recon.disagree > 0 && (
+                        <span className="inline-flex items-center gap-1 text-drift-ink">
+                          <Split className="size-3.5" aria-hidden /> {recon.disagree} where sources disagree
+                        </span>
+                      )}
+                      {recon.confirmed === 0 && recon.disagree === 0 && (
+                        <span className="text-muted-foreground">
+                          {project.sources.length === 1
+                            ? "One source only, so nothing to cross-check"
+                            : "Each item comes from one source"}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
               {active ? (
                 <div className="flex items-center gap-2">
@@ -644,7 +701,6 @@ function CanvasPaneMount({
   const viewing = open && role === "viewer" && editing.editor
     ? { editorLabel: peerLabel(editing.editor, session.userId), onTakeOver: editing.takeOver }
     : undefined;
-  const st = stats(editing.model);
   const changeRef = useRef(onModelChange);
   useEffect(() => { changeRef.current = onModelChange; });
   const roleRef = useRef(role);
@@ -668,7 +724,7 @@ function CanvasPaneMount({
       ref={(el) => { registerRef(el); }}
     >
       <ArtifactView
-        editing={editing} stats={st} onPublish={onPublish}
+        editing={editing} onPublish={onPublish} exportLabel="Download all as PDF"
         projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange}
         focusItemId={focusItemId} initialTab={tabForViewKind(pane.viewKind)}
         viewing={viewing}
@@ -682,8 +738,17 @@ function CanvasPaneMount({
  *  records -- it never touches the canvas -- so this banner's job is to
  *  route a human to the existing "Re-check for drift" button, which does
  *  the real reconcile-with-manual-edits update. */
-function ScheduledDriftBanner({ project, onRecheck, blockedReason }: { project: StoredProject; onRecheck: () => void; blockedReason?: string | null }) {
+function ScheduledDriftBanner({ project, onRecheck, checking, blockedReason }: {
+  project: StoredProject;
+  /** Resolves to what went wrong, or null once the re-check is done. */
+  onRecheck: () => Promise<FriendlyError | null>;
+  checking: boolean;
+  blockedReason?: string | null;
+}) {
   const [alerts, setAlerts] = useState<DriftAlert[]>([]);
+  const [error, setError] = useState<FriendlyError | null>(null);
+  // A re-check started from anywhere clears a failure shown here earlier.
+  useEffect(() => { if (checking) setError(null); }, [checking]);
 
   useEffect(() => {
     sessionStore.listDriftAlerts(project.id).then(setAlerts).catch(() => setAlerts([]));
@@ -694,27 +759,40 @@ function ScheduledDriftBanner({ project, onRecheck, blockedReason }: { project: 
     try { await sessionStore.dismissDriftAlert(id); } catch { /* already removed from view either way */ }
   };
 
+  // The alerts are cleared only once the re-check has worked; if it fails,
+  // they stay and the failure is shown here, where it was pressed.
+  const recheck = async () => {
+    setError(null);
+    const fe = await onRecheck();
+    if (fe) { setError(fe); return; }
+    alerts.forEach((a) => dismiss(a.id));
+  };
+
   if (alerts.length === 0) return null;
   const latest = alerts[0];
   const itemCount = latest.summary.reduce((n, s) => n + s.changed.length + s.added.length + s.removed.length, 0);
+  const earlier = alerts.length - 1;
 
   return (
-    <div className="mb-4 rounded-lg border border-drift/40 bg-drift/5 p-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-2 text-sm">
-        <AlertTriangle className="size-4 text-drift-ink shrink-0" />
-        <span>
-          Automated scan found <strong>{itemCount} change{itemCount === 1 ? "" : "s"}</strong> in the source
-          {alerts.length > 1 ? ` (+${alerts.length - 1} earlier scan${alerts.length - 1 === 1 ? "" : "s"})` : ""}.
-          Nothing's been changed on the canvas yet.
-        </span>
+    <div className="mb-4 rounded-lg border border-drift/40 bg-drift/5 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm">
+          <AlertTriangle className="size-4 text-drift-ink shrink-0" aria-hidden />
+          <span>
+            A scheduled check found <strong>{itemCount} change{itemCount === 1 ? "" : "s"}</strong> in the sources.
+            {earlier > 0 ? ` ${earlier} earlier check${earlier === 1 ? "" : "s"} also found changes.` : ""}
+            {" "}Your artifacts haven't changed yet.
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button size="sm" variant="outline" disabled={!!blockedReason || checking} title={blockedReason ?? undefined}
+            onClick={() => { void recheck(); }}>
+            {checking ? <><Loader2 className="size-3.5 animate-spin" aria-hidden /> Re-checking…</> : "Re-check now"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => dismiss(latest.id)}>Hide alert</Button>
+        </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <Button size="sm" variant="outline" disabled={!!blockedReason} title={blockedReason ?? undefined}
-          onClick={() => { onRecheck(); alerts.forEach((a) => dismiss(a.id)); }}>
-          Review now
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => dismiss(latest.id)}>Dismiss</Button>
-      </div>
+      <InlineError error={error} className="mt-2" />
     </div>
   );
 }
@@ -737,43 +815,53 @@ function fmtVersionTime(ts: number) {
   return `${d}d ago`;
 }
 
-function VersionHistoryDialog({ project, blockedReason }: { project: StoredProject; blockedReason?: string | null }) {
+function VersionHistoryDialog({ project, blockedReason, getCurrentCanvases, onRestored }: {
+  project: StoredProject;
+  blockedReason?: string | null;
+  /** What's on screen now, live edits included, so a restore can keep it. */
+  getCurrentCanvases: () => StoredProject["canvases"];
+  /** Remounts the panes from the restored canvases, so what's on screen (and
+   *  what autosave writes next) is the restored version, not the old one. */
+  onRestored: (canvases: StoredProject["canvases"]) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"versions" | "activity">("versions");
   const [loading, setLoading] = useState(false);
   const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [restoringId, setRestoringId] = useState<string | null>(null);
-  const navigate = useNavigate();
+  const [pendingRestore, setPendingRestore] = useState<SnapshotSummary | null>(null);
+  const [loadError, setLoadError] = useState<FriendlyError | null>(null);
   const session = useSession();
 
   const load = () => {
     setLoading(true);
+    setLoadError(null);
     Promise.all([
       sessionStore.listSnapshots(project.id),
       sessionStore.listSnapshotsWithCanvases(project.id).then(buildAuditTrail),
     ])
       .then(([s, e]) => { setSnapshots(s); setEvents(e); })
-      .catch(() => { setSnapshots([]); setEvents([]); })
+      .catch((err) => {
+        setSnapshots([]); setEvents([]);
+        setLoadError(friendlyError(err, "load the version history"));
+      })
       .finally(() => setLoading(false));
   };
 
+  // Keep what's on screen as its own version first, so restoring never
+  // loses work done since the last checkpoint (the dialog promises this).
   const restore = async (snapshotId: string) => {
-    if (!confirm("Restore this version? Your current canvases will be replaced -- this itself is saved as a new version first, so nothing is lost.")) return;
-    setRestoringId(snapshotId);
-    try {
-      const canvases = await sessionStore.getSnapshotCanvases(snapshotId);
-      await sessionStore.updateProject(project.id, { canvases });
-      if (session.userId) {
-        await sessionStore.saveSnapshot(project.id, canvases, "manual_save", session.userId);
-      }
-      setOpen(false);
-      navigate({ to: "/project/$id", params: { id: project.id }, replace: true });
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Couldn't restore this version. Try again.");
-    } finally {
-      setRestoringId(null);
-    }
+    if (!session.userId) throw { code: "PGRST301", message: "Not signed in." };
+    const current = getCurrentCanvases();
+    sessionStore.flushCanvasUpdates(project.id);
+    await sessionStore.saveSnapshot(project.id, current, "manual_save", session.userId);
+    const canvases = await sessionStore.getSnapshotCanvases(snapshotId);
+    await sessionStore.updateProject(project.id, { canvases });
+    onRestored(canvases);
+    setOpen(false);
+    // The restore is done; recording it as a version too is a nicety, so a
+    // failure here mustn't report the restore itself as failed.
+    sessionStore.saveSnapshot(project.id, canvases, "manual_save", session.userId).catch(() => {});
   };
 
   return (
@@ -786,8 +874,8 @@ function VersionHistoryDialog({ project, blockedReason }: { project: StoredProje
           <DialogTitle>{tab === "versions" ? "Version history" : "Activity"}</DialogTitle>
           <DialogDescription>
             {tab === "versions"
-              ? "Checkpoints from project creation, re-extraction, and manual saves. Restoring keeps what you had before as its own version too."
-              : "Per-item changes between checkpoints, derived from the same versions."}
+              ? "Saved when the project was created, when sources were added or re-checked, and when someone pressed Save version. Restoring one saves what you have now as a version first."
+              : "What changed in each item between saved versions."}
           </DialogDescription>
         </DialogHeader>
         <div className="flex gap-1 rounded-md border bg-muted/40 p-0.5 w-fit">
@@ -809,6 +897,8 @@ function VersionHistoryDialog({ project, blockedReason }: { project: StoredProje
 
         {loading ? (
           <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+        ) : loadError ? (
+          <InlineError error={loadError} onRetry={load} />
         ) : tab === "versions" ? (
           snapshots.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">No versions saved yet.</p>
@@ -827,13 +917,11 @@ function VersionHistoryDialog({ project, blockedReason }: { project: StoredProje
                     </div>
                   </div>
                   <Button
-                    size="sm" variant="ghost" disabled={restoringId === s.id || !!blockedReason}
+                    size="sm" variant="ghost" disabled={!!blockedReason}
                     title={blockedReason ?? undefined}
-                    onClick={() => restore(s.id)}
+                    onClick={() => setPendingRestore(s)}
                   >
-                    {restoringId === s.id
-                      ? <Loader2 className="size-3.5 animate-spin" />
-                      : <><RotateCcw className="size-3.5" /> Restore</>}
+                    <RotateCcw className="size-3.5" /> Restore
                   </Button>
                 </div>
               ))}
@@ -854,6 +942,18 @@ function VersionHistoryDialog({ project, blockedReason }: { project: StoredProje
           </div>
         )}
       </DialogContent>
+      <ConfirmDialog
+        open={!!pendingRestore}
+        onOpenChange={(o) => { if (!o) setPendingRestore(null); }}
+        title={pendingRestore ? `Restore the version from ${fmtVersionTime(pendingRestore.createdAt)}?` : ""}
+        consequence="Every artifact goes back to how it was then. What you have now is saved as a version first, so you can switch back."
+        confirmLabel="Restore this version"
+        busyLabel="Restoring…"
+        cancelLabel="Keep current"
+        tone="default"
+        doing="restore this version"
+        onConfirm={() => (pendingRestore ? restore(pendingRestore.id) : undefined)}
+      />
     </Dialog>
   );
 }
@@ -868,11 +968,18 @@ function AddSourceDialog({
   const [open, setOpen] = useState(false);
   const [sources, setSources] = useState<SourceDraft[]>([makeSource(0)]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<FriendlyError | null>(null);
   const session = useSession();
 
   const ready = sources.filter(s => s.status === "ready" && s.text.trim().length > 0);
+  // The dialog stays open on a failure, so the files are never lost.
+  const keepFiles = (fe: FriendlyError): FriendlyError => ({
+    ...fe,
+    detail: fe.kind === "unknown" ? "Your files are still here. Try again in a moment." : `${fe.detail} Your files are still here.`,
+  });
 
   const apply = async () => {
+    setError(null);
     setBusy(true);
 
     const newStored = ready.map(s => ({
@@ -889,7 +996,7 @@ function AddSourceDialog({
       perSource = await extractSources(allSources, project.kinds);
     } catch (err) {
       setBusy(false);
-      alert(err instanceof Error ? err.message : "Extraction failed. Try again.");
+      setError(keepFiles(friendlyError(err, "read the sources")));
       return;
     }
     if (session.currentOrgId) sessionStore.trackEvent(session.currentOrgId, session.userId, "extraction_run", project.id, { sourceCount: allSources.length });
@@ -934,7 +1041,7 @@ function AddSourceDialog({
       }
     } catch (err) {
       setBusy(false);
-      alert(err instanceof Error ? err.message : "Couldn't save the new source. Try again.");
+      setError(keepFiles(friendlyError(err, "save the new source")));
       return;
     }
     setBusy(false);
@@ -943,36 +1050,46 @@ function AddSourceDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setSources([makeSource(0)]); }}>
+    <Dialog open={open} onOpenChange={(o) => {
+      // Reading the sources takes a few seconds; closing mid-way would hide a
+      // failure and lose the files, so the dialog stays open until it's done.
+      if (busy && !o) return;
+      setOpen(o);
+      if (o) { setSources([makeSource(0)]); setError(null); }
+    }}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" disabled={!!blockedReason} title={blockedReason ?? undefined}><Plus className="size-3.5" /> Add source</Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent
+        className="max-w-2xl"
+        onEscapeKeyDown={(e) => { if (busy) e.preventDefault(); }}
+        onPointerDownOutside={(e) => { if (busy) e.preventDefault(); }}
+      >
         <DialogHeader>
           <DialogTitle>Add a source to this project</DialogTitle>
           <DialogDescription>
-            Paste a transcript or upload a .pdf / .docx. visu will re-extract across all
-            sources and reconcile matching items — bumping confidence when sources agree and
-            flagging conflicts when they don't.
+            Paste a transcript or add a PDF or Word file. The artifacts are then redrawn from all
+            the sources together.
           </DialogDescription>
         </DialogHeader>
         <div className="rounded-lg border border-drift/30 bg-drift/[0.06] p-2.5 text-[11px] flex items-start gap-2">
-          <AlertTriangle className="size-3.5 text-drift-ink shrink-0 mt-0.5" />
+          <AlertTriangle className="size-3.5 text-drift-ink shrink-0 mt-0.5" aria-hidden />
           <span className="text-muted-foreground">
-            Adding a source regenerates the canvases from all sources. Manual edits to the current canvas will be replaced.
+            Adding a source redraws the artifacts from all the sources, so edits made by hand will be replaced.
           </span>
         </div>
         <div className="max-h-[50vh] overflow-y-auto p-1">
           <SourceIntake sources={sources} onChange={setSources} />
         </div>
+        <InlineError error={error} />
         <div className="flex items-center justify-between border-t pt-3">
           <span className="text-[11px] text-muted-foreground">
             {ready.length} new source{ready.length === 1 ? "" : "s"} ready
           </span>
           <Button disabled={ready.length === 0 || busy} onClick={apply}>
             {busy
-              ? <><Loader2 className="size-4 animate-spin" /> Reconciling…</>
-              : <>Add & reconcile</>}
+              ? <><Loader2 className="size-4 animate-spin" /> Reading all sources…</>
+              : <>Add and redraw</>}
           </Button>
         </div>
       </DialogContent>

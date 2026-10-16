@@ -29,7 +29,7 @@ const TEMPLATES: Template[] = [
   {
     id: "discovery-bmc",
     job: "Capture a discovery call as a business model",
-    desc: "Extract a full BMC from a founder interview — segments, value, channels, costs.",
+    desc: "Build a full business model canvas from a founder interview: segments, value, channels, costs.",
     kind: "bmc",
     sampleId: "haulpilot",
     category: "Strategy",
@@ -37,7 +37,7 @@ const TEMPLATES: Template[] = [
   {
     id: "brd",
     job: "Turn a requirements call into a BRD",
-    desc: "Extract steps and decisions, then generate a traceable business requirements doc.",
+    desc: "Pull out steps and decisions, then write a business requirements document that links back to the call.",
     kind: "process",
     sampleId: "banking",
     category: "Product",
@@ -48,12 +48,12 @@ const TEMPLATES: Template[] = [
     desc: "Surface decision branches, exceptions, and hand-offs across teams and systems.",
     kind: "process",
     sampleId: "banking",
-    category: "Risk & Compliance",
+    category: "Risk and compliance",
   },
   {
     id: "validate-idea",
     job: "Validate a new business idea from a pitch",
-    desc: "Pressure-test a pitch against the 9 BMC blocks with confidence per assumption.",
+    desc: "Pressure-test a pitch against the 9 BMC blocks, showing how sure each assumption is.",
     kind: "bmc",
     sampleId: "haulpilot",
     category: "Strategy",
@@ -61,7 +61,7 @@ const TEMPLATES: Template[] = [
   {
     id: "scope-creep",
     job: "Track scope creep across stakeholder calls",
-    desc: "Diff a follow-up against the original — see exactly which steps drifted.",
+    desc: "Compare a follow-up call with the first and see exactly which steps changed in the source.",
     kind: "process",
     sampleId: "banking",
     category: "Delivery",
@@ -84,7 +84,7 @@ export function TemplateGallery({ onPick }: { onPick: (sample: Sample) => void }
       <DialogTrigger asChild>
         <button
           className="rounded-md border border-dashed border-primary/40 bg-primary/5 text-primary px-3 py-1.5 text-xs transition hover:bg-primary/10 inline-flex items-center gap-1.5"
-          title="Browse templates by job-to-be-done"
+          title="Browse templates by what you need to do"
         >
           <LibraryBig className="size-3.5" />
           Browse templates
@@ -97,7 +97,7 @@ export function TemplateGallery({ onPick }: { onPick: (sample: Sample) => void }
           </div>
           <DialogTitle className="font-display text-2xl">Start from a job, not a shape.</DialogTitle>
           <DialogDescription>
-            Pick the outcome you want. visu loads a matching transcript — hit Extract to see the typed artifact.
+            Pick what you need to do. A matching sample call loads into the workbench; press Extract artifact to see the result.
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[65vh] overflow-y-auto p-5 grid gap-3 sm:grid-cols-2">

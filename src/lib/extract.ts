@@ -10,11 +10,12 @@ import {
   haulpilotBMC,
   decisionBranches,
   type ArtifactModel,
+  type BaseItem,
   type ProcessModel,
   type BMCModel,
 } from "@/data/samples";
-import { supabase } from "@/integrations/supabase/client";
 import { verifyGrounding } from "@/lib/grounding";
+import { invokeEdge } from "@/lib/edge";
 
 export type ArtifactKind = "process" | "bmc";
 
@@ -191,15 +192,11 @@ export async function extractFromSourceReal(
   const trimmed = input.text.trim();
   if (trimmed.length < 40) return [];
 
-  const { data, error } = await supabase.functions.invoke<EdgeFunctionResponse>("extract-artifact", {
-    body: { text: trimmed, allowedKinds },
-  });
-  if (error) throw new Error(error.message || "Extraction failed. Try again.");
-  if (data?.error) throw new Error(data.error);
+  const data = await invokeEdge<EdgeFunctionResponse>("extract-artifact", { text: trimmed, allowedKinds });
 
   return (data?.results ?? []).map(({ kind, model }) => ({
     kind,
-    model: verifyGrounding(prefixIds(model, input.index), trimmed),
+    model: verifyGrounding(checkConfidence(prefixIds(model, input.index)), trimmed),
   }));
 }
 
@@ -233,4 +230,24 @@ export async function extractSources(
   const first = await run(sources[0], 0);
   const rest = await Promise.all(sources.slice(1).map((s, i) => run(s, i + 1)));
   return [first, ...rest];
+}
+
+/** The model's scores are taken as given elsewhere, so check them once here:
+ *  a score outside 0-1 (85 instead of 0.85) is scaled or clamped, and an item
+ *  with no quote is marked as unchecked rather than passed as grounded. */
+function checkConfidence(model: ArtifactModel): ArtifactModel {
+  const fix = <T extends BaseItem>(i: T): T => {
+    let c = typeof i.confidence === "number" && Number.isFinite(i.confidence) ? i.confidence : 0;
+    if (c > 1 && c <= 100) c = c / 100;
+    c = Math.min(1, Math.max(0, c));
+    return { ...i, confidence: c, ...(i.snippet ? {} : { quoteUnverified: true }) };
+  };
+  if (model.kind === "process") {
+    return {
+      ...model,
+      actors: model.actors.map(fix), systems: model.systems.map(fix), steps: model.steps.map(fix),
+      decisions: model.decisions.map(fix), exceptions: model.exceptions.map(fix),
+    };
+  }
+  return { ...model, blocks: model.blocks.map((b) => ({ ...b, items: b.items.map(fix) })) };
 }

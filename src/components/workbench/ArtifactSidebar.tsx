@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
-import { Search, Plus, ChevronRight, AlertTriangle, ShieldAlert } from "lucide-react";
+import { Search, Plus, ChevronRight, AlertTriangle, CircleHelp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
-import { allItems, stats } from "@/data/samples";
+import type { ArtifactModel } from "@/data/samples";
 import type { StoredCanvas, ViewKind } from "@/lib/session";
+import { summarizeGrades } from "@/lib/grade";
+import { cn } from "@/lib/utils";
 import { ALL_VIEW_KINDS, VIEW_KIND_META } from "@/lib/view-kind-meta";
 
 interface Props {
@@ -79,9 +81,29 @@ export function ArtifactSidebar({ canvases, onOpen, onCreate }: Props) {
   );
 }
 
+/** An artifact's items in words: how many, how many need a look (unclear,
+ *  changed in the source, or sources disagree), and how many changed in the
+ *  source. Shared by the list rows and the board cards. */
+export function ArtifactCounts({ model, className }: { model: ArtifactModel; className?: string }) {
+  const s = summarizeGrades(model);
+  return (
+    <span className={cn("flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground", className)}>
+      <span>{s.total} {s.total === 1 ? "item" : "items"}</span>
+      {s.needsLook > 0 && (
+        <span className={cn("inline-flex items-center gap-0.5", s.changed + s.disagree > 0 ? "text-drift-ink" : "text-unresolved-ink")}>
+          <CircleHelp className="size-3" aria-hidden /> {s.needsLook} {s.needsLook === 1 ? "needs" : "need"} a look
+        </span>
+      )}
+      {s.changed > 0 && (
+        <span className="inline-flex items-center gap-0.5 text-drift-ink">
+          <AlertTriangle className="size-3" aria-hidden /> {s.changed} changed in the source
+        </span>
+      )}
+    </span>
+  );
+}
+
 function ArtifactRow({ canvas, onOpen }: { canvas: StoredCanvas; onOpen: (id: string) => void }) {
-  const st = stats(canvas.model);
-  const drifted = allItems(canvas.model).some((i) => i.drift);
   return (
     <button
       onClick={() => onOpen(canvas.id)}
@@ -89,19 +111,7 @@ function ArtifactRow({ canvas, onOpen }: { canvas: StoredCanvas; onOpen: (id: st
     >
       <div className="min-w-0">
         <div className="text-sm font-medium truncate">{canvas.name}</div>
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
-          <span>{st.count} item{st.count === 1 ? "" : "s"}</span>
-          {st.unresolved > 0 && (
-            <span className="inline-flex items-center gap-0.5 text-drift">
-              <ShieldAlert className="size-3" /> {st.unresolved} unresolved
-            </span>
-          )}
-          {drifted && (
-            <span className="inline-flex items-center gap-0.5 text-drift">
-              <AlertTriangle className="size-3" /> drift
-            </span>
-          )}
-        </div>
+        <ArtifactCounts model={canvas.model} className="mt-0.5" />
       </div>
       <ChevronRight className="size-4 text-muted-foreground shrink-0" />
     </button>
@@ -109,9 +119,12 @@ function ArtifactRow({ canvas, onOpen }: { canvas: StoredCanvas; onOpen: (id: st
 }
 
 export function NewInstanceButton({
-  viewKind, existingCount, onCreate,
+  viewKind, existingCount, onCreate, namesKind = false,
 }: {
   viewKind: ViewKind; existingCount: number; onCreate: (viewKind: ViewKind, name: string) => void;
+  /** Say which kind on the button itself ("New data flow diagram"). Off in
+   *  the list, where the group heading above already names it. */
+  namesKind?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const meta = VIEW_KIND_META[viewKind];
@@ -123,13 +136,13 @@ export function NewInstanceButton({
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (o) setName(defaultName); }}>
       <Button
         size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" onClick={() => setOpen(true)}
-        aria-label={`New ${meta.label}`} title={`New ${meta.label}`}
+        aria-label={`New ${meta.noun}`} title={`New ${meta.noun}`}
       >
-        <Plus className="size-3" /> New
+        <Plus className="size-3" /> {namesKind ? `New ${meta.noun}` : "New"}
       </Button>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>New {meta.label}</DialogTitle>
+          <DialogTitle>New {meta.noun}</DialogTitle>
           <DialogDescription>
             {startsEmptyOnly
               ? "Always starts empty — add items on the canvas yourself; sources don't fill this one in."
@@ -144,7 +157,7 @@ export function NewInstanceButton({
         />
         <div className="flex justify-end pt-2">
           <Button disabled={!name.trim()} onClick={() => { onCreate(viewKind, name.trim()); setOpen(false); }}>
-            Create
+            Create artifact
           </Button>
         </div>
       </DialogContent>

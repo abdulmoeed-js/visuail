@@ -7,6 +7,21 @@ import { ConfidenceBadge, IdChip } from "./atoms";
 import { InlineEdit } from "./InlineEdit";
 import { ItemCommentsPopover } from "./ItemCommentsPopover";
 import type { BaseItem } from "@/data/samples";
+import { gradeOf, quoteMissing, GROUNDING_NOTE } from "@/lib/grade";
+
+/** Older projects recorded a failed quote check only as this note (grade.ts). */
+
+/** A snippet is shown as the source's own words only when the check found it there. */
+const quoteFound = (item: BaseItem) =>
+  !quoteMissing(item);
+
+/** What the sources disagree about, without the stored prefix (merge.ts) or
+ *  the old quote-check note. */
+const disagreement = (item: BaseItem) =>
+  (item.conflictNote ?? "")
+    .replace(GROUNDING_NOTE, "")
+    .replace(/^(Conflicting sources|Sources disagree)\s*[—–-]\s*/i, "")
+    .trim();
 
 interface Props {
   items: BaseItem[];
@@ -54,56 +69,63 @@ export function EditableList({
 
   return (
     <ul className={cn("flex flex-col", compact ? "gap-1" : "gap-1.5")}>
-      {items.map((item) => (
-        <li
-          key={item.id}
-          ref={item.id === focusItemId ? focusRef : undefined}
-          className={cn(
-            "group relative flex items-start gap-2 rounded-md border bg-card px-2.5 py-1.5 text-sm animate-item-in",
-            item.confidence < 0.7 && !item.userAdded && "border-dashed border-unresolved/60 bg-unresolved/5",
-            (item.drift || item.conflict) && "border-drift bg-drift/5 animate-drift",
-            item.userAdded && "user-added",
-            item.id === focusItemId && "ring-2 ring-primary ring-offset-2 ring-offset-background",
-          )}
-        >
-          {showIds && <IdChip id={item.id} />}
-          <div className="flex-1 leading-snug min-w-0">
-            {onEdit ? (
-              <InlineEdit value={item.text} onChange={(v) => onEdit(item.id, v)} className="text-foreground" multiline />
-            ) : (
-              <span className="text-foreground break-words">{item.text}</span>
+      {items.map((item) => {
+        const g = gradeOf(item);
+        const conflictText = g.grade === "disagree" ? disagreement(item) : "";
+        // Hand-made items and disagreements carry no quote of their own.
+        const quotable = !g.provenance && g.grade !== "disagree" && !!item.snippet;
+        const missingQuote = quotable && !quoteFound(item);
+        const showQuote = quotable && !missingQuote;
+        return (
+          <li
+            key={item.id}
+            ref={item.id === focusItemId ? focusRef : undefined}
+            className={cn(
+              "group relative flex items-start gap-2 rounded-md border bg-card px-2.5 py-1.5 text-sm animate-item-in",
+              g.grade === "unclear" && "border-dashed border-unresolved/60 bg-unresolved/5",
+              (g.grade === "changed" || g.grade === "disagree") && "border-drift bg-drift/5 animate-drift",
+              g.provenance && "user-added",
+              item.id === focusItemId && "ring-2 ring-primary ring-offset-2 ring-offset-background",
             )}
-            {item.conflict && item.conflictNote && (
-              <div className="mt-1 text-[11px] text-drift-ink">
-                <span className="font-semibold">Conflicting sources · </span>
-                <span className="text-drift-ink">{item.conflictNote.replace(/^Conflicting sources — /, "")}</span>
-              </div>
-            )}
-            {item.snippet && !item.userAdded && !item.conflict && (
-              <div className="mt-1 flex gap-1.5 text-[11px] italic text-muted-foreground">
-                <span className="text-unresolved-ink">“</span>
-                <span>{item.snippet}</span>
-              </div>
-            )}
-          </div>
-          <ConfidenceBadge item={item} />
-          {projectId && (
-            <ItemCommentsPopover
-              projectId={projectId} itemId={item.id}
-              count={commentCounts?.[item.id] ?? 0}
-              onCountChange={onCommentCountChange ?? (() => {})}
-              autoOpen={item.id === focusItemId}
-            />
-          )}
-          <button
-            onClick={() => onDelete(item.id)}
-            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition text-muted-foreground hover:text-destructive"
-            aria-label="Delete item"
           >
-            <X className="size-3.5" />
-          </button>
-        </li>
-      ))}
+            {showIds && <IdChip id={item.id} />}
+            <div className="flex-1 leading-snug min-w-0">
+              {onEdit ? (
+                <InlineEdit value={item.text} onChange={(v) => onEdit(item.id, v)} className="text-foreground" multiline />
+              ) : (
+                <span className="text-foreground break-words">{item.text}</span>
+              )}
+              {/* How sure, in a word, on the line under the text, followed by
+               *  what the sources disagree about, why the quote is missing, or
+               *  the source's own words. Beside the text, the chip squeezed a
+               *  narrow canvas block's text down to a word or two. */}
+              <div className="mt-1 text-[11px] leading-snug">
+                <ConfidenceBadge item={item} />
+                {/* The chip already reads its reason to screen readers, so these
+                    visible repeats are hidden from them. */}
+                {conflictText && <span aria-hidden className="ml-1.5 text-drift-ink break-words">{conflictText}</span>}
+                {missingQuote && <span aria-hidden={g.grade === "unclear"} className="ml-1.5 text-muted-foreground">The quote for this item wasn't found in the source.</span>}
+                {showQuote && <span className="ml-1.5 italic text-muted-foreground break-words">“{item.snippet}”</span>}
+              </div>
+            </div>
+            {projectId && (
+              <ItemCommentsPopover
+                projectId={projectId} itemId={item.id}
+                count={commentCounts?.[item.id] ?? 0}
+                onCountChange={onCommentCountChange ?? (() => {})}
+                autoOpen={item.id === focusItemId}
+              />
+            )}
+            <button
+              onClick={() => onDelete(item.id)}
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition text-muted-foreground hover:text-destructive"
+              aria-label="Delete item"
+            >
+              <X className="size-3.5" />
+            </button>
+          </li>
+        );
+      })}
       {adding ? (
         <li className="flex items-center gap-1.5">
           <Input

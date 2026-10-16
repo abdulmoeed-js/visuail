@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { LayoutDashboard, LogOut, Building2, Check, ChevronDown, Users2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { buttonVariants } from "@/components/ui/button";
 import { scrollToId } from "@/lib/scroll";
 import { sessionStore, useSession, type Session } from "@/lib/session";
 import { HELP_URL } from "@/lib/links";
@@ -109,10 +110,12 @@ export function Nav() {
           )}
           {session.signedIn ? (
             <>
+              {/* Ordinary, not solid: the page below owns the one main
+                  action (DESIGN 6.1). */}
               {!onDashboard && (
                 <Link
                   to="/dashboard"
-                  className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-semibold transition-colors hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] active:bg-[color-mix(in_oklab,var(--primary)_80%,black)] inline-flex items-center gap-1.5"
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5 [&_svg]:size-3.5")}
                 >
                   <LayoutDashboard className="size-3.5" /> Dashboard
                 </Link>
@@ -128,7 +131,7 @@ export function Nav() {
           ) : (
             <Link
               to="/dashboard"
-              className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-semibold transition-colors hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] active:bg-[color-mix(in_oklab,var(--primary)_80%,black)] inline-flex items-center gap-1.5"
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
             >
               Start free
             </Link>
