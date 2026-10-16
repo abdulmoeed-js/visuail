@@ -112,7 +112,7 @@ export function Nav() {
               {!onDashboard && (
                 <Link
                   to="/dashboard"
-                  className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition inline-flex items-center gap-1.5"
+                  className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-semibold transition-colors hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] active:bg-[color-mix(in_oklab,var(--primary)_80%,black)] inline-flex items-center gap-1.5"
                 >
                   <LayoutDashboard className="size-3.5" /> Dashboard
                 </Link>
@@ -128,7 +128,7 @@ export function Nav() {
           ) : (
             <Link
               to="/dashboard"
-              className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition"
+              className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-sm font-semibold transition-colors hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] active:bg-[color-mix(in_oklab,var(--primary)_80%,black)] inline-flex items-center gap-1.5"
             >
               Start free
             </Link>
