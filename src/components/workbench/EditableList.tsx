@@ -15,6 +15,9 @@ interface Props {
   onEdit?: (id: string, text: string) => void;
   idPrefix?: string;
   placeholder?: string;
+  /** Screen-reader name for the add field; defaults to the placeholder
+   *  without its trailing ellipsis. */
+  label?: string;
   compact?: boolean;
   showIds?: boolean;
   /** Only set on the real project page -- the marketing demo has no
@@ -30,7 +33,7 @@ interface Props {
 
 export function EditableList({
   items, onAdd, onDelete, onEdit,
-  placeholder = "Add item…", compact, showIds = true,
+  placeholder = "Add item…", label, compact, showIds = true,
   projectId, commentCounts, onCommentCountChange, focusItemId,
 }: Props) {
   const [adding, setAdding] = useState(false);
@@ -71,14 +74,14 @@ export function EditableList({
               <span className="text-foreground break-words">{item.text}</span>
             )}
             {item.conflict && item.conflictNote && (
-              <div className="mt-1 text-[11px] text-drift">
-                <span className="font-semibold uppercase tracking-wider text-[10px]">Conflicting sources · </span>
-                <span className="text-drift/90">{item.conflictNote.replace(/^Conflicting sources — /, "")}</span>
+              <div className="mt-1 text-[11px] text-drift-ink">
+                <span className="font-semibold">Conflicting sources · </span>
+                <span className="text-drift-ink">{item.conflictNote.replace(/^Conflicting sources — /, "")}</span>
               </div>
             )}
             {item.snippet && !item.userAdded && !item.conflict && (
               <div className="mt-1 flex gap-1.5 text-[11px] italic text-muted-foreground">
-                <span className="text-unresolved">“</span>
+                <span className="text-unresolved-ink">“</span>
                 <span>{item.snippet}</span>
               </div>
             )}
@@ -112,12 +115,13 @@ export function EditableList({
               if (e.key === "Escape") { setAdding(false); setDraft(""); }
             }}
             placeholder={placeholder}
+            aria-label={label ?? placeholder.replace(/…$/, "")}
             className="h-8 text-sm"
           />
-          <Button size="icon" variant="ghost" onClick={submit} className="h-8 w-8">
+          <Button size="icon" variant="ghost" onClick={submit} className="h-8 w-8" aria-label="Add item">
             <Check className="size-4" />
           </Button>
-          <Button size="icon" variant="ghost" onClick={() => { setAdding(false); setDraft(""); }} className="h-8 w-8">
+          <Button size="icon" variant="ghost" onClick={() => { setAdding(false); setDraft(""); }} className="h-8 w-8" aria-label="Cancel">
             <X className="size-4" />
           </Button>
         </li>
@@ -125,7 +129,7 @@ export function EditableList({
         <li>
           <button
             onClick={() => setAdding(true)}
-            className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-border/70 px-2.5 py-1.5 text-xs text-muted-foreground hover:border-verified hover:text-verified hover:bg-verified/5 transition"
+            className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-border/70 px-2.5 py-1.5 text-xs text-muted-foreground hover:border-verified hover:text-verified-ink hover:bg-verified/5 transition"
           >
             <Plus className="size-3.5" />
             Add item

@@ -8,18 +8,27 @@ interface Props {
   multiline?: boolean;
   placeholder?: string;
   as?: "block" | "inline";
+  /** What this field is, for screen readers (e.g. "Preconditions for TC-1").
+   *  Names the edit field, and prefixes the text when not editing. */
+  label?: string;
 }
 
 /**
  * Click-to-edit text. Enter to save, Escape to cancel.
+ * Reachable from the keyboard too: Tab to it, then Enter or Space to edit.
  * Stops propagation so it doesn't trigger canvas pan or node drag.
  */
 export function InlineEdit({
-  value, onChange, className, multiline, placeholder, as = "inline",
+  value, onChange, className, multiline, placeholder, as = "inline", label,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
+  const displayRef = useRef<HTMLElement | null>(null);
+  // Set when editing ends from the keyboard (Enter/Escape), so focus goes
+  // back to the text instead of being dropped on the page. A click away
+  // ends editing too, and must leave focus wherever the click put it.
+  const refocus = useRef(false);
 
   useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
   useLayoutEffect(() => {
@@ -29,6 +38,9 @@ export function InlineEdit({
       // pokes out of a canvas frame scrolls the frame and the page.
       ref.current.focus({ preventScroll: true });
       if ("select" in ref.current) (ref.current as HTMLInputElement).select();
+    } else if (!editing && refocus.current) {
+      refocus.current = false;
+      displayRef.current?.focus({ preventScroll: true });
     }
   }, [editing]);
 
@@ -50,11 +62,13 @@ export function InlineEdit({
       onPointerDown: stop,
       onKeyDown: (e: React.KeyboardEvent) => {
         // Enter commits (Shift+Enter or Ctrl/Meta+Enter inserts a newline in multiline).
-        if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) { e.preventDefault(); commit(); }
-        else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+        if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) { e.preventDefault(); refocus.current = true; commit(); }
+        else if (e.key === "Escape") { e.preventDefault(); refocus.current = true; cancel(); }
       },
+      "aria-label": label,
+      placeholder,
       className: cn(
-        "w-full bg-background/90 outline-none ring-2 ring-verified/60 rounded px-1 py-0.5",
+        "w-full bg-background/90 outline-none ring-2 ring-verified rounded px-1 py-0.5",
         multiline ? "resize-none" : "",
         className,
       ),
@@ -65,9 +79,21 @@ export function InlineEdit({
   }
 
   const Tag = as === "block" ? "div" : "span";
+  const shown = value || placeholder || "—";
   return (
     <Tag
+      ref={(el: HTMLElement | null) => { displayRef.current = el; }}
+      role="button"
+      tabIndex={0}
+      aria-label={label ? `${label}: ${shown}` : undefined}
       onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          setEditing(true);
+        }
+      }}
       onPointerDown={stop}
       className={cn(
         "cursor-text rounded px-1 -mx-1 hover:bg-verified/10 hover:ring-1 hover:ring-verified/30 transition",
@@ -76,7 +102,7 @@ export function InlineEdit({
       )}
       title="Click to edit"
     >
-      {value || placeholder || "—"}
+      {shown}
     </Tag>
   );
 }

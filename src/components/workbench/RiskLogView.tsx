@@ -10,15 +10,15 @@ import { SelectBadge } from "./SelectBadge";
 
 const LEVELS: readonly Level[] = ["Low", "Medium", "High"];
 const levelTone = (v: Level) =>
-  v === "High" ? "border-drift/50 bg-drift/10 text-drift"
-  : v === "Medium" ? "border-unresolved bg-unresolved/15 text-[color:var(--unresolved-foreground)]"
-  : "border-confident/40 bg-confident/10 text-[color:var(--confident)]";
+  v === "High" ? "border-drift/50 bg-drift/10 text-drift-ink"
+  : v === "Medium" ? "border-unresolved bg-unresolved/15 text-unresolved-ink"
+  : "border-confident/40 bg-confident/10 text-confident-ink";
 const responseTone = () => "border-primary/40 bg-primary/10 text-primary";
 const LEVEL_SCORE: Record<Level, number> = { Low: 1, Medium: 2, High: 3 };
 const scoreTone = (score: number) =>
-  score >= 6 ? "border-drift/50 bg-drift/10 text-drift"
-  : score >= 3 ? "border-unresolved bg-unresolved/15 text-[color:var(--unresolved-foreground)]"
-  : "border-confident/40 bg-confident/10 text-[color:var(--confident)]";
+  score >= 6 ? "border-drift/50 bg-drift/10 text-drift-ink"
+  : score >= 3 ? "border-unresolved bg-unresolved/15 text-unresolved-ink"
+  : "border-confident/40 bg-confident/10 text-confident-ink";
 
 /** Risk Log -- probability x impact scoring, response strategy, status.
  *  Available on both Process and BMC models (every project has risks). */
@@ -35,8 +35,8 @@ export function RiskLogView({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
-          RISK LOG · {risks.length} risk{risks.length === 1 ? "" : "s"}
+        <div className="eyebrow text-muted-foreground">
+          Risk log · {risks.length} risk{risks.length === 1 ? "" : "s"}
         </div>
         <Button size="sm" variant="outline" onClick={() => onAddRisk("New risk")}>
           <Plus className="size-3.5" /> Add risk
@@ -69,15 +69,15 @@ export function RiskLogView({
                     <TableCell>
                       <div className="flex items-start gap-1.5">
                         <IdChip id={r.id} tone="primary" />
-                        <InlineEdit value={r.text} onChange={(v) => onUpdateItem(r.id, { text: v })} />
+                        <InlineEdit value={r.text} onChange={(v) => onUpdateItem(r.id, { text: v })} label={`Risk ${r.id}`} />
                       </div>
                     </TableCell>
                     <TableCell>
-                      <SelectBadge value={r.probability} options={LEVELS} tone={levelTone}
+                      <SelectBadge value={r.probability} options={LEVELS} tone={levelTone} label={`Probability for ${r.id}`}
                         onChange={(v) => onUpdateItem(r.id, { probability: v })} />
                     </TableCell>
                     <TableCell>
-                      <SelectBadge value={r.impact} options={LEVELS} tone={levelTone}
+                      <SelectBadge value={r.impact} options={LEVELS} tone={levelTone} label={`Impact for ${r.id}`}
                         onChange={(v) => onUpdateItem(r.id, { impact: v })} />
                     </TableCell>
                     <TableCell>
@@ -86,15 +86,15 @@ export function RiskLogView({
                       </span>
                     </TableCell>
                     <TableCell>
-                      <SelectBadge<RiskResponse> value={r.response} options={RISK_RESPONSES} tone={responseTone}
+                      <SelectBadge<RiskResponse> value={r.response} options={RISK_RESPONSES} tone={responseTone} label={`Response for ${r.id}`}
                         onChange={(v) => onUpdateItem(r.id, { response: v })} />
                     </TableCell>
                     <TableCell>
-                      <SelectBadge value={r.status} options={["Open", "Closed"] as const} tone={() => "border-muted-foreground/30 bg-muted text-muted-foreground"}
+                      <SelectBadge value={r.status} options={["Open", "Closed"] as const} tone={() => "border-muted-foreground/30 bg-muted text-muted-foreground"} label={`Status for ${r.id}`}
                         onChange={(v) => onUpdateItem(r.id, { status: v })} />
                     </TableCell>
                     <TableCell>
-                      <button onClick={() => onDeleteAny(r.id)} className="text-muted-foreground hover:text-destructive transition">
+                      <button onClick={() => onDeleteAny(r.id)} aria-label={`Delete risk ${r.id}`} className="text-muted-foreground hover:text-destructive transition">
                         <X className="size-3.5" />
                       </button>
                     </TableCell>

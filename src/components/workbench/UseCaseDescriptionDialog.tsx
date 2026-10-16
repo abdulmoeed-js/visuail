@@ -28,7 +28,7 @@ export function UseCaseDescriptionDialog({
         {draft && (
           <>
             <DialogHeader>
-              <div className="flex items-center gap-2 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+              <div className="flex items-center gap-2 eyebrow text-muted-foreground">
                 Use case <IdChip id={draft.step.id} />
               </div>
               <DialogTitle>{draft.step.text}</DialogTitle>
@@ -50,6 +50,7 @@ export function UseCaseDescriptionDialog({
                   value={draft.step.preCondition ?? ""}
                   onChange={(v) => onUpdateItem(draft.step.id, { preCondition: v })}
                   placeholder="What must be true before this use case starts?"
+                  label="Pre-condition"
                 />
               </Field>
 
@@ -94,6 +95,7 @@ export function UseCaseDescriptionDialog({
                   value={draft.step.postCondition ?? ""}
                   onChange={(v) => onUpdateItem(draft.step.id, { postCondition: v })}
                   placeholder="What must be true after this use case completes?"
+                  label="Post-condition"
                 />
               </Field>
             </div>
@@ -107,7 +109,7 @@ export function UseCaseDescriptionDialog({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-1">
+      <div className="eyebrow text-muted-foreground mb-1">
         {label}
       </div>
       {children}
@@ -118,15 +120,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 /** Pre/post-condition editor -- amber "needs confirmation" treatment when empty,
  *  matching BRDTab's low-confidence styling, since this is data we genuinely
  *  don't have rather than something extracted at low confidence. */
-function Blank({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+function Blank({ value, onChange, placeholder, label }: { value: string; onChange: (v: string) => void; placeholder: string; label: string }) {
   return (
     <div
       className={cn(
         "rounded-md border px-2.5 py-1.5",
-        value ? "bg-card" : "border-unresolved bg-unresolved/10 text-[color:var(--unresolved-foreground)]",
+        value ? "bg-card" : "border-unresolved bg-unresolved/10 text-unresolved-ink",
       )}
     >
-      <InlineEdit value={value} onChange={onChange} placeholder={placeholder} multiline as="block" />
+      <InlineEdit value={value} onChange={onChange} placeholder={placeholder} multiline as="block" label={label} />
     </div>
   );
 }

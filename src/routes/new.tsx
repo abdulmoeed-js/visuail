@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Nav } from "@/components/Nav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -221,7 +221,7 @@ function NewProjectPage() {
 
   if (session.loading) {
     return (
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="min-h-screen text-foreground">
         <Nav />
         <main className="mx-auto max-w-3xl px-4 pt-24 flex justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -232,7 +232,7 @@ function NewProjectPage() {
 
   if (!session.signedIn) {
     return (
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="min-h-screen text-foreground">
         <Nav />
         <main className="mx-auto max-w-3xl px-4 pt-24 text-center">
           <h1 className="font-display text-2xl">Sign in to start a project.</h1>
@@ -247,7 +247,7 @@ function NewProjectPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen text-foreground">
       <Nav />
       <main className="mx-auto max-w-3xl px-4 pt-8 pb-24">
         <div className="mb-8">
@@ -256,7 +256,7 @@ function NewProjectPage() {
           </Link>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">
+              <div className="eyebrow text-primary">
                 New project
               </div>
               <h1 className="font-display text-3xl mt-1">
@@ -270,7 +270,7 @@ function NewProjectPage() {
         </div>
 
         {!capCheck.ok && (
-          <div className="mb-4 rounded-lg border border-drift/40 bg-drift/5 p-3 text-sm text-drift">
+          <div className="mb-4 rounded-lg border border-drift/40 bg-drift/5 p-3 text-sm text-drift-ink">
             {capCheck.reason} <Link to="/dashboard" className="underline">Manage projects</Link>.
           </div>
         )}
@@ -278,7 +278,7 @@ function NewProjectPage() {
         {step === 1 && (
           <div className="space-y-5 rounded-2xl border bg-card p-6">
             <div className="space-y-1.5">
-              <label htmlFor="project-name" className="text-xs font-mono-tight uppercase tracking-widest text-muted-foreground">
+              <label htmlFor="project-name" className="text-sm font-medium text-foreground">
                 Project / product name
               </label>
               <Input
@@ -289,8 +289,8 @@ function NewProjectPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="project-desc" className="text-xs font-mono-tight uppercase tracking-widest text-muted-foreground">
-                Short description <span className="text-muted-foreground/70 normal-case">(optional)</span>
+              <label htmlFor="project-desc" className="text-sm font-medium text-foreground">
+                Short description <span className="font-normal text-muted-foreground">(optional)</span>
               </label>
               <Textarea
                 id="project-desc"
@@ -315,7 +315,7 @@ function NewProjectPage() {
             </p>
             <div className="space-y-4">
               <div>
-                <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-2">
+                <div className="eyebrow text-muted-foreground mb-2">
                   Core artifacts
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -329,7 +329,7 @@ function NewProjectPage() {
                 </div>
               </div>
               <div>
-                <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-2">
+                <div className="eyebrow text-muted-foreground mb-2">
                   Diagram views
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -375,7 +375,7 @@ function NewProjectPage() {
               {mode === "sources" && (
                 <div className="space-y-3">
                   <p className="text-xs text-muted-foreground">
-                    Nothing you paste or upload leaves your browser.
+                    Your files are opened in your browser. Only the text is sent to draw your diagrams, and it's saved privately in your workspace.
                   </p>
                   <SourceIntake sources={sources} onChange={setSources} />
                 </div>
@@ -386,6 +386,7 @@ function NewProjectPage() {
                     <button
                       key={t.id}
                       onClick={() => setTemplateId(t.id)}
+                      aria-pressed={templateId === t.id}
                       className={cn(
                         "text-left rounded-lg border p-3 transition",
                         templateId === t.id
@@ -414,7 +415,7 @@ function NewProjectPage() {
             </div>
 
             {error && (
-              <div className="rounded-lg border border-drift/40 bg-drift/5 p-3 text-sm text-drift">
+              <div className="rounded-lg border border-drift/40 bg-drift/5 p-3 text-sm text-drift-ink">
                 {error}
               </div>
             )}
@@ -439,7 +440,7 @@ function NewProjectPage() {
 function StepRail({ step }: { step: Step }) {
   const items = [1, 2, 3];
   return (
-    <div className="flex items-center gap-1.5 text-[10px] font-mono-tight uppercase tracking-widest">
+    <div className="flex items-center gap-1.5 text-[11px] font-mono-tight tabular-nums">
       {items.map(i => (
         <div key={i} className={cn(
           "h-6 w-6 rounded-full grid place-items-center border",
@@ -457,24 +458,28 @@ function StepRail({ step }: { step: Step }) {
 function KindCard({ active, onToggle, icon, title, desc }: {
   active: boolean; onToggle: () => void; icon: React.ReactNode; title: string; desc: string;
 }) {
+  // The whole card is the tick box's label, so a click anywhere toggles it
+  // and the keyboard meets one named control per card, not two.
+  const id = useId();
   return (
-    <div
-      role="button" tabIndex={0}
-      onClick={onToggle}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}
+    <label
+      htmlFor={`${id}-box`}
       className={cn(
         "flex items-start gap-3 rounded-lg border p-4 text-left transition cursor-pointer",
         active ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "bg-card hover:bg-muted/60",
       )}
     >
-      <Checkbox checked={active} onCheckedChange={onToggle} className="mt-0.5" onClick={(e) => e.stopPropagation()} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 text-sm font-semibold">
+      <Checkbox
+        id={`${id}-box`} checked={active} onCheckedChange={onToggle}
+        aria-labelledby={`${id}-title`} aria-describedby={`${id}-desc`}
+      />
+      <span className="flex-1 min-w-0">
+        <span id={`${id}-title`} className="flex items-center gap-1.5 text-sm font-semibold">
           {icon} {title}
-        </div>
-        <div className="text-xs text-muted-foreground mt-0.5">{desc}</div>
-      </div>
-    </div>
+        </span>
+        <span id={`${id}-desc`} className="block text-xs text-muted-foreground mt-0.5">{desc}</span>
+      </span>
+    </label>
   );
 }
 
@@ -485,9 +490,10 @@ function ModeCard({ active, onSelect, icon, title, desc }: {
     <button
       type="button"
       onClick={onSelect}
+      aria-pressed={active}
       className={cn(
         "text-left rounded-xl border p-4 transition",
-        active ? "border-primary bg-primary/5 ring-1 ring-primary/30 shadow-sm" : "bg-card hover:bg-muted/60",
+        active ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "bg-card hover:bg-muted/60",
       )}
     >
       <div className="flex items-center gap-1.5 text-sm font-semibold">

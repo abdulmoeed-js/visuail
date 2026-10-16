@@ -3,11 +3,14 @@
 @import "tw-animate-css";
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
+  /* Corner scale (DESIGN.md 5): tiny tags 6, small buttons and chips 8,
+     buttons and fields 10, rows and toolbar groups 14, cards 20, panels 28. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 20px;
+  --radius-3xl: 28px;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -38,6 +41,18 @@
   --color-drift-foreground: var(--drift-foreground);
   --color-verified: var(--verified);
   --color-verified-foreground: var(--verified-foreground);
+  /* text on a pale tint of its own status colour */
+  --color-confident-ink: var(--confident-ink);
+  --color-unresolved-ink: var(--unresolved-ink);
+  --color-drift-ink: var(--drift-ink);
+  --color-verified-ink: var(--verified-ink);
+  --color-separator-strong: var(--separator-strong);
+  --color-fill-2: var(--fill-2);
+  --color-fill-3: var(--fill-3);
+  --color-fill-4: var(--fill-4);
+  --color-field: var(--field);
+  --color-field-border: var(--field-border);
+  --color-field-border-hover: var(--field-border-hover);
   --color-ink: var(--ink);
   --color-paper: var(--paper);
   --color-grid: var(--grid);
@@ -48,8 +63,6 @@
 }
 
 :root {
-  --radius: 0.5rem;
-
   /* Orchard Rind — cream paper, forest-green ink */
   --background: oklch(0.98 0.008 90);
   --foreground: oklch(0.22 0.03 150);
@@ -88,14 +101,42 @@
   --drift-foreground: oklch(0.99 0.01 25);
   --verified: oklch(0.48 0.1 195);
   --verified-foreground: oklch(0.99 0.01 195);
+  /* The *-foreground colours above are for text on a SOLID status fill.
+     Text on a pale tint of a status colour uses its ink, which stays at
+     4.5:1 or better on a 10-25% tint over white or the cream page. */
+  --confident-ink: oklch(0.4 0.084 165);
+  --unresolved-ink: oklch(0.4 0.085 68);
+  --drift-ink: oklch(0.4 0.16 25);
+  --verified-ink: oklch(0.4 0.068 195);
+
+  /* Outlines of ordinary buttons and fields, and quiet fills for hover and
+     press, all drawn from the ink so they work on any surface. */
+  --separator-strong: oklch(0.22 0.03 150 / 0.28);
+  --fill-2: oklch(0.22 0.03 150 / 0.12);
+  --fill-3: oklch(0.22 0.03 150 / 0.08);
+  --fill-4: oklch(0.22 0.03 150 / 0.05);
+  /* Fields: an empty field is identified only by its outline, so it gets the
+     3:1 a control's boundary needs (button outlines can be lighter, since
+     their label identifies them). */
+  --field: var(--card);
+  --field-border: oklch(0.22 0.03 150 / 0.5);
+  --field-border-hover: oklch(0.22 0.03 150 / 0.65);
+  /* Keyboard focus (DESIGN.md 8): a 2px ring, 2px off the control, with a
+     2px halo in the surface colour so it reads on any background. */
+  --focus-halo: var(--card);
 }
 
 @layer base {
   * {
     border-color: var(--color-border);
   }
-  html, body {
+  /* The page colour lives on <html> only, and page wrappers stay
+     transparent: a background on <body> or a full-page wrapper would paint
+     over the paper grain, which sits beneath the content. */
+  html {
     background-color: var(--color-background);
+  }
+  html, body {
     color: var(--color-foreground);
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "cv11";
@@ -104,12 +145,20 @@
   ::selection {
     background: color-mix(in oklab, var(--primary) 25%, transparent);
   }
-  /* Faint paper-grain, like a produce crate liner — sits over the whole app */
+  /* Every focusable thing gets the two-tone ring from the keyboard, including
+     hand-written buttons and links. Components may draw their own instead. */
+  :where(a[href], button, input:not([type="hidden"]), textarea, select, summary, [role="button"], [role="tab"], [role="link"], [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--focus-halo);
+  }
+  /* Faint paper-grain, like a produce crate liner. It sits under the
+     content, so cards, text, dialogs and canvases stay plain. */
   body::after {
     content: "";
     position: fixed;
     inset: 0;
-    z-index: 9999;
+    z-index: -1;
     pointer-events: none;
     opacity: 0.045;
     mix-blend-mode: multiply;
@@ -134,10 +183,45 @@
   background-size: 14px 14px;
 }
 
+/* Headings at weight 500, never bold, no letter-spacing (the hero alone
+   tightens to -0.012em); balanced line breaks. */
 @utility font-display {
   font-family: var(--font-display);
   font-optical-sizing: auto;
-  letter-spacing: -0.02em;
+  font-weight: 500;
+  letter-spacing: 0;
+  /* style only: the full text-wrap shorthand would undo \`truncate\` */
+  text-wrap-style: balance;
+}
+
+/* Tiny section label: the one place capitals are allowed (DESIGN.md 4). */
+@utility eyebrow {
+  font-family: var(--font-mono);
+  font-feature-settings: "ss01", "zero";
+  font-size: 11px;
+  line-height: 1.25;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The keyboard focus ring for components. The halo goes through Tailwind's
+   ring slot, so a shadow the component already draws survives focus. */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    --tw-ring-shadow: 0 0 0 2px var(--focus-halo);
+    box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+      var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+  }
+}
+/* For controls flush against the edge of a scrolling or clipped box. */
+@utility focus-ring-inset {
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+  }
 }
 
 @utility font-mono-tight {

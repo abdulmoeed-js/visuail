@@ -59,7 +59,7 @@ export function ArtifactSidebar({ canvases, onOpen, onCreate }: Props) {
           return (
             <div key={viewKind}>
               <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-1.5 text-[11px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+                <div className="flex items-center gap-1.5 eyebrow text-muted-foreground">
                   <Icon className="size-3.5" /> {meta.plural} · {items.length}
                 </div>
                 <NewInstanceButton viewKind={viewKind} existingCount={items.length} onCreate={onCreate} />

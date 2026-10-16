@@ -9,9 +9,9 @@ import { SelectBadge } from "./SelectBadge";
 
 const typeTone = () => "border-primary/40 bg-primary/10 text-primary";
 const dispositionTone = (v: ChangeDisposition) =>
-  v === "Approved" ? "border-confident/40 bg-confident/10 text-[color:var(--confident)]"
-  : v === "Denied" ? "border-drift/50 bg-drift/10 text-drift"
-  : v === "Postponed" ? "border-unresolved bg-unresolved/15 text-[color:var(--unresolved-foreground)]"
+  v === "Approved" ? "border-confident/40 bg-confident/10 text-confident-ink"
+  : v === "Denied" ? "border-drift/50 bg-drift/10 text-drift-ink"
+  : v === "Postponed" ? "border-unresolved bg-unresolved/15 text-unresolved-ink"
   : "border-muted-foreground/30 bg-muted text-muted-foreground";
 
 /** Change Request -- proposed additions/modifications/deletions to the
@@ -29,8 +29,8 @@ export function ChangeRequestView({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
-          CHANGE REQUESTS · {items.length}
+        <div className="eyebrow text-muted-foreground">
+          Change requests · {items.length}
         </div>
         <Button size="sm" variant="outline" onClick={() => onAddChangeRequest("New change request")}>
           <Plus className="size-3.5" /> Add change request
@@ -59,23 +59,23 @@ export function ChangeRequestView({
                   <TableCell>
                     <div className="flex items-start gap-1.5">
                       <IdChip id={c.id} tone="primary" />
-                      <InlineEdit value={c.text} onChange={(v) => onUpdateItem(c.id, { text: v })} />
+                      <InlineEdit value={c.text} onChange={(v) => onUpdateItem(c.id, { text: v })} label={`Description for ${c.id}`} />
                     </div>
                   </TableCell>
                   <TableCell>
-                    <SelectBadge<ChangeType> value={c.changeType} options={CHANGE_TYPES} tone={typeTone}
+                    <SelectBadge<ChangeType> value={c.changeType} options={CHANGE_TYPES} tone={typeTone} label={`Type for ${c.id}`}
                       onChange={(v) => onUpdateItem(c.id, { changeType: v })} />
                   </TableCell>
                   <TableCell>
                     <InlineEdit value={c.rationale} onChange={(v) => onUpdateItem(c.id, { rationale: v })}
-                      placeholder="Why is this change needed?" />
+                      placeholder="Why is this change needed?" label={`Rationale for ${c.id}`} />
                   </TableCell>
                   <TableCell>
-                    <SelectBadge<ChangeDisposition> value={c.disposition} options={CHANGE_DISPOSITIONS} tone={dispositionTone}
+                    <SelectBadge<ChangeDisposition> value={c.disposition} options={CHANGE_DISPOSITIONS} tone={dispositionTone} label={`Disposition for ${c.id}`}
                       onChange={(v) => onUpdateItem(c.id, { disposition: v })} />
                   </TableCell>
                   <TableCell>
-                    <button onClick={() => onDeleteAny(c.id)} className="text-muted-foreground hover:text-destructive transition">
+                    <button onClick={() => onDeleteAny(c.id)} aria-label={`Delete change request ${c.id}`} className="text-muted-foreground hover:text-destructive transition">
                       <X className="size-3.5" />
                     </button>
                   </TableCell>

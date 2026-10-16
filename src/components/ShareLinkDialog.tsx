@@ -82,10 +82,10 @@ export function ShareLinkDialog({ open, onOpenChange, projectId }: Props) {
                   /share/{l.token.slice(0, 10)}…{l.includeSources ? " · includes sources" : ""}
                 </span>
                 <div className="flex items-center gap-1 shrink-0">
-                  <Button size="sm" variant="ghost" onClick={() => copy(l)}>
+                  <Button size="sm" variant="ghost" onClick={() => copy(l)} aria-label={copiedId === l.id ? `Link /share/${l.token.slice(0, 10)} copied` : `Copy link /share/${l.token.slice(0, 10)}`}>
                     {copiedId === l.id ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => revoke(l.id)}>
+                  <Button size="sm" variant="ghost" onClick={() => revoke(l.id)} aria-label={`Revoke link /share/${l.token.slice(0, 10)}`}>
                     <X className="size-3.5" />
                   </Button>
                 </div>

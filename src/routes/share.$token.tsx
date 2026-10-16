@@ -39,7 +39,7 @@ function SharePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+      <div className="min-h-screen text-foreground flex items-center justify-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -47,7 +47,7 @@ function SharePage() {
 
   if (!project) {
     return (
-      <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
+      <div className="min-h-screen text-foreground flex items-center justify-center px-4">
         <div className="text-center max-w-sm">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border bg-card mb-4">
             <Link2Off className="size-5 text-muted-foreground" />
@@ -65,11 +65,11 @@ function SharePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen text-foreground">
       <header className="border-b sticky top-0 z-10 bg-background/90 backdrop-blur">
         <div className="mx-auto max-w-[1200px] px-4 h-14 flex items-center justify-between">
           <Link to="/" className="font-display text-lg tracking-tight">visu</Link>
-          <span className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground border rounded-full px-2 py-0.5">
+          <span className="eyebrow text-muted-foreground border rounded-md px-2 py-0.5">
             Read-only shared view
           </span>
         </div>
@@ -81,7 +81,7 @@ function SharePage() {
         {project.sources.length > 0 && (
           <div className="mt-4 rounded-lg border bg-card/60 p-3 flex flex-wrap items-center gap-1.5 text-[11px]">
             <FileText className="size-3.5 text-muted-foreground" />
-            <span className="font-mono-tight uppercase tracking-widest text-muted-foreground">Sources</span>
+            <span className="eyebrow text-muted-foreground">Sources</span>
             {project.sources.map((s, i) => (
               <span key={i} className="rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight">{s.label}</span>
             ))}
@@ -115,10 +115,10 @@ function SharedCanvas({
   return (
     <div className="rounded-xl border bg-card min-h-[480px] flex flex-col">
       <ArtifactView
-        editing={editing} stats={st} onPublish={() => {}} initialTab={tabForViewKind(viewKind)}
+        editing={editing} stats={st} initialTab={tabForViewKind(viewKind)}
         extraHeaderRight={
           <span
-            className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground"
+            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 eyebrow text-muted-foreground"
             title="You can try editing, but nothing here is saved -- it resets on refresh."
           >
             <PencilOff className="size-3" /> Edits aren't saved

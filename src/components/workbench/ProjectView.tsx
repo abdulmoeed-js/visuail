@@ -77,7 +77,7 @@ export function ProjectView({ project, onPublish }: Props) {
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5 text-[11px]">
             <Users2 className="size-3.5 text-primary" />
-            <span className="font-mono-tight uppercase tracking-widest text-muted-foreground">Sources</span>
+            <span className="eyebrow text-muted-foreground">Sources</span>
             {project.sources.map((s, i) => (
               <span key={i} className="rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight">
                 {s.label}

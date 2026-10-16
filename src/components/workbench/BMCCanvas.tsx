@@ -140,7 +140,7 @@ function Block({
     >
       <header className="flex items-center justify-between border-b border-dashed pb-1.5">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+          <span className="eyebrow text-muted-foreground">
             {b.id}
           </span>
           <h3 className={cn("text-sm font-semibold", emphasis && "text-primary")}>{b.title}</h3>
@@ -149,7 +149,7 @@ function Block({
       </header>
 
       {b.blockDrift && (
-        <div className="flex items-start gap-1.5 rounded border border-drift/60 bg-drift/10 p-1.5 text-[11px] text-drift">
+        <div className="flex items-start gap-1.5 rounded border border-drift/60 bg-drift/10 p-1.5 text-[11px] text-drift-ink">
           <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
           <span>{b.driftNote}</span>
         </div>

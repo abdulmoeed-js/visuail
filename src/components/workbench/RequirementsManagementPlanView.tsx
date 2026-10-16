@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   PRIORITIZATION_TECHNIQUES, type ArtifactModel, type PrioritizationTechnique, type RequirementsManagementPlan,
 } from "@/data/samples";
@@ -40,6 +41,7 @@ export function RequirementsManagementPlanView({
   onUpdateRMP: ArtifactEditing["onUpdateRMP"];
 }) {
   const rmp = model.requirementsManagementPlan ?? {};
+  const prioritizationHeadingId = useId();
   const selectedTechniques = rmp.prioritizationTechniques ?? [];
 
   const handleTechniqueChange = (next: string[]) => {
@@ -64,6 +66,7 @@ export function RequirementsManagementPlanView({
           onChange={(v) => onUpdateRMP({ [f.key]: v })}
           placeholder={f.placeholder}
           multiline as="block"
+          label={f.label}
         />
       </div>
     </section>
@@ -71,13 +74,13 @@ export function RequirementsManagementPlanView({
 
   return (
     <article className="max-w-3xl space-y-5 text-sm leading-relaxed">
-      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
-        REQUIREMENTS MANAGEMENT PLAN
+      <div className="eyebrow text-muted-foreground">
+        Requirements management plan
       </div>
       {FIELDS_BEFORE.map(field)}
 
       <section>
-        <h3 className="font-semibold text-foreground mb-1">Prioritization approach</h3>
+        <h3 id={prioritizationHeadingId} className="font-semibold text-foreground mb-1">Prioritization approach</h3>
         <p className="text-xs text-muted-foreground mb-2">
           Pick any techniques in play -- selecting one drops a starter template into the box below.
         </p>
@@ -85,12 +88,13 @@ export function RequirementsManagementPlanView({
           type="multiple"
           value={selectedTechniques}
           onValueChange={handleTechniqueChange}
+          aria-labelledby={prioritizationHeadingId}
           className="flex-wrap justify-start gap-1.5 mb-2"
         >
           {PRIORITIZATION_TECHNIQUES.map((t) => (
             <ToggleGroupItem
               key={t} value={t}
-              className="h-7 rounded-full border px-3 text-xs data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:text-primary"
+              className="h-7 border px-3 text-xs data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:text-primary"
             >
               {t}
             </ToggleGroupItem>
@@ -102,6 +106,7 @@ export function RequirementsManagementPlanView({
             onChange={(v) => onUpdateRMP({ prioritizationApproach: v })}
             placeholder="How do requirements get ranked? Pick a technique above, or describe your own."
             multiline as="block"
+            label="Prioritization approach"
           />
         </div>
       </section>

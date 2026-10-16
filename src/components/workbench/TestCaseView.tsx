@@ -8,15 +8,15 @@ import { InlineEdit } from "./InlineEdit";
 import { SelectBadge } from "./SelectBadge";
 
 const statusTone = (v: TestStatus) =>
-  v === "Pass" ? "border-confident/40 bg-confident/10 text-[color:var(--confident)]"
-  : v === "Fail" ? "border-drift/50 bg-drift/10 text-drift"
+  v === "Pass" ? "border-confident/40 bg-confident/10 text-confident-ink"
+  : v === "Fail" ? "border-drift/50 bg-drift/10 text-drift-ink"
   : "border-muted-foreground/30 bg-muted text-muted-foreground";
 
 const PRIORITIES: readonly Level[] = ["Low", "Medium", "High"];
 const priorityTone = (v: Level) =>
-  v === "High" ? "border-drift/50 bg-drift/10 text-drift"
-  : v === "Medium" ? "border-unresolved bg-unresolved/15 text-[color:var(--unresolved-foreground)]"
-  : "border-confident/40 bg-confident/10 text-[color:var(--confident)]";
+  v === "High" ? "border-drift/50 bg-drift/10 text-drift-ink"
+  : v === "Medium" ? "border-unresolved bg-unresolved/15 text-unresolved-ink"
+  : "border-confident/40 bg-confident/10 text-confident-ink";
 
 /** Test Case -- objective, preconditions, expected result, pass/fail status,
  *  optionally linked to the step it verifies. Process only: a business
@@ -35,8 +35,8 @@ export function TestCaseView({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
-          TEST CASES · {cases.length}
+        <div className="eyebrow text-muted-foreground">
+          Test cases · {cases.length}
         </div>
         <Button size="sm" variant="outline" onClick={() => onAddTestCase("New test case")}>
           <Plus className="size-3.5" /> Add test case
@@ -70,11 +70,12 @@ export function TestCaseView({
                   <TableCell>
                     <div className="flex items-start gap-1.5">
                       <IdChip id={t.id} tone="primary" />
-                      <InlineEdit value={t.text} onChange={(v) => onUpdateItem(t.id, { text: v })} />
+                      <InlineEdit value={t.text} onChange={(v) => onUpdateItem(t.id, { text: v })} label={`Objective for ${t.id}`} />
                     </div>
                   </TableCell>
                   <TableCell>
                     <select
+                      aria-label={`Step verified by ${t.id}`}
                       value={t.relatedStepId ?? ""}
                       onChange={(e) => onUpdateItem(t.id, { relatedStepId: e.target.value || undefined })}
                       className="w-full rounded border bg-transparent px-1.5 py-1 text-xs"
@@ -90,11 +91,11 @@ export function TestCaseView({
                   </TableCell>
                   <TableCell>
                     <InlineEdit value={t.preconditions ?? ""} onChange={(v) => onUpdateItem(t.id, { preconditions: v })}
-                      placeholder="What must be true first?" />
+                      placeholder="What must be true first?" label={`Preconditions for ${t.id}`} />
                   </TableCell>
                   <TableCell>
                     <InlineEdit value={t.testData ?? ""} onChange={(v) => onUpdateItem(t.id, { testData: v })}
-                      placeholder="Specific input values used" />
+                      placeholder="Specific input values used" label={`Test data for ${t.id}`} />
                   </TableCell>
                   <TableCell>
                     <InlineEdit
@@ -102,26 +103,28 @@ export function TestCaseView({
                       onChange={(v) => onUpdateItem(t.id, { steps: v.split("\n").map((s) => s.trim()).filter(Boolean) })}
                       placeholder="One action per line, or a single paragraph"
                       multiline as="block"
+                      label={`Steps for ${t.id}`}
                     />
                   </TableCell>
                   <TableCell>
                     <InlineEdit value={t.expectedResult} onChange={(v) => onUpdateItem(t.id, { expectedResult: v })}
-                      placeholder="What should happen?" />
+                      placeholder="What should happen?" label={`Expected result for ${t.id}`} />
                   </TableCell>
                   <TableCell>
                     <InlineEdit value={t.actualResult ?? ""} onChange={(v) => onUpdateItem(t.id, { actualResult: v })}
-                      placeholder={t.status === "Not Run" ? "Fill in after running" : "What actually happened?"} />
+                      placeholder={t.status === "Not Run" ? "Fill in after running" : "What actually happened?"}
+                      label={`Actual result for ${t.id}`} />
                   </TableCell>
                   <TableCell>
-                    <SelectBadge<Level> value={t.priority ?? "Medium"} options={PRIORITIES} tone={priorityTone}
+                    <SelectBadge<Level> value={t.priority ?? "Medium"} options={PRIORITIES} tone={priorityTone} label={`Priority for ${t.id}`}
                       onChange={(v) => onUpdateItem(t.id, { priority: v })} />
                   </TableCell>
                   <TableCell>
-                    <SelectBadge<TestStatus> value={t.status} options={TEST_STATUSES} tone={statusTone}
+                    <SelectBadge<TestStatus> value={t.status} options={TEST_STATUSES} tone={statusTone} label={`Status for ${t.id}`}
                       onChange={(v) => onUpdateItem(t.id, { status: v })} />
                   </TableCell>
                   <TableCell>
-                    <button onClick={() => onDeleteAny(t.id)} className="text-muted-foreground hover:text-destructive transition">
+                    <button onClick={() => onDeleteAny(t.id)} aria-label={`Delete test case ${t.id}`} className="text-muted-foreground hover:text-destructive transition">
                       <X className="size-3.5" />
                     </button>
                   </TableCell>

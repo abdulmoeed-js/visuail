@@ -142,7 +142,7 @@ export function DecisionTreeView({ model, editing }: Props) {
       {!root && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground pointer-events-none">
           <span>No decision tree yet.</span>
-          <button onClick={insertRoot} data-no-pan className="pointer-events-auto flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-xs hover:border-primary/60 shadow-sm">
+          <button onClick={insertRoot} data-no-pan className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-separator-strong bg-card px-3 py-1.5 text-xs hover:border-primary/60">
             <Wand2 className="size-3.5 text-primary" /> Add root question
           </button>
         </div>
@@ -221,7 +221,7 @@ function RuleNodeView({
           <GripVertical className="size-3.5 text-muted-foreground/70 shrink-0" />
           <IdChip id={node.id} tone={isRoot ? "primary" : "muted"} />
         </div>
-        <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+        <button onClick={onDelete} data-no-pan aria-label={`Delete ${isLeaf ? "outcome" : "question"} ${node.ref.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
           <X className="size-3" />
         </button>
       </div>
@@ -236,11 +236,11 @@ function RuleNodeView({
             </button>
           </PopoverTrigger>
           <PopoverContent data-no-pan className="w-60 p-2" align="start">
-            <div className="flex flex-col gap-1 text-[11px] font-mono-tight max-h-56 overflow-y-auto">
+            <div className="flex flex-col gap-1 px-2 py-1 text-[11px] font-mono-tight max-h-56 overflow-y-auto">
               {branches.map((b) => (
                 <div key={b.id} className="flex items-center gap-1">
                   <InlineEdit value={b.label} onChange={(v) => onUpdateBranch(b.id, v)} className="text-primary" />
-                  <button onClick={() => onRemoveBranch(b.id)} className="ml-auto text-muted-foreground hover:text-destructive transition">
+                  <button onClick={() => onRemoveBranch(b.id)} aria-label={`Remove branch ${b.label}`} className="ml-auto text-muted-foreground hover:text-destructive transition">
                     <X className="size-3" />
                   </button>
                 </div>

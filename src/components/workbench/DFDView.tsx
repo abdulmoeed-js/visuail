@@ -197,14 +197,14 @@ export function DFDView({ model, editing }: Props) {
           // the glyph it creates. The legend used to repeat the same three
           // labels a few pixels away, and the two rows ran into each other.
           <div className="flex flex-wrap items-center justify-end gap-1" data-no-pan>
-            <span className="px-1 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">Add</span>
-            <button ref={(el) => { openers.current.process = el; }} onClick={() => setAdding("process")} title="Add a process" className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
+            <span className="px-1 eyebrow text-muted-foreground">Add</span>
+            <button ref={(el) => { openers.current.process = el; }} onClick={() => setAdding("process")} title="Add a process" className="h-8 px-2.5 rounded-md border border-separator-strong bg-card text-xs flex items-center gap-1.5 hover:border-primary/60">
               <CircleDot className="size-3.5 text-primary" /> Process
             </button>
-            <button ref={(el) => { openers.current.store = el; }} onClick={() => setAdding("store")} title="Add a data store" className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
+            <button ref={(el) => { openers.current.store = el; }} onClick={() => setAdding("store")} title="Add a data store" className="h-8 px-2.5 rounded-md border border-separator-strong bg-card text-xs flex items-center gap-1.5 hover:border-primary/60">
               <Database className="size-3.5 text-primary" /> Data store
             </button>
-            <button ref={(el) => { openers.current.entity = el; }} onClick={() => setAdding("entity")} title="Add an external entity" className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
+            <button ref={(el) => { openers.current.entity = el; }} onClick={() => setAdding("entity")} title="Add an external entity" className="h-8 px-2.5 rounded-md border border-separator-strong bg-card text-xs flex items-center gap-1.5 hover:border-primary/60">
               <Square className="size-3.5 text-primary" /> External entity
             </button>
           </div>
@@ -233,7 +233,7 @@ export function DFDView({ model, editing }: Props) {
             <g key={c.id}>
               <path d={path} fill="none" stroke="var(--color-verified)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#dfd-arrow)" />
               {c.label && (
-                <text x={midX + 6} y={midY - 6} fill="var(--color-verified)" fontSize="10" fontFamily="var(--font-mono)">{c.label}</text>
+                <text x={midX + 6} y={midY - 6} fill="var(--color-verified-ink)" fontSize="10" fontFamily="var(--font-mono)">{c.label}</text>
               )}
             </g>
           );
@@ -312,7 +312,7 @@ function DFDNodeView({
         <GripVertical data-no-pan onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
         {node.label && <IdChip id={node.label} tone="primary" />}
       </div>
-      <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+      <button onClick={onDelete} data-no-pan aria-label={`Delete ${node.kind === "process" ? "process" : node.kind === "store" ? "data store" : "external entity"} ${node.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
         <X className="size-3" />
       </button>
     </div>
@@ -322,7 +322,7 @@ function DFDNodeView({
     <div
       data-no-pan
       onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e, (e.currentTarget.closest("[data-canvas-content]") as HTMLElement) ?? null); }}
-      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:scale-125 transition cursor-crosshair"
+      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-verified transition cursor-crosshair before:absolute before:-inset-2 before:content-['']"
       title="Drag to another node to connect"
     />
   );
@@ -372,7 +372,7 @@ function FlowLabel({
     <div data-no-pan className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className="rounded border border-verified/60 bg-card px-1.5 py-0.5 text-[10px] font-mono-tight text-verified shadow-sm hover:bg-verified/10 transition"
+        className="rounded border border-verified/60 bg-card px-1.5 py-0.5 text-[10px] font-mono-tight text-verified-ink hover:bg-verified/10 transition"
       >
         {conn.label || "label"}
       </button>
@@ -389,6 +389,7 @@ function FlowLabel({
             }}
             onBlur={(e) => { if (e.target.value !== (conn.label ?? "")) onUpdate({ label: e.target.value }); }}
             placeholder="Data flow label"
+            aria-label="Data flow label"
             className="w-full text-[11px] px-2 py-1 rounded border bg-background"
           />
           <button onClick={() => { onDelete(); setOpen(false); }} className="w-full text-[11px] px-2 py-1 rounded border border-destructive/40 text-destructive hover:bg-destructive/10">

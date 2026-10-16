@@ -9,9 +9,9 @@ import { SelectBadge } from "./SelectBadge";
 
 const LEVELS: readonly Level[] = ["Low", "Medium", "High"];
 const levelTone = (v: Level) =>
-  v === "High" ? "border-drift/50 bg-drift/10 text-drift"
-  : v === "Medium" ? "border-unresolved bg-unresolved/15 text-[color:var(--unresolved-foreground)]"
-  : "border-confident/40 bg-confident/10 text-[color:var(--confident)]";
+  v === "High" ? "border-drift/50 bg-drift/10 text-drift-ink"
+  : v === "Medium" ? "border-unresolved bg-unresolved/15 text-unresolved-ink"
+  : "border-confident/40 bg-confident/10 text-confident-ink";
 
 interface Row { id: string; text: string; role?: string; influence: Level; interest: Level }
 
@@ -41,8 +41,8 @@ export function StakeholderAnalysisView({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
-          STAKEHOLDER ANALYSIS · {rows.length}
+        <div className="eyebrow text-muted-foreground">
+          Stakeholder analysis · {rows.length}
         </div>
         {onAddStakeholder && (
           <Button size="sm" variant="outline" onClick={() => onAddStakeholder("New stakeholder")}>
@@ -104,14 +104,14 @@ export function StakeholderAnalysisView({
                       <div className="flex items-center gap-1.5"><IdChip id={r.id} tone="primary" /> {r.text}</div>
                     </td>
                     <td className="p-2">
-                      <InlineEdit value={r.role ?? ""} onChange={(v) => onUpdateItem(r.id, { role: v })} placeholder="Role" />
+                      <InlineEdit value={r.role ?? ""} onChange={(v) => onUpdateItem(r.id, { role: v })} placeholder="Role" label={`Role of ${r.text}`} />
                     </td>
                     <td className={cn("p-2")}>
-                      <SelectBadge value={r.influence} options={LEVELS} tone={levelTone}
+                      <SelectBadge value={r.influence} options={LEVELS} tone={levelTone} label={`Influence of ${r.text}`}
                         onChange={(v) => onUpdateItem(r.id, { influence: v })} />
                     </td>
                     <td className="p-2">
-                      <SelectBadge value={r.interest} options={LEVELS} tone={levelTone}
+                      <SelectBadge value={r.interest} options={LEVELS} tone={levelTone} label={`Interest of ${r.text}`}
                         onChange={(v) => onUpdateItem(r.id, { interest: v })} />
                     </td>
                   </tr>

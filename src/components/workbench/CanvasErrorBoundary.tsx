@@ -53,7 +53,7 @@ export class CanvasErrorBoundary extends Component<Props, State> {
     return (
       <div className="h-full w-full flex items-center justify-center p-6">
         <div className="max-w-md w-full rounded-xl border border-drift/40 bg-drift/[0.06] p-5 space-y-4 text-center">
-          <div className="mx-auto size-10 rounded-full bg-drift/15 text-drift flex items-center justify-center">
+          <div className="mx-auto size-10 rounded-full bg-drift/15 text-drift-ink flex items-center justify-center">
             <AlertOctagon className="size-5" />
           </div>
           <div>
@@ -62,7 +62,7 @@ export class CanvasErrorBoundary extends Component<Props, State> {
               The last change couldn't render. Roll it back to keep going —
               your other work is safe.
             </p>
-            <p className="text-[11px] font-mono-tight text-muted-foreground/80 mt-2 break-words">
+            <p className="text-[11px] font-mono-tight text-muted-foreground mt-2 break-words">
               {this.state.error.message}
             </p>
           </div>

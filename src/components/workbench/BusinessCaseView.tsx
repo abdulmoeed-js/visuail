@@ -22,8 +22,8 @@ export function BusinessCaseView({
 
   return (
     <article className="max-w-3xl space-y-5 text-sm leading-relaxed">
-      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
-        BUSINESS CASE
+      <div className="eyebrow text-muted-foreground">
+        Business case
       </div>
 
       <section>
@@ -34,6 +34,7 @@ export function BusinessCaseView({
             onChange={(v) => onUpdateBusinessCase({ problemStatement: v })}
             placeholder="What opportunity or issue is this project addressing?"
             multiline as="block"
+            label="Problem statement"
           />
         </div>
       </section>
@@ -46,6 +47,7 @@ export function BusinessCaseView({
             onChange={(v) => onUpdateBusinessCase({ expectedBenefit: v })}
             placeholder="What improves, and by how much, if this ships? Qualitative or quantitative, whatever the source actually said."
             multiline as="block"
+            label="Expected benefit"
           />
         </div>
       </section>
@@ -59,6 +61,7 @@ export function BusinessCaseView({
               onChange={(v) => onUpdateBusinessCase({ buildCost: v })}
               placeholder="One-time cost to deliver this"
               multiline as="block"
+              label="Build cost"
             />
           </div>
         </section>
@@ -70,6 +73,7 @@ export function BusinessCaseView({
               onChange={(v) => onUpdateBusinessCase({ runCost: v })}
               placeholder="Ongoing cost to keep it running"
               multiline as="block"
+              label="Run cost"
             />
           </div>
         </section>
@@ -93,20 +97,20 @@ export function BusinessCaseView({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 font-medium">
                     <IdChip id={o.id} />
-                    <InlineEdit value={o.text} onChange={(v) => onUpdateItem(o.id, { text: v })} />
+                    <InlineEdit value={o.text} onChange={(v) => onUpdateItem(o.id, { text: v })} label={`Option ${o.id}`} />
                   </div>
-                  <button onClick={() => onDeleteAny(o.id)} className="text-muted-foreground hover:text-destructive transition">
+                  <button onClick={() => onDeleteAny(o.id)} aria-label={`Delete option ${o.id}`} className="text-muted-foreground hover:text-destructive transition">
                     <X className="size-3.5" />
                   </button>
                 </div>
                 <div className="mt-1.5 grid gap-2 sm:grid-cols-2 text-xs">
                   <div>
                     <div className="text-muted-foreground mb-0.5">Pros</div>
-                    <InlineEdit value={o.pros ?? ""} onChange={(v) => onUpdateItem(o.id, { pros: v })} multiline as="block" />
+                    <InlineEdit value={o.pros ?? ""} onChange={(v) => onUpdateItem(o.id, { pros: v })} multiline as="block" label={`Pros for ${o.id}`} />
                   </div>
                   <div>
                     <div className="text-muted-foreground mb-0.5">Cons</div>
-                    <InlineEdit value={o.cons ?? ""} onChange={(v) => onUpdateItem(o.id, { cons: v })} multiline as="block" />
+                    <InlineEdit value={o.cons ?? ""} onChange={(v) => onUpdateItem(o.id, { cons: v })} multiline as="block" label={`Cons for ${o.id}`} />
                   </div>
                 </div>
                 <div className="mt-1.5 text-xs">
@@ -116,6 +120,7 @@ export function BusinessCaseView({
                     onChange={(v) => onUpdateItem(o.id, { rejectedBecause: v })}
                     placeholder="The specific reason this lost, not just a restatement of the cons"
                     multiline as="block"
+                    label={`Why not ${o.id}`}
                   />
                 </div>
               </div>
@@ -132,6 +137,7 @@ export function BusinessCaseView({
             onChange={(v) => onUpdateBusinessCase({ recommendation: v })}
             placeholder="Which option, and why?"
             multiline as="block"
+            label="Recommendation"
           />
         </div>
       </section>

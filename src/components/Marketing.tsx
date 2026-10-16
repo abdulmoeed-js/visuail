@@ -50,7 +50,7 @@ export function WhyNotMiro() {
               <div key={a.title} className="rounded-xl border bg-card p-5">
                 <div className="flex items-center justify-between">
                   <Icon className="size-5 text-primary" aria-hidden="true" />
-                  <div className="inline-flex items-center gap-1.5 font-mono-tight text-[10px] uppercase tracking-widest">
+                  <div className="inline-flex items-center gap-1.5 eyebrow">
                     <span className={`h-1.5 w-1.5 rounded-full ${t.dot}`} />
                     <span className={t.accent}>{t.label}</span>
                   </div>

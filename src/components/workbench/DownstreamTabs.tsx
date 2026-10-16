@@ -20,7 +20,7 @@ export function BRDTab({
   return (
     <article className="prose-none space-y-5 text-sm leading-relaxed max-w-3xl">
       <header>
-        <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+        <div className="eyebrow text-muted-foreground">
           BRD-001 · Generated · Draft
         </div>
         <h2 className="font-display text-2xl mt-1">{m.title} — Business Requirements Document</h2>
@@ -29,9 +29,8 @@ export function BRDTab({
       <section>
         <h3 className="font-semibold text-foreground">Overview</h3>
         <p className="text-muted-foreground">
-          This document specifies the requirements for the <em>{m.title.toLowerCase()}</em> workflow,
-          derived directly from stakeholder discovery. Each requirement traces to its source step
-          in the process model.
+          This document specifies the requirements for the <em>{m.title.toLowerCase()}</em> workflow.
+          Each requirement traces to its source step in the process model.
         </p>
       </section>
 
@@ -65,14 +64,14 @@ export function BRDTab({
                   <span className="text-foreground">REQ-{String(i + 1).padStart(3, "0")}</span>
                   <span>→</span>
                   <IdChip id={s.id} tone="primary" />
-                  {s.drift && <span className="text-drift">· source drifted</span>}
+                  {s.drift && <span className="text-drift-ink">· source drifted</span>}
                 </div>
                 <div className="mt-1 text-sm">
                   The system SHALL allow <strong>{actorTxt(s.actorId)}</strong> to {s.text.toLowerCase()}.
                 </div>
                 {flagged && (
                   <div
-                    className="mt-1.5 inline-flex items-center gap-1 rounded border border-unresolved/50 bg-unresolved/10 px-1.5 py-0.5 text-[10px] font-mono-tight text-[color:var(--unresolved-foreground)]"
+                    className="mt-1.5 inline-flex items-center gap-1 rounded border border-unresolved/50 bg-unresolved/10 px-1.5 py-0.5 text-[10px] font-mono-tight text-unresolved-ink"
                     title="Vague wording -- consider a more specific, testable phrasing"
                   >
                     vague: {quality.vagueTerms.map((v) => v.word).join(", ")}
@@ -122,10 +121,10 @@ export function BRDTab({
 
       {m.steps.some((s) => s.confidence < 0.7) && (
         <section className="rounded-md border border-unresolved bg-unresolved/10 p-3">
-          <h4 className="text-sm font-semibold text-[color:var(--unresolved-foreground)]">
+          <h4 className="text-sm font-semibold text-unresolved-ink">
             Needs confirmation
           </h4>
-          <ul className="mt-1 list-disc pl-5 text-sm text-[color:var(--unresolved-foreground)]/90">
+          <ul className="mt-1 list-disc pl-5 text-sm text-unresolved-ink">
             {m.steps.filter((s) => s.confidence < 0.7).map((s) => (
               <li key={s.id}>{s.text} — <em>{s.snippet}</em></li>
             ))}
@@ -149,7 +148,7 @@ export function BacklogTab({
 
   return (
     <div className="space-y-4">
-      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+      <div className="eyebrow text-muted-foreground">
         EPIC-BOARD · Generated · Traced to source steps
       </div>
       <div className="grid gap-3 md:grid-cols-2">
@@ -179,8 +178,7 @@ export function BacklogTab({
                   </div>
                   <div className="mt-0.5 leading-snug">
                     <span className="text-muted-foreground">As a</span> <strong>{actor.text}</strong>,
-                    <span className="text-muted-foreground"> I want to</span> {s.text.toLowerCase()},
-                    <span className="text-muted-foreground"> so that</span> the onboarding workflow can proceed.
+                    <span className="text-muted-foreground"> I want to</span> {s.text.toLowerCase()}.
                   </div>
                   <div className="mt-1.5 rounded-md border border-dashed bg-muted/30 px-2 py-1 text-[12px]">
                     <span className="text-muted-foreground">Acceptance criteria: </span>
@@ -189,6 +187,7 @@ export function BacklogTab({
                       onChange={(v) => onUpdateItem(s.id, { acceptanceCriteria: v })}
                       placeholder={`Given the current state, when ${actor.text.toLowerCase()} performs "${s.text.toLowerCase()}", then the workflow reflects it accurately.`}
                       multiline
+                      label={`Acceptance criteria for US-${i + 1}.${j + 1}`}
                     />
                   </div>
                 </li>
@@ -212,7 +211,7 @@ export function BriefTab({ m }: { m: BMCModel }) {
   return (
     <article className="max-w-3xl space-y-5 text-sm leading-relaxed">
       <header>
-        <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+        <div className="eyebrow text-muted-foreground">
           BRIEF-001 · One-page synthesis · Generated
         </div>
         <h2 className="font-display text-2xl mt-1">{m.title.split("—")[0]?.trim()} — one-page brief</h2>
@@ -237,10 +236,10 @@ export function BriefTab({ m }: { m: BMCModel }) {
 
       {lows.length > 0 && (
         <section className="rounded-md border border-unresolved bg-unresolved/10 p-3">
-          <h4 className="text-sm font-semibold text-[color:var(--unresolved-foreground)]">
+          <h4 className="text-sm font-semibold text-unresolved-ink">
             Needs confirmation ({lows.length})
           </h4>
-          <ul className="mt-1.5 list-disc pl-5 text-sm text-[color:var(--unresolved-foreground)]/90">
+          <ul className="mt-1.5 list-disc pl-5 text-sm text-unresolved-ink">
             {lows.map((l) => (
               <li key={l.id}><strong>{l.block}:</strong> {l.text}</li>
             ))}
@@ -269,7 +268,7 @@ export function QuestionsTab({ m }: { m: BMCModel }) {
 
   return (
     <div className="max-w-3xl space-y-3">
-      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+      <div className="eyebrow text-muted-foreground">
         Q-BOARD · Generated from unresolved items
       </div>
       <p className="text-sm text-muted-foreground">

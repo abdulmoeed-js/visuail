@@ -160,7 +160,7 @@ export function StateDiagramView({ model, editing }: Props) {
             <button onClick={closeAdd} title="Cancel" aria-label="Cancel" className="h-8 w-8 shrink-0 flex items-center justify-center rounded hover:bg-muted"><X className="size-4" /></button>
           </div>
         ) : (
-          <button ref={addButton} onClick={() => setAdding(true)} data-no-pan className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
+          <button ref={addButton} onClick={() => setAdding(true)} data-no-pan className="h-8 px-2.5 rounded-md border border-separator-strong bg-card text-xs flex items-center gap-1.5 hover:border-primary/60">
             <Plus className="size-3.5 text-primary" /> Add state
           </button>
         )
@@ -169,7 +169,7 @@ export function StateDiagramView({ model, editing }: Props) {
       {states.length === 0 && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground pointer-events-none">
           <span>No states yet.</span>
-          <button onClick={() => setAdding(true)} data-no-pan className="pointer-events-auto flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-xs hover:border-primary/60 shadow-sm">
+          <button onClick={() => setAdding(true)} data-no-pan className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-separator-strong bg-card px-3 py-1.5 text-xs hover:border-primary/60">
             <Wand2 className="size-3.5 text-primary" /> Add a state
           </button>
         </div>
@@ -286,7 +286,7 @@ function StateNodeView({
           <GripVertical data-no-pan onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
           <IdChip id={node.ref.id} tone="primary" />
         </div>
-        <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+        <button onClick={onDelete} data-no-pan aria-label={`Delete state ${node.ref.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
           <X className="size-3" />
         </button>
       </div>
@@ -306,7 +306,7 @@ function StateNodeView({
       <div
         data-no-pan
         onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e, (e.currentTarget.closest("[data-canvas-content]") as HTMLElement) ?? null); }}
-        className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-primary bg-card shadow-sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:scale-125 transition cursor-crosshair"
+        className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-primary bg-card opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-primary transition cursor-crosshair before:absolute before:-inset-2 before:content-['']"
         title="Drag to another state to connect (drag to itself for a self-transition)"
       />
     </div>
@@ -325,7 +325,7 @@ function TransitionLabel({
     <div data-no-pan className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className="rounded border border-primary/60 bg-card px-1.5 py-0.5 text-[10px] font-mono-tight text-primary shadow-sm hover:bg-primary/10 transition"
+        className="rounded border border-primary/60 bg-card px-1.5 py-0.5 text-[10px] font-mono-tight text-primary hover:bg-primary/10 transition"
       >
         {conn.label || "event"}
       </button>
@@ -342,6 +342,7 @@ function TransitionLabel({
             }}
             onBlur={(e) => { if (e.target.value !== (conn.label ?? "")) onUpdate({ label: e.target.value }); }}
             placeholder="event [guard] / action"
+            aria-label="Transition: event [guard] / action"
             className="w-full text-[11px] px-2 py-1 rounded border bg-background"
           />
           <button onClick={() => { onDelete(); setOpen(false); }} className="w-full text-[11px] px-2 py-1 rounded border border-destructive/40 text-destructive hover:bg-destructive/10">

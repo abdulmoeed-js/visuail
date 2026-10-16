@@ -21,8 +21,8 @@ export function CommunicationPlanView({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
-          COMMUNICATION PLAN · {items.length} activit{items.length === 1 ? "y" : "ies"}
+        <div className="eyebrow text-muted-foreground">
+          Communication plan · {items.length} activit{items.length === 1 ? "y" : "ies"}
         </div>
         <Button size="sm" variant="outline" onClick={() => onAddCommunicationPlanItem("New activity")}>
           <Plus className="size-3.5" /> Add activity
@@ -51,20 +51,20 @@ export function CommunicationPlanView({
                   <TableCell>
                     <div className="flex items-start gap-1.5">
                       <IdChip id={c.id} tone="primary" />
-                      <InlineEdit value={c.text} onChange={(v) => onUpdateItem(c.id, { text: v })} />
+                      <InlineEdit value={c.text} onChange={(v) => onUpdateItem(c.id, { text: v })} label={`Activity ${c.id}`} />
                     </div>
                   </TableCell>
                   <TableCell>
-                    <InlineEdit value={c.audience} onChange={(v) => onUpdateItem(c.id, { audience: v })} placeholder="Who" />
+                    <InlineEdit value={c.audience} onChange={(v) => onUpdateItem(c.id, { audience: v })} placeholder="Who" label={`Audience for ${c.id}`} />
                   </TableCell>
                   <TableCell>
-                    <InlineEdit value={c.method} onChange={(v) => onUpdateItem(c.id, { method: v })} placeholder="Email, meeting, …" />
+                    <InlineEdit value={c.method} onChange={(v) => onUpdateItem(c.id, { method: v })} placeholder="Email, meeting, …" label={`Method for ${c.id}`} />
                   </TableCell>
                   <TableCell>
-                    <InlineEdit value={c.frequency} onChange={(v) => onUpdateItem(c.id, { frequency: v })} placeholder="Weekly, …" />
+                    <InlineEdit value={c.frequency} onChange={(v) => onUpdateItem(c.id, { frequency: v })} placeholder="Weekly, …" label={`Frequency for ${c.id}`} />
                   </TableCell>
                   <TableCell>
-                    <button onClick={() => onDeleteAny(c.id)} className="text-muted-foreground hover:text-destructive transition">
+                    <button onClick={() => onDeleteAny(c.id)} aria-label={`Delete activity ${c.id}`} className="text-muted-foreground hover:text-destructive transition">
                       <X className="size-3.5" />
                     </button>
                   </TableCell>

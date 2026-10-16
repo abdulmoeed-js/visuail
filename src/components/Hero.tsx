@@ -1,5 +1,6 @@
 import { ArrowRight, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { scrollToId } from "@/lib/scroll";
 
 export function Hero() {
@@ -30,11 +31,11 @@ export function Hero() {
       <div className="relative mx-auto max-w-[1400px] px-4 pt-16 pb-20 md:pt-24 md:pb-28">
         <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_460px] items-center">
           <div>
-            <div className="inline-flex items-center gap-1.5 rounded-full border bg-card/70 backdrop-blur px-2.5 py-1 text-[11px] font-mono-tight text-muted-foreground mb-6">
+            <div className="inline-flex items-center gap-1.5 rounded-md border bg-card/70 backdrop-blur px-2.5 py-1 text-[11px] font-mono-tight text-muted-foreground mb-6">
               <span className="h-1.5 w-1.5 rounded-full bg-confident animate-pulse" />
               For business analysts &amp; PMs
             </div>
-            <h1 className="font-display text-[44px] leading-[1.02] md:text-[72px] md:leading-[0.98] tracking-tight text-balance">
+            <h1 className="font-display text-[44px] leading-[1.02] md:text-[72px] md:leading-[0.98] tracking-[-0.012em] text-balance">
               Diagrams that know <span className="italic text-primary">when they drift.</span>
             </h1>
             <p className="mt-6 text-lg md:text-xl text-muted-foreground max-w-xl leading-relaxed">
@@ -44,16 +45,9 @@ export function Hero() {
               </span>
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
-              <button
-                onClick={scroll}
-                className="group relative inline-flex h-11 items-center gap-2 rounded-md px-5 text-primary-foreground font-medium transition shadow-[0_8px_24px_-8px_color-mix(in_oklab,var(--primary)_60%,transparent)] hover:shadow-[0_12px_32px_-8px_color-mix(in_oklab,var(--primary)_70%,transparent)] hover:-translate-y-px"
-                style={{
-                  background:
-                    "linear-gradient(135deg, var(--primary), color-mix(in oklab, var(--primary) 70%, var(--verified)))",
-                }}
-              >
-                Try it on a real transcript <ArrowRight className="size-4 group-hover:translate-x-0.5 transition" />
-              </button>
+              <Button size="lg" onClick={scroll} className="h-11 px-5">
+                See it on a sample call <ArrowRight className="size-4" />
+              </Button>
               <span className="text-xs text-muted-foreground font-mono-tight">
                 No signup. No wall before value.
               </span>
@@ -103,9 +97,9 @@ function HeroCard() {
                 </div>
                 <span className={cn(
                   "font-mono-tight text-[9px] px-1.5 rounded",
-                  n.tone === "ok" && "bg-confident/10 text-confident",
-                  n.tone === "warn" && "bg-unresolved/20 text-[color:var(--unresolved-foreground)]",
-                  n.tone === "drift" && "bg-drift/15 text-drift",
+                  n.tone === "ok" && "bg-confident/10 text-confident-ink",
+                  n.tone === "warn" && "bg-unresolved/20 text-unresolved-ink",
+                  n.tone === "drift" && "bg-drift/15 text-drift-ink",
                 )}>
                   {n.tone === "ok" ? "92%" : n.tone === "warn" ? "52%" : "drifted"}
                 </span>

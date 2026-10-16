@@ -784,7 +784,7 @@ export function ProcessCanvas({
                   }}
                   aria-label="Who does this step"
                   title="Who does this step"
-                  className="h-8 min-w-0 max-w-[10rem] rounded-md border bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="h-8 min-w-0 max-w-[10rem] rounded-md border bg-background px-2 text-xs text-foreground"
                 >
                   {model.actors.map((a) => (
                     <option key={a.id} value={a.id}>{a.text}</option>
@@ -909,7 +909,7 @@ export function ProcessCanvas({
                 strokeLinecap="round" markerEnd="url(#arrow)"
               />
               {yesLabel && (
-                <text x={from.x + 10} y={midY + 4} fill="var(--color-confident)" fontSize="11" fontFamily="var(--font-mono)">
+                <text x={from.x + 10} y={midY + 4} fill="var(--color-confident-ink)" fontSize="11" fontFamily="var(--font-mono)">
                   {yesLabel}
                 </text>
               )}
@@ -920,6 +920,8 @@ export function ProcessCanvas({
         {routes.map((r) => {
           const isException = r.kind === "exception";
           const stroke = isException ? "var(--color-unresolved)" : "var(--color-drift)";
+          // The label is text, so it takes the darker ink of the same colour.
+          const labelFill = isException ? "var(--color-unresolved-ink)" : "var(--color-drift-ink)";
           const dash = isException ? "4 3" : undefined;
           const marker = isException ? "url(#arrow-dashed)" : "url(#arrow)";
           const path = roundedPath([r.from, { x: r.laneX, y: r.from.y }, { x: r.laneX, y: r.to.y }, r.to]);
@@ -931,7 +933,7 @@ export function ProcessCanvas({
                 strokeDasharray={dash} markerEnd={marker}
               />
               {r.label && (
-                <text x={r.laneX + 6} y={labelY} fill={stroke} fontSize="10" fontFamily="var(--font-mono)">
+                <text x={r.laneX + 6} y={labelY} fill={labelFill} fontSize="10" fontFamily="var(--font-mono)">
                   {r.label}
                 </text>
               )}
@@ -1102,7 +1104,7 @@ function ConnectorControl({
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
         title="Connector settings"
-        className="h-5 w-5 rounded-full border border-primary/60 bg-card text-primary shadow-sm opacity-70 hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition flex items-center justify-center"
+        className="h-5 w-5 rounded-full border border-primary/60 bg-card text-primary opacity-70 hover:opacity-100 focus-visible:opacity-100 hover:bg-primary hover:text-primary-foreground transition flex items-center justify-center"
       >
         <MoreHorizontal className="size-3" />
       </button>
@@ -1111,12 +1113,14 @@ function ConnectorControl({
           {onUpdate && (
             <>
               <div>
-                <div className="text-[9px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-1">Start</div>
+                <div className="eyebrow text-muted-foreground mb-1">Start</div>
                 <div className="flex flex-wrap gap-1">
                   {CROW_OPTIONS.map((o) => (
                     <button
                       key={`s-${o.id}`}
                       onClick={() => onUpdate({ startMarker: o.id === "none" ? undefined : o.id })}
+                      aria-label={`Start: ${o.label}`}
+                      aria-pressed={(conn.startMarker ?? "none") === o.id}
                       className={cn(
                         "px-1.5 py-0.5 rounded border text-[10px] font-mono-tight",
                         (conn.startMarker ?? "none") === o.id
@@ -1129,12 +1133,14 @@ function ConnectorControl({
                 </div>
               </div>
               <div>
-                <div className="text-[9px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-1">End</div>
+                <div className="eyebrow text-muted-foreground mb-1">End</div>
                 <div className="flex flex-wrap gap-1">
                   {CROW_OPTIONS.map((o) => (
                     <button
                       key={`e-${o.id}`}
                       onClick={() => onUpdate({ endMarker: o.id === "none" ? undefined : o.id })}
+                      aria-label={`End: ${o.label}`}
+                      aria-pressed={(conn.endMarker ?? "none") === o.id}
                       className={cn(
                         "px-1.5 py-0.5 rounded border text-[10px] font-mono-tight",
                         (conn.endMarker ?? "none") === o.id
@@ -1150,6 +1156,7 @@ function ConnectorControl({
                 value={conn.label ?? ""}
                 onChange={(e) => onUpdate({ label: e.target.value })}
                 placeholder="Label (optional)"
+                aria-label="Connector label"
                 className="w-full text-[11px] px-2 py-1 rounded border bg-background"
               />
             </>
@@ -1199,7 +1206,7 @@ function ShapePalette({
     <div className="absolute top-3 left-3 z-30 flex items-start gap-2" data-no-pan>
       <Button
         size="sm" variant="outline"
-        className={cn("h-8 bg-card/95 backdrop-blur shadow-sm gap-1.5", open ? "w-8 px-0" : "px-2.5")}
+        className={cn("h-8 bg-card/95 backdrop-blur gap-1.5", open ? "w-8 px-0" : "px-2.5")}
         onClick={onToggle}
         title={open ? "Hide shape palette" : "Show shape palette"}
         // One name in both states, starting with the word on the button, so
@@ -1216,8 +1223,13 @@ function ShapePalette({
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
+                aria-pressed={tab === t.id}
                 className={cn(
-                  "flex-1 px-2 py-2 text-[10px] font-mono-tight uppercase tracking-wider transition",
+                  // px-1.5, not px-2: at px-2 the four names in 12px Inter
+                  // leave under a pixel spare in the 238px row. The focus
+                  // ring is drawn inside the tab, whose outer edges the
+                  // palette clips.
+                  "flex-1 px-1.5 py-2 text-xs font-medium transition focus-visible:outline-offset-[-2px]",
                   tab === t.id
                     ? "bg-card text-foreground border-b-2 border-primary"
                     : "text-muted-foreground hover:text-foreground",
@@ -1229,7 +1241,7 @@ function ShapePalette({
           </div>
 
           <div className="p-2">
-            <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground px-1 pb-1.5">
+            <div className="eyebrow text-muted-foreground px-1 pb-1.5">
               Drag to canvas
             </div>
             <div className="grid grid-cols-2 gap-1.5">
@@ -1240,7 +1252,7 @@ function ShapePalette({
             {showStarter && (
               <>
                 <div className="my-2 h-px bg-border" />
-                <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground px-1 pb-1.5">
+                <div className="eyebrow text-muted-foreground px-1 pb-1.5">
                   Starters
                 </div>
                 <Button
@@ -1308,7 +1320,7 @@ function PaletteTile({ item }: { item: PaletteItem }) {
         e.dataTransfer.setData(PALETTE_MIME, JSON.stringify({ kind, shape }));
         e.dataTransfer.effectAllowed = "copy";
       }}
-      className="group relative flex flex-col items-start gap-1 rounded-md border bg-background/80 px-2 py-2 cursor-grab active:cursor-grabbing hover:border-primary/60 hover:bg-primary/5 hover:shadow-sm transition"
+      className="flex flex-col items-start gap-1 rounded-md border bg-background/80 px-2 py-2 cursor-grab active:cursor-grabbing hover:border-primary/60 hover:bg-primary/5 active:bg-primary/10 transition"
       title={`Drag ${label.toLowerCase()} onto the canvas`}
     >
       <div className="flex items-center gap-1.5 w-full">
@@ -1316,7 +1328,6 @@ function PaletteTile({ item }: { item: PaletteItem }) {
         <div className="text-[11px] font-medium leading-tight truncate">{label}</div>
       </div>
       <div className="text-[9px] font-mono-tight text-muted-foreground leading-tight pl-6 truncate w-full">{hint}</div>
-      <div className="absolute inset-0 rounded-md ring-0 group-active:ring-2 group-active:ring-primary/40 pointer-events-none transition" />
     </div>
   );
 }
@@ -1410,10 +1421,10 @@ function Legend() {
   const chip = "flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
   return (
     <>
-      <span className={chip}><span className="h-2 w-3 border-2 border-primary rounded-sm" /> Step</span>
+      <span className={chip}><span className="h-2 w-3 border-2 border-primary rounded-[2px]" /> Step</span>
       <span className={chip}><span className="h-2 w-2 rotate-45 border-2 border-primary" /> Decision</span>
-      <span className={chip}><span className="h-2 w-3 border border-dashed border-unresolved rounded-sm" /> Unresolved</span>
-      <span className={chip}><span className="h-2 w-3 border border-drift rounded-sm bg-drift/20" /> Drifted</span>
+      <span className={chip}><span className="h-2 w-3 border border-dashed border-unresolved rounded-[2px]" /> Unresolved</span>
+      <span className={chip}><span className="h-2 w-3 border border-drift rounded-[2px] bg-drift/20" /> Drifted</span>
       {/* How-to, not legend: shown only where the bar has the room for it
        *  (the bottom bar is a container-query container). The same words
        *  live in the shape palette for narrower canvases. */}
@@ -1517,7 +1528,7 @@ function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: 
     <div
       onPointerDown={onPointerDown}
       data-no-pan
-      className="absolute bottom-0 right-0 w-3 h-3 rounded-sm border border-primary/60 bg-card cursor-nwse-resize opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition z-10"
+      className="absolute bottom-0 right-0 w-3 h-3 rounded-[3px] border border-primary/60 bg-card cursor-nwse-resize opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition z-10"
       title="Resize"
     />
   );
@@ -1541,7 +1552,7 @@ function ConnectHandle({ onStartConnect }: { onStartConnect: (e: React.PointerEv
     <div
       data-no-pan
       onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e); }}
-      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:scale-125 transition cursor-crosshair z-10"
+      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-verified transition cursor-crosshair z-10"
       title="Drag to another node to connect"
     />
   );
@@ -1766,7 +1777,7 @@ function StepNode({
             <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} />
           </div>
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
-          <button onClick={onDelete} data-no-pan
+          <button onClick={onDelete} data-no-pan aria-label={`Delete ${step.id}`}
             className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
@@ -1812,8 +1823,8 @@ function StepNode({
     : "";
 
   // Softer, Miro-style card: a thinner border (color still carries meaning)
-  // with a real drop shadow doing the visual-weight work instead, plus a
-  // gentle hover lift so the canvas feels responsive rather than static.
+  // with a real drop shadow doing the visual-weight work instead. The shadow
+  // stays put on hover: a node is content, and nothing on the page lifts.
   // No "relative" here -- the outer node div is already "absolute" (its own
   // valid positioning context for the resize/connect handles below), and
   // Tailwind's stylesheet order happens to let a "relative" utility on the
@@ -1825,7 +1836,6 @@ function StepNode({
     ? "bg-transparent"
     : cn(
         "rounded-xl border bg-card shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.06)]",
-        "transition-shadow hover:shadow-[0_4px_14px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.06)]",
         step.drift && "border-drift animate-drift bg-drift/5",
         lowConf && "border-dashed border-unresolved bg-unresolved/5",
         !step.drift && !lowConf && !step.userAdded && "border-primary/40",
@@ -1849,7 +1859,7 @@ function StepNode({
               <BookOpen className="size-3" />
             </button>
           )}
-          <button onClick={onDelete} data-no-pan
+          <button onClick={onDelete} data-no-pan aria-label={`Delete ${step.id}`}
             className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
@@ -1860,9 +1870,13 @@ function StepNode({
       </div>
       {shape !== "swimlane" && shape !== "event" && (
         <div className="flex flex-wrap gap-1 text-[10px] font-mono-tight text-muted-foreground mt-auto">
-          <MetaSelect value={step.actorId} options={actors} onChange={(v) => onUpdate({ actorId: v })} />
+          <MetaSelect
+            label={`Actor for ${step.id}`}
+            value={step.actorId} options={actors} onChange={(v) => onUpdate({ actorId: v })}
+          />
           <span>·</span>
           <MetaSelect
+            label={`System for ${step.id}`}
             value={step.systemId ?? ""}
             options={[{ id: "", text: "no system" }, ...systems]}
             onChange={(v) => onUpdate({ systemId: v || undefined })}
@@ -1983,7 +1997,7 @@ function SectionedNode({
         </div>
         <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
         <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
-        <button onClick={onDelete} data-no-pan
+        <button onClick={onDelete} data-no-pan aria-label={`Delete ${step.id}`}
           className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
           <X className="size-3" />
         </button>
@@ -2025,7 +2039,7 @@ function SectionList({
   return (
     <div className={cn("px-2 py-1.5 flex flex-col gap-0.5", topBorder && "border-t")}>
       <div className="flex items-center justify-between">
-        <span className="text-[9px] font-mono-tight uppercase tracking-widest text-muted-foreground">{label}</span>
+        <span className="eyebrow text-muted-foreground">{label}</span>
         <button
           onClick={onAdd}
           data-no-pan
@@ -2046,8 +2060,9 @@ function SectionList({
           <button
             onClick={() => onRemove(i)}
             data-no-pan
-            className="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-destructive transition"
+            className="opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive transition"
             title="Remove"
+            aria-label={`Remove ${v}`}
           >
             <X className="size-2.5" />
           </button>
@@ -2059,8 +2074,10 @@ function SectionList({
 
 
 function MetaSelect({
-  value, options, onChange,
+  label, value, options, onChange,
 }: {
+  /** The select's accessible name; what shows is only the current value. */
+  label: string;
   value: string;
   options: { id: string; text: string }[];
   onChange: (v: string) => void;
@@ -2072,7 +2089,9 @@ function MetaSelect({
   const known = options.some((o) => o.id === value);
   const current = known ? options.find((o) => o.id === value)!.text : "Unassigned";
   return (
-    <span className="relative inline-flex items-center rounded px-1 -mx-1 hover:bg-verified/10 hover:ring-1 hover:ring-verified/30 transition" data-no-pan>
+    // The select itself is invisible, so its keyboard focus ring is drawn on
+    // this wrapper instead.
+    <span className="relative inline-flex items-center rounded px-1 -mx-1 hover:bg-verified/10 hover:ring-1 hover:ring-verified/30 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring transition" data-no-pan>
       <span className="pointer-events-none">{current}</span>
       <select
         value={value}
@@ -2080,6 +2099,7 @@ function MetaSelect({
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         className="absolute inset-0 opacity-0 cursor-pointer"
+        aria-label={label}
         title="Change"
       >
         {!known && <option value={value}>Unassigned</option>}
@@ -2131,6 +2151,8 @@ function DecisionNode({
       }],
     });
   const stroke = d.drift ? "var(--color-drift)" : d.userAdded ? "var(--color-verified)" : "var(--color-primary)";
+  // The gateway's + or × is a character on the diamond's tint: ink, not stroke.
+  const glyphFill = d.drift ? "var(--color-drift-ink)" : d.userAdded ? "var(--color-verified-ink)" : "var(--color-primary)";
   const fill = d.drift
     ? "color-mix(in oklab, var(--color-drift) 6%, var(--color-card))"
     : "var(--color-card)";
@@ -2165,7 +2187,7 @@ function DecisionNode({
           vectorEffect="non-scaling-stroke"
         />
         {isGateway && (
-          <text x="50" y="58" textAnchor="middle" fontSize="28" fill={stroke} fontFamily="var(--font-mono)">
+          <text x="50" y="58" textAnchor="middle" fontSize="28" fill={glyphFill} fontFamily="var(--font-mono)">
             {gatewayGlyph}
           </text>
         )}
@@ -2180,7 +2202,7 @@ function DecisionNode({
           <ConfidenceBadge item={d} />
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: d.id, kind: "decision", text: d.text }} model={model} onApply={onRefine} />
-          <button onClick={onDelete} data-no-pan
+          <button onClick={onDelete} data-no-pan aria-label={`Delete ${d.id}`}
             className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition">
             <X className="size-3" />
           </button>
@@ -2212,14 +2234,15 @@ function DecisionNode({
                 {/* Capped + scrollable so a decision with many branches (a real
                     possibility now that branches are N-way) can't push the
                     popover taller than the viewport. */}
-                <div className="flex flex-col gap-1 max-h-56 overflow-y-auto">
+                <div className="flex flex-col gap-1 px-2 py-1 max-h-56 overflow-y-auto">
                   {branches.map((b) => (
                     <div key={b.id} className="flex items-center gap-1">
                       <InlineEdit value={b.label} onChange={(v) => updateBranch(b.id, { label: v })} className="text-primary" />
                       <span className="text-muted-foreground">→</span>
                       <InlineEdit value={b.targetId} onChange={(v) => updateBranch(b.id, { targetId: v })} />
                       {branches.length > 2 && (
-                        <button onClick={() => removeBranch(b.id)} className="ml-auto text-muted-foreground hover:text-destructive transition">
+                        <button onClick={() => removeBranch(b.id)} aria-label={`Remove branch ${b.label}`}
+                          className="ml-auto text-muted-foreground hover:text-destructive transition">
                           <X className="size-3" />
                         </button>
                       )}
@@ -2271,7 +2294,7 @@ function ExceptionNode({
       onPointerDown={() => onSelect()}
       className={cn(
         "group absolute rounded-xl border border-dashed bg-unresolved/5 border-unresolved/70 px-2.5 py-2",
-        "shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-shadow hover:shadow-[0_4px_14px_rgba(0,0,0,0.10)]",
+        "shadow-[0_1px_3px_rgba(0,0,0,0.08)]",
         "flex flex-col gap-1 animate-item-in",
         e.userAdded && "user-added !border-verified border-solid",
       )}
@@ -2288,7 +2311,7 @@ function ExceptionNode({
         <div className="flex items-center gap-1 min-w-0">
           <DragHandle handlers={drag} />
           <IdChip id={e.id} />
-          <span className="text-[9px] font-mono-tight uppercase tracking-widest text-unresolved">
+          <span className="text-[9px] font-mono-tight uppercase tracking-widest text-unresolved-ink">
             <Zap className="inline size-2.5 -mt-0.5" /> Exception
           </span>
         </div>
@@ -2296,7 +2319,7 @@ function ExceptionNode({
           <ConfidenceBadge item={e} />
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: e.id, kind: "exception", text: e.text }} model={model} onApply={onRefine} />
-          <button onClick={onDelete} data-no-pan
+          <button onClick={onDelete} data-no-pan aria-label={`Delete ${e.id}`}
             className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>

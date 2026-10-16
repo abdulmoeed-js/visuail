@@ -102,7 +102,7 @@ export function UseCaseDiagramView({
         className="absolute rounded-lg border-2 border-dashed bg-card/40"
         style={{ left: BOUNDARY_X, top: boundaryTop, width: boundaryWidth, height: boundaryHeight }}
       >
-        <div className="absolute -top-3 left-3 rounded bg-background px-2 text-[11px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+        <div className="absolute -top-3 left-3 rounded bg-background px-2 eyebrow text-muted-foreground">
           {model.title}
         </div>
       </div>

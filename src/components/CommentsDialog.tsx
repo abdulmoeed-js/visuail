@@ -75,7 +75,7 @@ export function CommentsDialog({ projectId }: { projectId: string }) {
         {loading ? (
           <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
         ) : (
-          <div className="max-h-[45vh] overflow-y-auto space-y-3">
+          <div className="max-h-[45vh] overflow-y-auto space-y-3 p-1">
             {comments.length === 0 && (
               <p className="text-sm text-muted-foreground py-4 text-center">No comments yet.</p>
             )}
@@ -102,9 +102,10 @@ export function CommentsDialog({ projectId }: { projectId: string }) {
           <MentionTextarea
             value={body} onChange={setBody} orgId={session.currentOrgId}
             placeholder="Add a comment… (@ to mention)" className="min-h-[60px] text-sm"
+            aria-label="Add a comment"
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) post(); }}
           />
-          <Button size="sm" onClick={post} disabled={posting || !body.trim()} className="self-end shrink-0">
+          <Button size="sm" onClick={post} disabled={posting || !body.trim()} className="self-end shrink-0" aria-label="Post comment">
             {posting ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
           </Button>
         </div>

@@ -126,9 +126,10 @@ export function ItemCommentsPopover({ projectId, itemId, count, onCountChange, a
           <MentionTextarea
             value={body} onChange={setBody} orgId={session.currentOrgId}
             placeholder="Comment on this item… (@ to mention)" className="min-h-[44px] text-xs"
+            aria-label="Comment on this item"
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) post(); }}
           />
-          <Button size="sm" onClick={post} disabled={posting || !body.trim()} className="self-end shrink-0 h-8 w-8 p-0">
+          <Button size="sm" onClick={post} disabled={posting || !body.trim()} className="self-end shrink-0 h-8 w-8 p-0" aria-label="Post comment">
             {posting ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
           </Button>
         </div>

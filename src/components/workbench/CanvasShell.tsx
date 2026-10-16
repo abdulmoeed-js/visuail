@@ -646,7 +646,7 @@ export function CanvasShell({
 
       {fs && (
         <>
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 rounded-full border bg-card/95 backdrop-blur px-3 py-1 text-[11px] font-mono-tight text-muted-foreground" data-no-pan>
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 rounded-md border bg-card/95 backdrop-blur px-3 py-1 text-[11px] font-mono-tight text-muted-foreground" data-no-pan>
             Fullscreen · press <kbd className="px-1 rounded bg-muted mx-0.5">Esc</kbd> to exit
           </div>
           <Button

@@ -17,9 +17,13 @@ interface Props {
   placeholder?: string;
   className?: string;
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  /** The field's name for screen readers; the placeholder is not a label. */
+  "aria-label"?: string;
 }
 
-export function MentionTextarea({ value, onChange, orgId, placeholder, className, onKeyDown }: Props) {
+export function MentionTextarea({
+  value, onChange, orgId, placeholder, className, onKeyDown, "aria-label": ariaLabel,
+}: Props) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [members, setMembers] = useState<OrgMember[] | null>(null);
   // `start` is the index of the "@" itself, so replacement can splice cleanly.
@@ -96,6 +100,7 @@ export function MentionTextarea({ value, onChange, orgId, placeholder, className
           onKeyDown?.(e);
         }}
         placeholder={placeholder}
+        aria-label={ariaLabel}
         className={className}
       />
     </div>

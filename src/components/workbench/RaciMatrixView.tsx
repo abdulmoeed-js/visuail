@@ -18,9 +18,9 @@ const CODES: { code: RaciCode; label: string }[] = [
 ];
 
 const CODE_TONE: Record<RaciCode, string> = {
-  R: "border-confident/40 bg-confident/10 text-[color:var(--confident)]",
+  R: "border-confident/40 bg-confident/10 text-confident-ink",
   A: "border-primary/40 bg-primary/10 text-primary",
-  C: "border-unresolved bg-unresolved/15 text-[color:var(--unresolved-foreground)]",
+  C: "border-unresolved bg-unresolved/15 text-unresolved-ink",
   I: "border-muted-foreground/30 bg-muted text-muted-foreground",
 };
 
@@ -72,6 +72,8 @@ export function RaciMatrixView({
                   <RaciCell
                     code={step.raci?.[actor.id] as RaciCode | undefined}
                     onSet={(code) => setCell(step, actor.id, code)}
+                    actorName={actor.text}
+                    stepText={step.text}
                   />
                 </TableCell>
               ))}
@@ -83,12 +85,19 @@ export function RaciMatrixView({
   );
 }
 
-function RaciCell({ code, onSet }: { code: RaciCode | undefined; onSet: (code: RaciCode | null) => void }) {
+function RaciCell({ code, onSet, actorName, stepText }: {
+  code: RaciCode | undefined;
+  onSet: (code: RaciCode | null) => void;
+  actorName: string;
+  stepText: string;
+}) {
+  const codeLabel = code ? CODES.find((c) => c.code === code)?.label : undefined;
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
+          aria-label={`${actorName} on ${stepText}: ${code ? `${code}, ${codeLabel}` : "not set"}`}
           className={cn(
             "inline-flex size-7 items-center justify-center rounded-md border text-xs font-mono-tight font-semibold transition-colors hover:opacity-80",
             code ? CODE_TONE[code] : "border-dashed text-muted-foreground",

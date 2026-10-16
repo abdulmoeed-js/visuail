@@ -234,7 +234,7 @@ export function ActivityDiagramView({ model, editing }: Props) {
             <button onClick={closeActor} title="Cancel" aria-label="Cancel" className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><X className="size-4" /></button>
           </div>
         ) : (
-          <button ref={addLaneButton} onClick={() => setAddingActor(true)} data-no-pan className="h-8 px-2.5 rounded-md border bg-card/95 backdrop-blur shadow-sm text-xs flex items-center gap-1.5 hover:border-primary/60">
+          <button ref={addLaneButton} onClick={() => setAddingActor(true)} data-no-pan className="h-8 px-2.5 rounded-md border border-separator-strong bg-card text-xs flex items-center gap-1.5 hover:border-primary/60">
             <Plus className="size-3.5 text-primary" /> Add lane
           </button>
         )
@@ -295,7 +295,7 @@ export function ActivityDiagramView({ model, editing }: Props) {
             return (
               <g key={`${d.id}-${b.id}`}>
                 <path d={path} fill="none" stroke="var(--color-drift)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#ad-arrow)" />
-                <text x={from.x + 8} y={from.y + 14} fill="var(--color-drift)" fontSize="10" fontFamily="var(--font-mono)">{b.label}</text>
+                <text x={from.x + 8} y={from.y + 14} fill="var(--color-drift-ink)" fontSize="10" fontFamily="var(--font-mono)">{b.label}</text>
               </g>
             );
           });
@@ -348,7 +348,7 @@ function ActivityStepNode({
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <ConfidenceBadge item={step} />
-          <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
+          <button onClick={onDelete} data-no-pan aria-label={`Delete step ${step.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
@@ -377,11 +377,11 @@ function ActivityDecisionNode({
     return (
       <div
         data-node
-        className="group absolute rounded-sm bg-foreground shadow-sm flex items-center justify-center"
+        className="group absolute rounded-[3px] bg-foreground shadow-sm flex items-center justify-center"
         style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: 10 }}
         title="Fork / join"
       >
-        <button onClick={onDelete} data-no-pan className="absolute -top-4 right-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
+        <button onClick={onDelete} data-no-pan aria-label={`Delete fork / join ${d.id}`} className="absolute -top-4 right-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
           <X className="size-3" />
         </button>
         <IdChip id={d.id} />
@@ -397,7 +397,7 @@ function ActivityDecisionNode({
     >
       <div className="flex items-center justify-between gap-1">
         <IdChip id={d.id} />
-        <button onClick={onDelete} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
+        <button onClick={onDelete} data-no-pan aria-label={`Delete decision ${d.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
           <X className="size-3" />
         </button>
       </div>
@@ -411,14 +411,14 @@ function ActivityDecisionNode({
           </button>
         </PopoverTrigger>
         <PopoverContent data-no-pan className="w-64 p-2" align="start">
-          <div className="flex flex-col gap-1 text-[11px] font-mono-tight max-h-56 overflow-y-auto">
+          <div className="flex flex-col gap-1 px-2 py-1 text-[11px] font-mono-tight max-h-56 overflow-y-auto">
             {branches.map((b) => (
               <div key={b.id} className="flex items-center gap-1">
                 <InlineEdit value={b.label} onChange={(v) => onUpdateBranch(b.id, { label: v })} className="text-primary" />
                 <span className="text-muted-foreground">→</span>
                 <InlineEdit value={b.targetId} onChange={(v) => onUpdateBranch(b.id, { targetId: v })} />
                 {branches.length > 2 && (
-                  <button onClick={() => onRemoveBranch(b.id)} className="ml-auto text-muted-foreground hover:text-destructive transition">
+                  <button onClick={() => onRemoveBranch(b.id)} aria-label={`Remove branch ${b.label}`} className="ml-auto text-muted-foreground hover:text-destructive transition">
                     <X className="size-3" />
                   </button>
                 )}

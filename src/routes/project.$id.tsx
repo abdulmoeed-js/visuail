@@ -63,7 +63,7 @@ function ProjectPage() {
   // causing another refetch: a self-sustaining reload loop.
   if (session.loading && !project) {
     return (
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="min-h-screen text-foreground">
         <Nav />
         <main className="mx-auto max-w-3xl px-4 pt-24 flex justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -74,7 +74,7 @@ function ProjectPage() {
 
   if (!project) {
     return (
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="min-h-screen text-foreground">
         <Nav />
         <main className="mx-auto max-w-3xl px-4 pt-16 text-center">
           <h1 className="font-display text-3xl">Project not found</h1>
@@ -419,7 +419,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
   }, [panes, paneEditors, tabId, session.userId]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen text-foreground">
       <Nav />
       <main className="mx-auto max-w-[1400px] px-4 pt-6 pb-16">
         <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
@@ -452,7 +452,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
             )}
             <DriftNotifier
               drifted={driftInfo.drifted} driftedNames={driftInfo.driftedNames}
-              artifactTitle={project.name}
+              artifactTitle={project.name} hasSources={project.sources.length > 0}
             />
             <Button
               size="sm" variant="outline" onClick={recheckDrift}
@@ -499,7 +499,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-1.5 text-[11px]">
                   <Users2 className="size-3.5 text-primary" />
-                  <span className="font-mono-tight uppercase tracking-widest text-muted-foreground">Sources</span>
+                  <span className="eyebrow text-muted-foreground">Sources</span>
                   {project.sources.length === 0 ? (
                     <span className="text-muted-foreground italic">none — started from scratch</span>
                   ) : project.sources.map((s, i) => (
@@ -538,12 +538,14 @@ function ProjectShell({ project }: { project: StoredProject }) {
                 <div className="flex items-center gap-1 rounded-md border bg-muted/40 p-1">
                   <button
                     onClick={() => setBoardView("sidebar")}
+                    aria-pressed={boardView === "sidebar"}
                     className={cn("px-2.5 py-1 rounded text-xs font-medium transition", boardView === "sidebar" ? "bg-card shadow-sm" : "text-muted-foreground")}
                   >
                     List
                   </button>
                   <button
                     onClick={() => setBoardView("board")}
+                    aria-pressed={boardView === "board"}
                     className={cn("px-2.5 py-1 rounded text-xs font-medium transition", boardView === "board" ? "bg-card shadow-sm" : "text-muted-foreground")}
                   >
                     Board
@@ -699,7 +701,7 @@ function ScheduledDriftBanner({ project, onRecheck, blockedReason }: { project: 
   return (
     <div className="mb-4 rounded-lg border border-drift/40 bg-drift/5 p-3 flex items-center justify-between gap-3">
       <div className="flex items-center gap-2 text-sm">
-        <AlertTriangle className="size-4 text-drift shrink-0" />
+        <AlertTriangle className="size-4 text-drift-ink shrink-0" />
         <span>
           Automated scan found <strong>{itemCount} change{itemCount === 1 ? "" : "s"}</strong> in the source
           {alerts.length > 1 ? ` (+${alerts.length - 1} earlier scan${alerts.length - 1 === 1 ? "" : "s"})` : ""}.
@@ -791,12 +793,14 @@ function VersionHistoryDialog({ project, blockedReason }: { project: StoredProje
         <div className="flex gap-1 rounded-md border bg-muted/40 p-0.5 w-fit">
           <button
             onClick={() => setTab("versions")}
+            aria-pressed={tab === "versions"}
             className={cn("px-2.5 py-1 rounded text-xs font-medium transition", tab === "versions" ? "bg-card shadow-sm" : "text-muted-foreground")}
           >
             Versions
           </button>
           <button
             onClick={() => setTab("activity")}
+            aria-pressed={tab === "activity"}
             className={cn("px-2.5 py-1 rounded text-xs font-medium transition", tab === "activity" ? "bg-card shadow-sm" : "text-muted-foreground")}
           >
             Activity
@@ -816,7 +820,7 @@ function VersionHistoryDialog({ project, blockedReason }: { project: StoredProje
                     <div className="text-sm font-medium flex items-center gap-1.5">
                       <Clock className="size-3.5 text-muted-foreground shrink-0" />
                       {TRIGGER_LABEL[s.trigger]}
-                      {i === 0 && <span className="text-[10px] font-mono-tight uppercase text-muted-foreground">latest</span>}
+                      {i === 0 && <span className="eyebrow text-muted-foreground">latest</span>}
                     </div>
                     <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
                       {fmtVersionTime(s.createdAt)}{s.createdByEmail ? ` · ${s.createdByEmail}` : ""}
@@ -953,12 +957,12 @@ function AddSourceDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="rounded-lg border border-drift/30 bg-drift/[0.06] p-2.5 text-[11px] flex items-start gap-2">
-          <AlertTriangle className="size-3.5 text-drift shrink-0 mt-0.5" />
+          <AlertTriangle className="size-3.5 text-drift-ink shrink-0 mt-0.5" />
           <span className="text-muted-foreground">
             Adding a source regenerates the canvases from all sources. Manual edits to the current canvas will be replaced.
           </span>
         </div>
-        <div className="max-h-[50vh] overflow-y-auto pr-1">
+        <div className="max-h-[50vh] overflow-y-auto p-1">
           <SourceIntake sources={sources} onChange={setSources} />
         </div>
         <div className="flex items-center justify-between border-t pt-3">

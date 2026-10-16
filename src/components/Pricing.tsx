@@ -105,7 +105,7 @@ export function Pricing() {
     <section id="pricing" className="border-t">
       <div className="mx-auto max-w-[1200px] px-4 py-24 md:py-32">
         <div className="max-w-2xl mb-16">
-          <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">Pricing</div>
+          <div className="eyebrow text-primary">Pricing</div>
           <h2 className="font-display text-4xl md:text-5xl mt-2 leading-[1.05]">Straightforward pricing for real BA work.</h2>
           <p className="text-muted-foreground mt-4 text-lg">
             Every diagram type is free. Knowing when they drift — and tracing every story back to its source — is what you pay for.
@@ -121,7 +121,7 @@ export function Pricing() {
               )}
             >
               {t.highlight && (
-                <span className="text-[10px] font-mono-tight uppercase tracking-widest text-primary mb-3">
+                <span className="eyebrow text-primary mb-3">
                   Recommended
                 </span>
               )}
@@ -145,13 +145,9 @@ export function Pricing() {
                 className={cn(
                   "mt-8 h-11 rounded-md font-medium text-sm transition",
                   t.highlight
-                    ? "text-primary-foreground shadow-[0_8px_24px_-8px_color-mix(in_oklab,var(--primary)_60%,transparent)] hover:shadow-[0_12px_32px_-8px_color-mix(in_oklab,var(--primary)_70%,transparent)] hover:-translate-y-px"
+                    ? "bg-primary text-primary-foreground font-semibold hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] active:bg-[color-mix(in_oklab,var(--primary)_80%,black)]"
                     : "border bg-transparent hover:bg-muted hover:border-primary/40",
                 )}
-                style={t.highlight ? {
-                  background:
-                    "linear-gradient(135deg, var(--primary), color-mix(in oklab, var(--primary) 70%, var(--verified)))",
-                } : undefined}
               >
                 {t.cta}
               </button>

@@ -129,6 +129,9 @@ function SourceCard({
           <label className={cn(
             "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground",
             "hover:border-primary hover:bg-primary/5 transition",
+            // The file input is visually hidden but still takes keyboard
+            // focus; draw the focus ring on the drop zone around it.
+            "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring",
             source.status === "parsing" && "opacity-70 pointer-events-none",
           )}>
             {source.status === "parsing"
@@ -138,12 +141,12 @@ function SourceCard({
                 : <><Upload className="size-4" /> Drop a .pdf or .docx, or click to choose</>}
             <input
               type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              className="hidden"
+              className="sr-only"
               onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }}
             />
           </label>
           {source.status === "error" && (
-            <div className="text-[11px] text-drift">{source.error}</div>
+            <div className="text-[11px] text-drift-ink">{source.error}</div>
           )}
           {source.status === "ready" && source.text && (
             <details className="rounded-md border bg-muted/40 p-2 text-[11px]">

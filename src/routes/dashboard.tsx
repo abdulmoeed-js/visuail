@@ -62,7 +62,7 @@ function ActivationBanner({ state, onDismiss }: { state: ActivationState; onDism
     >
       <div className="flex items-center gap-2 text-sm">
         {state === "activating" && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-        {state === "done" && <CheckCircle2 className="size-4 text-confident" />}
+        {state === "done" && <CheckCircle2 className="size-4 text-confident-ink" />}
         {state === "timeout" && <Info className="size-4 text-muted-foreground" />}
         <span>
           {state === "activating" && "Payment received — activating your plan. This usually takes a few seconds."}
@@ -120,11 +120,11 @@ function NeedsReviewStrip({ projects }: { projects: StoredProject[] }) {
         style={{ background: "radial-gradient(circle, color-mix(in oklab, var(--drift) 35%, transparent), transparent 70%)" }}
       />
       <div className="relative flex items-center gap-3 mb-3.5">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-drift/15 text-drift">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-drift/15 text-drift-ink">
           <AlertTriangle className="size-4" />
         </div>
         <div className="min-w-0">
-          <div className="text-[10px] font-mono-tight uppercase tracking-widest text-drift">Needs review</div>
+          <div className="eyebrow text-drift-ink">Needs review</div>
           <h2 className="font-display text-lg leading-tight truncate">
             {entries.length} project{entries.length === 1 ? "" : "s"} drifted from source
           </h2>
@@ -139,13 +139,13 @@ function NeedsReviewStrip({ projects }: { projects: StoredProject[] }) {
               key={entry.projectId}
               to="/project/$id"
               params={{ id: entry.projectId }}
-              className="group inline-flex items-center gap-2 rounded-xl border border-drift/30 bg-card/90 px-3 py-2 text-sm transition hover:border-drift hover:shadow-sm"
+              className="group inline-flex items-center gap-2 rounded-xl border border-drift/30 bg-card/90 px-3 py-2 text-sm transition hover:border-drift hover:bg-drift/5"
             >
               <span className="font-medium truncate max-w-[180px]">{project?.name ?? "Project"}</span>
-              <span className="text-[11px] font-mono-tight text-drift shrink-0">
+              <span className="text-[11px] font-mono-tight text-drift-ink shrink-0">
                 {itemCount} change{itemCount === 1 ? "" : "s"} · {fmtRel(entry.detectedAt)}
               </span>
-              <ArrowUpRight className="size-3.5 text-muted-foreground shrink-0 transition group-hover:text-drift group-hover:translate-x-0.5" />
+              <ArrowUpRight className="size-3.5 text-muted-foreground shrink-0 transition group-hover:text-drift" />
             </Link>
           );
         })}
@@ -217,7 +217,7 @@ function DashboardPage() {
 
   if (s.loading) {
     return (
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="min-h-screen text-foreground">
         <Nav />
         <main className="mx-auto max-w-[1200px] px-4 pt-24 flex justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -228,7 +228,7 @@ function DashboardPage() {
 
   if (!s.signedIn) {
     return (
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="min-h-screen text-foreground">
         <Nav />
         <main className="mx-auto max-w-[1200px] px-4 pt-24 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border bg-card mb-4">
@@ -248,13 +248,13 @@ function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen text-foreground">
       <Nav />
       <main className="mx-auto max-w-[1200px] px-4 pt-8 pb-24">
         {/* ── Header ─────────────────────────────────────────────── */}
         <header className="flex flex-wrap items-end justify-between gap-4 mb-8">
           <div className="min-w-0">
-            <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">
+            <div className="eyebrow text-primary">
               Dashboard
             </div>
             <h1 className="font-display text-3xl md:text-4xl mt-1 truncate">Your workspace</h1>
@@ -265,7 +265,7 @@ function DashboardPage() {
           <div className="flex items-center gap-2 shrink-0">
             {s.tier === "free" && (
               <div className="hidden md:flex flex-col items-end gap-1 mr-1">
-                <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+                <div className="eyebrow text-muted-foreground">
                   Free quota
                 </div>
                 <div className="flex items-center gap-2">
@@ -370,7 +370,7 @@ function Section({
         <div className="min-w-0">
           <div
             className={cn(
-              "text-[10px] font-mono-tight uppercase tracking-widest",
+              "eyebrow",
               tone === "drift" ? "text-drift" : "text-primary",
             )}
           >
@@ -397,7 +397,7 @@ function ContinueCard({ project }: { project: StoredProject }) {
     <Link
       to="/project/$id"
       params={{ id: project.id }}
-      className="group relative block overflow-hidden rounded-2xl border bg-card p-5 transition hover:border-primary/50 hover:shadow-lg"
+      className="group relative block overflow-hidden rounded-2xl border bg-card p-5 transition hover:border-primary/50 hover:bg-muted/30"
     >
       <div
         className="pointer-events-none absolute inset-0 opacity-60"
@@ -408,7 +408,7 @@ function ContinueCard({ project }: { project: StoredProject }) {
       />
       <div className="relative flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary mb-1.5">
+          <div className="eyebrow text-primary mb-1.5">
             Pick up
           </div>
           <h3 className="font-display text-2xl leading-tight truncate">{project.name}</h3>
@@ -474,22 +474,30 @@ function ProjectCard({ project }: { project: StoredProject }) {
   };
 
   return (
-    <div
-      className="group relative rounded-xl border bg-card p-4 flex flex-col gap-3 transition hover:border-primary/50 hover:shadow-sm cursor-pointer"
-      onClick={() => navigate({ to: "/project/$id", params: { id: project.id } })}
-    >
+    <div className="group relative rounded-xl border bg-card p-4 flex flex-col gap-3 transition hover:border-primary/50">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <h3 className="font-display text-lg leading-tight truncate">{project.name}</h3>
+          {/* The title link stretches over the whole card (::after), so the card
+              opens on click and is one tab stop; its focus ring is drawn
+              around the card because the truncated title would clip it. */}
+          <h3 className="font-display text-lg leading-tight truncate">
+            <Link
+              to="/project/$id"
+              params={{ id: project.id }}
+              className="after:absolute after:-inset-px after:rounded-xl focus-visible:outline-hidden focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-ring focus-visible:after:shadow-[0_0_0_2px_var(--focus-halo)]"
+            >
+              {project.name}
+            </Link>
+          </h3>
           {project.description && (
             <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{project.description}</p>
           )}
         </div>
-        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-10 shrink-0" onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="grid size-7 place-items-center rounded-md border bg-background/60 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-muted transition focus:opacity-100"
+                className="grid size-7 place-items-center rounded-md border bg-background/60 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-muted transition focus:opacity-100 data-[state=open]:opacity-100"
                 aria-label="Project actions"
               >
                 <MoreHorizontal className="size-4" />
@@ -558,7 +566,7 @@ function PlanCard({ tier }: { tier: Tier }) {
   const label = tier === "pro" ? "Pro" : "Team";
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary mb-1">
+      <div className="eyebrow text-primary mb-1">
         {label} plan
       </div>
       <h3 className="font-display text-lg leading-tight">All features unlocked.</h3>
@@ -621,7 +629,7 @@ function InboxCard({ projects }: { projects: StoredProject[] }) {
 
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-center gap-1.5 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-2">
+      <div className="flex items-center gap-1.5 eyebrow text-muted-foreground mb-2">
         <MessageSquare className="size-3" /> Inbox
       </div>
       <ul className="space-y-3">
@@ -646,7 +654,7 @@ function InboxCard({ projects }: { projects: StoredProject[] }) {
                   <span className="flex items-center gap-1.5 min-w-0">
                     <span className="font-medium text-foreground truncate">{c.authorEmail}</span>
                     {mentioned && (
-                      <span className="shrink-0 rounded-full bg-primary/15 text-primary px-1.5 py-0.5 text-[9px] font-mono-tight uppercase tracking-wide">
+                      <span className="shrink-0 rounded-sm bg-primary/15 text-primary px-1.5 py-0.5 text-[11px] leading-tight font-mono-tight">
                         @you
                       </span>
                     )}
@@ -671,7 +679,7 @@ function InboxCard({ projects }: { projects: StoredProject[] }) {
 function TipsCard({ onNew }: { onNew: () => void }) {
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-1">
+      <div className="eyebrow text-muted-foreground mb-1">
         Try next
       </div>
       <ul className="space-y-2 text-sm">
@@ -702,16 +710,21 @@ function TipsCard({ onNew }: { onNew: () => void }) {
 
 function TierPill({ tier, onUpgrade }: { tier: Tier; onUpgrade: () => void }) {
   const label = tier === "free" ? "Free" : tier === "pro" ? "Pro" : "Team";
+  const base = "inline-flex h-8 items-center rounded-md border px-3 text-[13px] font-medium";
+  // A paid plan only describes itself, so it is a label chip rather than a
+  // button that can take focus and do nothing.
+  if (tier !== "free") {
+    return (
+      <span className={cn(base, "bg-primary/10 border-primary/40 text-primary")} title={`Current plan: ${label}`}>
+        {label} plan
+      </span>
+    );
+  }
   return (
     <button
-      onClick={tier === "free" ? onUpgrade : undefined}
-      className={cn(
-        "h-8 rounded-full border px-3 text-[11px] font-mono-tight uppercase tracking-widest transition",
-        tier === "free"
-          ? "border-dashed border-primary/40 text-primary hover:bg-primary/5 cursor-pointer"
-          : "bg-primary/10 border-primary/40 text-primary cursor-default",
-      )}
-      title={tier === "free" ? "Upgrade" : `Current plan: ${label}`}
+      onClick={onUpgrade}
+      className={cn(base, "border-dashed border-primary/40 text-primary transition hover:bg-primary/5 cursor-pointer")}
+      title="Upgrade"
     >
       {label} plan
     </button>

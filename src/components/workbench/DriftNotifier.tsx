@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Bell, Slack, Mail, Check, AlertOctagon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,32 +9,42 @@ import { cn } from "@/lib/utils";
 type Channel = "slack" | "email";
 
 export function DriftNotifier({
-  drifted, driftedNames, artifactTitle,
+  drifted, driftedNames, artifactTitle, demo = false, hasSources = true,
 }: {
   drifted: boolean;
   driftedNames: string[];
   artifactTitle: string;
+  /** Landing demo: drift is simulated, so the popover opens by itself and
+   *  previews sending an alert. On a real project it only reports what the
+   *  last re-check found -- alerts are set up in Team settings. */
+  demo?: boolean;
+  /** Real projects only: without a source there is nothing to re-check. */
+  hasSources?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [channel, setChannel] = useState<Channel>("slack");
   const [sent, setSent] = useState<null | { channel: Channel; at: number }>(null);
   const prev = useRef(false);
+  const notifyLabelId = useId();
 
-  // Auto-open once when drift first appears
+  // Auto-open once when drift first appears (demo only: on a real project
+  // that would pop open on every visit to a project with drift)
   useEffect(() => {
-    if (drifted && !prev.current) {
+    if (demo && drifted && !prev.current) {
       setOpen(true);
       setSent(null);
     }
     if (!drifted) setSent(null);
     prev.current = drifted;
-  }, [drifted]);
+  }, [demo, drifted]);
 
   const count = drifted ? Math.max(driftedNames.length, 1) : 0;
   const summary =
     count === 0
-      ? "No drift detected."
-      : `Drift detected in ${artifactTitle} — ${count} item${count === 1 ? "" : "s"} unresolved`;
+      ? demo ? "No drift detected." : hasSources ? "Nothing flagged at the last re-check." : "No sources to check yet."
+      : demo
+      ? `Drift detected in ${artifactTitle} — ${count} item${count === 1 ? "" : "s"} unresolved`
+      : `${count} item${count === 1 ? "" : "s"} in ${artifactTitle} changed in your sources`;
 
   const send = () => setSent({ channel, at: Date.now() });
 
@@ -43,7 +53,9 @@ export function DriftNotifier({
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={`Notifications${count ? ` (${count} unread)` : ""}`}
+          aria-label={demo
+            ? `Notifications${count ? ` (${count} unread)` : ""}`
+            : `Drift status: ${count ? `${count} item${count === 1 ? "" : "s"} changed` : "nothing flagged"}`}
           className={cn(
             "relative inline-flex h-8 w-8 items-center justify-center rounded-md border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground",
             drifted && "border-drift/40 text-drift animate-drift",
@@ -65,14 +77,14 @@ export function DriftNotifier({
           <div className="flex items-start gap-2">
             <AlertOctagon className={cn("size-4 mt-0.5 shrink-0", drifted ? "text-drift" : "text-muted-foreground")} />
             <div className="min-w-0">
-              <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+              <div className="eyebrow text-muted-foreground">
                 Drift alert
               </div>
               <div className="text-sm font-semibold leading-snug">{summary}</div>
             </div>
           </div>
           {drifted && driftedNames.length > 0 && (
-            <ul className="mt-2 space-y-1 pl-6 text-[12px] text-drift/90 list-disc marker:text-drift/60">
+            <ul className="mt-2 space-y-1 pl-6 text-[12px] text-drift-ink list-disc marker:text-drift/60">
               {driftedNames.slice(0, 5).map((n) => (
                 <li key={n} className="truncate">{n}</li>
               ))}
@@ -87,11 +99,15 @@ export function DriftNotifier({
 
         {!drifted ? (
           <div className="p-3 text-xs text-muted-foreground">
-            No drift detected yet. Click <em>Simulate source change</em> to preview an alert.
+            {demo
+              ? <>No drift detected yet. Click <em>Simulate source change</em> to preview an alert.</>
+              : hasSources
+              ? <>Use <em>Re-check for drift</em> to compare this project with its sources.</>
+              : <>Add a source to check this project against it.</>}
           </div>
-        ) : sent ? (
+        ) : !demo ? null : sent ? (
           <div className="p-3">
-            <div className="flex items-start gap-2 rounded-md border border-confident/40 bg-confident/10 p-2.5 text-[color:var(--confident)]">
+            <div className="flex items-start gap-2 rounded-md border border-confident/40 bg-confident/10 p-2.5 text-confident-ink">
               <Check className="size-4 mt-0.5 shrink-0" />
               <div className="text-xs leading-snug">
                 <div className="font-semibold">
@@ -99,7 +115,7 @@ export function DriftNotifier({
                     ? "Sent to #product-eng via Slack"
                     : "Emailed alice@company.com"}
                 </div>
-                <div className="text-[11px] mt-0.5 opacity-80">
+                <div className="text-[11px] mt-0.5">
                   Preview only — nothing sent.
                 </div>
               </div>
@@ -115,10 +131,10 @@ export function DriftNotifier({
         ) : (
           <div className="p-3 space-y-3">
             <div>
-              <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-1.5">
+              <div id={notifyLabelId} className="text-sm font-medium text-muted-foreground mb-1.5">
                 Notify via
               </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div role="group" aria-labelledby={notifyLabelId} className="grid grid-cols-2 gap-1.5">
                 <ChannelBtn
                   active={channel === "slack"} onClick={() => setChannel("slack")}
                   icon={<Slack className="size-3.5" />} label="Slack"
@@ -154,6 +170,7 @@ function ChannelBtn({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
         "flex flex-col items-start gap-0.5 rounded-md border px-2.5 py-2 text-left transition",
         active

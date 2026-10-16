@@ -100,7 +100,7 @@ export function Workbench() {
       <section id="workbench" className="mx-auto max-w-[1400px] px-4 pb-24">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-[10px] font-mono-tight uppercase tracking-widest text-primary">
+            <div className="flex items-center gap-2 eyebrow text-primary">
               <FolderOpen className="size-3" /> Project · {project.sources.length} source{project.sources.length === 1 ? "" : "s"}
             </div>
             <h2 className="font-display text-3xl md:text-4xl mt-1 truncate max-w-[820px]">
@@ -124,12 +124,12 @@ export function Workbench() {
     <section id="workbench" className="mx-auto max-w-[1400px] px-4 pb-24">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">
+          <div className="eyebrow text-primary">
             No signup to start
           </div>
-          <h2 className="font-display text-3xl md:text-4xl mt-1">Try it on a real transcript.</h2>
+          <h2 className="font-display text-3xl md:text-4xl mt-1">See it on a sample call.</h2>
           <p className="text-muted-foreground text-sm mt-1 max-w-xl">
-            Upload real files, or paste a transcript.
+            Edit it and press Extract. To use your own transcript, start a free project.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -144,11 +144,12 @@ export function Workbench() {
             <button
               key={sm.id}
               onClick={() => loadSample(sm)}
+              aria-pressed={activeSample.id === sm.id}
               className={cn(
-                "rounded-full border px-3 py-1.5 text-xs transition",
+                "rounded-md border px-3 py-1.5 text-[13px] font-medium transition-colors",
                 activeSample.id === sm.id
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-card hover:bg-muted",
+                  ? "bg-primary/10 text-primary border-primary"
+                  : "bg-card border-separator-strong hover:bg-fill-4",
               )}
               title={sm.blurb}
             >
@@ -179,7 +180,8 @@ export function Workbench() {
           <Textarea
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
-            placeholder="Paste your discovery call transcript here…"
+            aria-label="Sample call transcript"
+            placeholder="Pick a sample call above to load its transcript."
             className="min-h-[380px] font-mono-tight text-xs leading-relaxed resize-y"
           />
           <div className="flex items-center gap-2">
@@ -199,12 +201,20 @@ export function Workbench() {
               <RotateCcw className="size-4" />
             </Button>
           </div>
-          <div className="rounded-md bg-muted/60 p-2.5 text-[11px] text-muted-foreground leading-relaxed">
+          <div className="rounded-md bg-muted/60 p-2.5 text-xs text-muted-foreground leading-relaxed">
             <div className="flex items-start gap-1.5">
               <Info className="size-3.5 mt-0.5 shrink-0" />
-              <span>
-                Nothing you paste or upload leaves your browser.
-              </span>
+              {/* The preview always draws the selected sample: pasted text is
+                  only used to refuse very short input and to flag sample quotes
+                  it doesn't contain. Say so the moment the text stops matching. */}
+              {transcript.trim() && transcript.trim() !== activeSample.transcript.trim() ? (
+                <span>
+                  This preview always draws the sample call, not your text. To use your own transcript,{" "}
+                  <Link to="/new" className="text-primary underline underline-offset-4">start a free project</Link>.
+                </span>
+              ) : (
+                <span>Nothing you paste here leaves your browser.</span>
+              )}
             </div>
           </div>
         </div>
@@ -228,14 +238,14 @@ export function Workbench() {
 function EmptyState({ onClick }: { onClick: () => void }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-16 gap-4 bp-grid-fine rounded-xl m-1">
-      <div className="rounded-full border bg-card px-3 py-1 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+      <div className="rounded-md border bg-card px-3 py-1 eyebrow text-muted-foreground">
         Artifact panel
       </div>
       <h3 className="font-display text-2xl max-w-md">
         Your typed artifact will render here — not a shape library, a model.
       </h3>
       <p className="text-sm text-muted-foreground max-w-sm">
-        Pick a sample and press <strong>Extract</strong>, or click <strong>New project</strong> to upload real PDF/DOCX files. Nothing leaves your browser.
+        Pick a sample call and press <strong>Extract</strong>, or click <strong>New project</strong> to upload your own PDF or Word files.
       </p>
       <Button onClick={onClick} className="mt-2"><Sparkles className="size-4" /> Extract artifact</Button>
     </div>
@@ -267,11 +277,11 @@ function ExtractingState() {
 function RefusedState({ reason, onRetry }: { reason: string; onRetry: () => void }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-dashed border-unresolved bg-unresolved/10 text-[color:var(--unresolved-foreground)]">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-dashed border-unresolved bg-unresolved/10 text-unresolved-ink">
         <ShieldCheck className="size-5" />
       </div>
       <div className="max-w-md space-y-1.5">
-        <div className="text-[10px] font-mono-tight uppercase tracking-widest text-unresolved">
+        <div className="eyebrow text-unresolved">
           Refused — not enough structure to draw safely
         </div>
         <h3 className="font-display text-xl">visu didn't extract this one.</h3>
@@ -346,7 +356,9 @@ export function ArtifactView({
 }: {
   editing: ArtifactEditing;
   stats: ReturnType<typeof stats>;
-  onPublish: (action: string) => void;
+  /** Share and export actions. Omitted on the public share page, where the
+   *  reader has nothing to publish. */
+  onPublish?: (action: string) => void;
   canvasRef?: React.RefObject<HTMLDivElement>;
   extraHeaderRight?: ReactNode;
   /** Only set on the real project page -- omitted in the marketing demo, which has no comments backend. */
@@ -362,8 +374,11 @@ export function ArtifactView({
   initialTab?: ArtifactTab;
   /** Marketing-demo only. A first-time visitor sees a nice diagram and reads
    *  "diagram tool" -- the whole differentiator (drift) sits behind a button
-   *  they have no reason to click. This surfaces a one-time nudge toward it.
-   *  Never set on the real project page or the share page. */
+   *  they have no reason to click. This surfaces a one-time nudge toward it,
+   *  and is the only place the simulated source change exists: on a real
+   *  project it would put back the copy loaded with the page, wipe the drift
+   *  flags from the last real re-check and autosave that. Never set on the
+   *  real project page or the share page. */
   demoHints?: boolean;
   /** Project page only: someone else is editing this artifact right now, so
    *  this view is read-only until the person takes over. */
@@ -539,8 +554,8 @@ export function ArtifactView({
       {/* Header */}
       <div className="border-b p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
-            {model.kind === "process" ? "PROCESS MAP" : "BUSINESS MODEL CANVAS"}
+          <div className="flex items-center gap-2 eyebrow text-muted-foreground">
+            {model.kind === "process" ? "Process map" : "Business model canvas"}
           </div>
           <h3 className="font-display text-xl truncate">{model.title}</h3>
         </div>
@@ -548,34 +563,37 @@ export function ArtifactView({
           <MetricBlock label="Items" value={String(st.count)} />
           <MetricBlock label="Unresolved" value={String(st.unresolved)} tone={st.unresolved ? "warn" : undefined} />
           <div className="min-w-[140px]">
-            <div className="flex items-center justify-between text-[10px] font-mono-tight text-muted-foreground">
-              <span>CONFIDENCE</span>
+            <div className="flex items-center justify-between text-[11px] font-mono-tight text-muted-foreground">
+              <span className="eyebrow">Confidence</span>
               <span className={cn("font-semibold", avgTone)}>{avgPct}%</span>
             </div>
             <Progress value={avgPct} className="h-1.5 mt-1" />
           </div>
-          <DriftNotifier
-            drifted={drifted}
-            driftedNames={driftedNames(model, drifted)}
-            artifactTitle={model.title}
-          />
+          {demoHints && (
+            <DriftNotifier
+              demo
+              drifted={drifted}
+              driftedNames={driftedNames(model, drifted)}
+              artifactTitle={model.title}
+            />
+          )}
           {extraHeaderRight}
         </div>
       </div>
 
-      {drifted && (
-        <div className="flex items-start gap-3 border-b bg-drift/10 px-4 py-3 text-drift">
+      {demoHints && drifted && (
+        <div className="flex items-start gap-3 border-b bg-drift/10 px-4 py-3 text-drift-ink">
           <AlertOctagon className="size-5 mt-0.5 shrink-0" />
           <div className="flex-1 text-sm">
             <div className="font-semibold">Source of truth drifted — {drift.label}.</div>
-            <p className="text-[13px] mt-0.5 text-drift/90">
+            <p className="text-[13px] mt-0.5 text-drift-ink">
               {model.kind === "process"
                 ? "A follow-up call revised the KYC path: high-risk customers now bypass Ops entirely and route to a new dedicated onboarding team."
                 : "A follow-up call revealed the Revenue Streams block is stale."}
             </p>
           </div>
           <Button size="sm" variant="outline"
-            className="bg-card text-foreground border-drift/40 hover:bg-card"
+            className="bg-card text-foreground border-drift/40 hover:border-drift/60 hover:bg-card"
             onClick={editing.onClearDrift}>
             Reconcile
           </Button>
@@ -590,7 +608,7 @@ export function ArtifactView({
            *  scroll affordance, making Items/BRD/Traced backlog unreachable by click. */}
           <div
             role="tablist" aria-label="Artifact views"
-            className="flex h-11 min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:thin]"
+            className="flex h-11 min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 scroll-px-1 [scrollbar-width:thin]"
           >
             {tabs.map((item) => {
               const active = tab === item.value;
@@ -601,7 +619,7 @@ export function ArtifactView({
                   type="button" role="tab" aria-selected={active}
                   data-state={active ? "active" : "inactive"}
                   className={cn(
-                    "inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
                     active && "bg-muted text-foreground shadow-sm",
                   )}
                   onClick={() => setTab(item.value)}
@@ -620,7 +638,7 @@ export function ArtifactView({
              *  to step to. */}
             <Button
               size="icon" variant="ghost"
-              className="relative h-8 w-8 before:absolute before:-inset-x-[3px] before:-inset-y-[6px] before:content-[''] aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:cursor-default"
+              className="relative h-8 w-8 before:absolute before:-inset-x-[3px] before:-inset-y-[6px] before:content-[''] aria-disabled:[&_svg]:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:cursor-default"
               onClick={() => runHistory("undo")} aria-disabled={!editing.canUndo}
               title="Undo last edit (Ctrl/Cmd+Z). Moving or resizing shapes is not included."
               aria-label="Undo last edit"
@@ -629,7 +647,7 @@ export function ArtifactView({
             </Button>
             <Button
               size="icon" variant="ghost"
-              className="relative h-8 w-8 before:absolute before:-inset-x-[3px] before:-inset-y-[6px] before:content-[''] aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:cursor-default"
+              className="relative h-8 w-8 before:absolute before:-inset-x-[3px] before:-inset-y-[6px] before:content-[''] aria-disabled:[&_svg]:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:cursor-default"
               onClick={() => runHistory("redo")} aria-disabled={!editing.canRedo}
               title="Redo (Ctrl/Cmd+Shift+Z)" aria-label="Redo"
             >
@@ -786,7 +804,9 @@ export function ArtifactView({
         />
       )}
 
+      {(demoHints || onPublish) && (
       <div className="border-t bg-muted/40 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+        {demoHints && (
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant={drifted ? "secondary" : showDriftHint ? "default" : "outline"}
             onClick={drifted ? editing.onClearDrift : editing.onSimulateDrift}>
@@ -807,8 +827,10 @@ export function ArtifactView({
             </span>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-mono-tight text-muted-foreground mr-1">PUBLISH</span>
+        )}
+        {onPublish && (
+        <div className="flex flex-wrap items-center gap-1.5 ml-auto">
+          <span className="eyebrow text-muted-foreground mr-1">Publish</span>
           <Button size="sm" variant="outline" onClick={() => onPublish("Share link")}>
             <Share2 className="size-3.5" /> Share link
           </Button>
@@ -816,7 +838,9 @@ export function ArtifactView({
             <FileDown className="size-3.5" /> Export
           </Button>
         </div>
+        )}
       </div>
+      )}
     </div>
     </CanvasViewStoreProvider>
   );
@@ -842,7 +866,7 @@ function RecoverableCanvas({ onRemoveLastAdded, children }: { onRemoveLastAdded:
 function MetricBlock({ label, value, tone }: { label: string; value: string; tone?: "warn" }) {
   return (
     <div>
-      <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="eyebrow text-muted-foreground">{label}</div>
       <div className={cn("text-lg font-display leading-none mt-0.5", tone === "warn" && "text-unresolved")}>
         {value}
       </div>

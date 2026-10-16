@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ export function SignupWallModal({ open, onOpenChange, action }: Props) {
   const [done, setDone] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const emailId = useId();
 
   const reset = () => { setDone(false); setSending(false); setError(null); setEmail(""); };
 
@@ -28,7 +29,7 @@ export function SignupWallModal({ open, onOpenChange, action }: Props) {
         {!done ? (
           <>
             <DialogHeader>
-              <div className="inline-flex items-center gap-1.5 rounded-full border bg-muted px-2 py-0.5 text-[10px] font-mono-tight text-muted-foreground w-fit">
+              <div className="inline-flex items-center gap-1.5 rounded-md border bg-muted px-2 py-0.5 text-[10px] font-mono-tight text-muted-foreground w-fit">
                 <Sparkles className="size-3" /> One step to {action.toLowerCase()}
               </div>
               <DialogTitle className="font-display text-2xl leading-tight mt-2">
@@ -56,11 +57,15 @@ export function SignupWallModal({ open, onOpenChange, action }: Props) {
                 }
               }}
             >
-              <Input
-                type="email" required autoFocus placeholder="you@company.com"
-                value={email} onChange={(e) => setEmail(e.target.value)}
-                className="h-11"
-              />
+              <div className="space-y-1.5">
+                <label htmlFor={emailId} className="text-sm font-medium">Work email</label>
+                <Input
+                  id={emailId}
+                  type="email" required autoFocus autoComplete="email" placeholder="you@company.com"
+                  value={email} onChange={(e) => setEmail(e.target.value)}
+                  className="h-11"
+                />
+              </div>
               {error && <p className="text-xs text-drift">{error}</p>}
               <Button type="submit" className="w-full h-11" disabled={sending}>
                 {sending ? <><Loader2 className="size-4 animate-spin" /> Sending…</> : `Continue → ${action}`}
@@ -72,7 +77,7 @@ export function SignupWallModal({ open, onOpenChange, action }: Props) {
           </>
         ) : (
           <div className="flex flex-col items-center text-center gap-3 py-6">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-confident/15 text-confident">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-confident/15 text-confident-ink">
               <Mail className="size-6" />
             </div>
             <DialogTitle className="font-display text-2xl">Check your email.</DialogTitle>

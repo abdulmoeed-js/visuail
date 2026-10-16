@@ -27,14 +27,14 @@ function LandingPage() {
   // itself, so there's no flash of landing-page content for them.
   if (session.loading || session.signedIn) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen text-foreground">
       <Nav />
       <main>
         <Hero />

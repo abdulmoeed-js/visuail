@@ -83,7 +83,7 @@ export function TemplateGallery({ onPick }: { onPick: (sample: Sample) => void }
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <button
-          className="rounded-full border border-dashed border-primary/40 bg-primary/5 text-primary px-3 py-1.5 text-xs transition hover:bg-primary/10 inline-flex items-center gap-1.5"
+          className="rounded-md border border-dashed border-primary/40 bg-primary/5 text-primary px-3 py-1.5 text-xs transition hover:bg-primary/10 inline-flex items-center gap-1.5"
           title="Browse templates by job-to-be-done"
         >
           <LibraryBig className="size-3.5" />
@@ -92,7 +92,7 @@ export function TemplateGallery({ onPick }: { onPick: (sample: Sample) => void }
       </DialogTrigger>
       <DialogContent className="max-w-3xl p-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-3 border-b">
-          <div className="text-[10px] font-mono-tight uppercase tracking-widest text-primary">
+          <div className="eyebrow text-primary">
             Template gallery
           </div>
           <DialogTitle className="font-display text-2xl">Start from a job, not a shape.</DialogTitle>
@@ -106,13 +106,13 @@ export function TemplateGallery({ onPick }: { onPick: (sample: Sample) => void }
               key={t.id}
               onClick={() => handlePick(t)}
               className={cn(
-                "group text-left rounded-lg border bg-card p-4 transition hover:border-primary/50 hover:shadow-sm flex flex-col gap-2",
+                "group text-left rounded-lg border bg-card p-4 transition hover:border-primary/50 hover:bg-muted/40 flex flex-col gap-2",
                 t.accent === "drift" && "border-drift/30 bg-drift/[0.03]"
               )}
             >
               <div className="flex items-start justify-between gap-3">
                 <ThumbIcon kind={t.kind} accent={t.accent} />
-                <span className="text-[10px] font-mono-tight uppercase tracking-wider text-muted-foreground">
+                <span className="eyebrow text-muted-foreground">
                   {t.category}
                 </span>
               </div>
@@ -122,7 +122,7 @@ export function TemplateGallery({ onPick }: { onPick: (sample: Sample) => void }
                 <span className="font-mono-tight text-muted-foreground">
                   {t.kind === "process" ? "Process map" : "Business Model Canvas"}
                 </span>
-                <span className="inline-flex items-center gap-1 text-primary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition">
+                <span className="inline-flex items-center gap-1 text-primary opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition">
                   Use template <ArrowRight className="size-3" />
                 </span>
               </div>

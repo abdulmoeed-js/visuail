@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Wand2, Check, X, AlertTriangle } from "lucide-react";
+import { PencilLine, Check, X, AlertTriangle } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -19,7 +19,7 @@ interface Props {
 }
 
 /**
- * Small wand affordance rendered next to node controls. Opens a compact
+ * Small pencil affordance rendered next to node controls. Opens a compact
  * inline prompt, produces a mocked-deterministic Proposal, and shows a
  * before/after diff before the user commits to writing anything to the IR.
  */
@@ -63,10 +63,10 @@ export function RefineControl({ node, model, onApply, className }: Props) {
             open && "opacity-100 text-primary",
             className,
           )}
-          title="Refine with AI"
-          aria-label="Refine with AI"
+          title="Refine"
+          aria-label={`Refine ${node.id}`}
         >
-          <Wand2 className="size-3" />
+          <PencilLine className="size-3" />
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -78,9 +78,9 @@ export function RefineControl({ node, model, onApply, className }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-3 py-2 border-b bg-muted/40 flex items-center gap-2">
-          <Wand2 className="size-3.5 text-primary" />
-          <div className="text-[11px] font-mono-tight uppercase tracking-widest text-muted-foreground">
-            Refine {node.id} with AI
+          <PencilLine className="size-3.5 text-primary" />
+          <div className="eyebrow text-muted-foreground">
+            Refine {node.id}
           </div>
         </div>
 
@@ -96,15 +96,13 @@ export function RefineControl({ node, model, onApply, className }: Props) {
                   if (prompt.trim()) generate();
                 }
               }}
+              aria-label={`Describe the change to ${node.id}`}
               placeholder="Describe the change… e.g. split into two steps, add exception for missing signature, require approval from Legal"
-              className="w-full min-h-[72px] resize-y rounded-md border bg-background px-2.5 py-1.5 text-xs leading-snug focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="w-full min-h-[72px] resize-y rounded-md border bg-background px-2.5 py-1.5 text-xs leading-snug"
             />
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-[10px] text-muted-foreground leading-tight">
-                Deterministic — not a guess
-              </div>
+            <div className="flex items-center justify-end gap-2">
               <Button size="sm" className="h-7 px-2.5" disabled={!prompt.trim()} onClick={generate}>
-                <Wand2 className="size-3" /> Propose
+                <PencilLine className="size-3" /> Propose
               </Button>
             </div>
           </div>
@@ -115,7 +113,7 @@ export function RefineControl({ node, model, onApply, className }: Props) {
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs font-semibold">{proposalHeadline(proposal)}</div>
               {proposal.kind === "rewrite" && proposal.lowConfidence && (
-                <span className="inline-flex items-center gap-1 rounded-full border border-unresolved/60 bg-unresolved/10 px-1.5 py-0.5 text-[9px] font-mono-tight text-unresolved">
+                <span className="inline-flex items-center gap-1 rounded-sm border border-unresolved/60 bg-unresolved/10 px-1.5 py-0.5 text-[9px] font-mono-tight text-unresolved-ink">
                   <AlertTriangle className="size-2.5" /> low confidence
                 </span>
               )}
@@ -151,7 +149,7 @@ export function RefineControl({ node, model, onApply, className }: Props) {
 
 function Removed({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-drift/50 bg-drift/5 px-2 py-1.5 text-[11px] leading-snug text-drift line-through decoration-drift/60">
+    <div className="rounded-md border border-drift/50 bg-drift/5 px-2 py-1.5 text-[11px] leading-snug text-drift-ink line-through decoration-drift/60">
       {children}
     </div>
   );
@@ -161,7 +159,7 @@ function Added({ children, label }: { children: React.ReactNode; label?: string 
   return (
     <div className="rounded-md border border-verified/60 bg-verified/10 px-2 py-1.5 text-[11px] leading-snug">
       {label && (
-        <div className="text-[9px] font-mono-tight uppercase tracking-widest text-verified mb-0.5">
+        <div className="eyebrow text-verified-ink mb-0.5">
           + {label}
         </div>
       )}
@@ -191,7 +189,7 @@ function ProposalDiff({ proposal }: { proposal: Proposal }) {
       return (
         <div className="space-y-1.5">
           <div className="rounded-md border bg-muted/40 px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
-            <span className="text-[9px] font-mono-tight uppercase tracking-widest mr-1.5">
+            <span className="eyebrow mr-1.5">
               linked to {proposal.anchorStepId}
             </span>
             {proposal.anchorText}
@@ -203,7 +201,7 @@ function ProposalDiff({ proposal }: { proposal: Proposal }) {
       return (
         <div className="space-y-1.5">
           <div className="rounded-md border bg-muted/40 px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
-            <span className="text-[9px] font-mono-tight uppercase tracking-widest mr-1.5">
+            <span className="eyebrow mr-1.5">
               after {proposal.anchorStepId}
             </span>
             {proposal.anchorText}
@@ -211,8 +209,8 @@ function ProposalDiff({ proposal }: { proposal: Proposal }) {
           <Added label="new decision">
             <div>{proposal.newDecisionText}</div>
             <div className="mt-1 flex gap-2 text-[10px] font-mono-tight">
-              <span className="text-confident">yes → continue</span>
-              <span className="text-drift">no → rework</span>
+              <span className="text-confident-ink">yes → continue</span>
+              <span className="text-drift-ink">no → rework</span>
             </div>
           </Added>
         </div>

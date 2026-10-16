@@ -65,7 +65,7 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <div className="inline-flex items-center gap-1.5 rounded-full border bg-muted px-2 py-0.5 text-[10px] font-mono-tight text-muted-foreground w-fit">
+          <div className="inline-flex items-center gap-1.5 rounded-md border bg-muted px-2 py-0.5 text-[10px] font-mono-tight text-muted-foreground w-fit">
             <Lock className="size-3" /> Checkout · {tier}
           </div>
           <DialogTitle className="font-display text-2xl leading-tight mt-2">
@@ -80,7 +80,7 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
 
         {err ? (
           <div className="flex flex-col items-center text-center gap-3 py-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-drift/15 text-drift">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-drift/15 text-drift-ink">
               <AlertTriangle className="size-6" />
             </div>
             <p className="text-sm text-muted-foreground">{err}</p>

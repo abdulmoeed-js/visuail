@@ -32,14 +32,14 @@ export function ConfidenceBadge({ item }: { item: BaseItem }) {
         className={cn(
           "inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-[10px] font-mono-tight",
           conflict
-            ? "border-drift bg-drift/10 text-drift"
+            ? "border-drift bg-drift/10 text-drift-ink"
             : drift
-            ? "border-drift bg-drift/10 text-drift"
+            ? "border-drift bg-drift/10 text-drift-ink"
             : item.userAdded
-            ? "border-verified bg-verified/10 text-verified"
+            ? "border-verified bg-verified/10 text-verified-ink"
             : low
-            ? "border-unresolved bg-unresolved/15 text-[color:var(--unresolved-foreground)]"
-            : "border-confident/40 bg-confident/10 text-[color:var(--confident)]",
+            ? "border-unresolved bg-unresolved/15 text-unresolved-ink"
+            : "border-confident/40 bg-confident/10 text-confident-ink",
         )}
         title={
           conflict ? item.conflictNote ?? "Conflicting sources"
@@ -56,7 +56,7 @@ export function ConfidenceBadge({ item }: { item: BaseItem }) {
       </span>
       {confirmedN >= 2 && !conflict && (
         <span
-          className="rounded-md border border-confident/40 bg-confident/10 px-1 py-0.5 text-[10px] font-mono-tight text-[color:var(--confident)]"
+          className="rounded-md border border-confident/40 bg-confident/10 px-1 py-0.5 text-[10px] font-mono-tight text-confident-ink"
           title={`Confirmed by ${confirmedN} sources: ${item.confirmedBySources!.join(", ")}`}
         >
           ×{confirmedN}

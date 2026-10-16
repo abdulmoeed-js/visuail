@@ -134,7 +134,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
           <div className="space-y-2 mb-1">
             {subscription.status === "past_due" && (
               <div className="rounded-lg border border-drift/40 bg-drift/10 p-3 flex items-start gap-2 text-sm">
-                <AlertTriangle className="size-4 text-drift shrink-0 mt-0.5" />
+                <AlertTriangle className="size-4 text-drift-ink shrink-0 mt-0.5" />
                 <span>
                   Your last payment failed. {org.name} stays on {subscription.tier === "team" ? "Team" : "Pro"} for now,
                   but update your payment method soon to avoid losing access.
@@ -159,7 +159,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
 
         {usage && Object.keys(usage).length > 0 && (
           <div className="rounded-lg border bg-card p-3 mb-1">
-            <div className="flex items-center gap-1.5 text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground mb-2">
+            <div className="flex items-center gap-1.5 eyebrow text-muted-foreground mb-2">
               <BarChart3 className="size-3" /> Last 30 days
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
@@ -175,7 +175,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
 
         {org.tier !== "free" && (
           <div className="rounded-lg border bg-card p-3 mb-1 space-y-3">
-            <div className="text-[10px] font-mono-tight uppercase tracking-widest text-muted-foreground">
+            <div className="eyebrow text-muted-foreground">
               Drift alert notifications
             </div>
             <div className="flex items-center justify-between gap-2">
@@ -195,9 +195,10 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
               <Mail className="size-3.5 text-muted-foreground shrink-0" />
               <Input
                 type="email" placeholder="alerts@yourcompany.com" value={notifyEmail}
+                aria-label="Email for drift alerts"
                 onChange={(e) => setNotifyEmail(e.target.value)} className="h-8 text-sm"
               />
-              <Button size="sm" variant="outline" onClick={saveEmail} disabled={savingEmail} className="shrink-0">
+              <Button size="sm" variant="outline" onClick={saveEmail} disabled={savingEmail} className="shrink-0" aria-label="Save alert email">
                 {savingEmail ? <Loader2 className="size-3.5 animate-spin" /> : emailSaved ? <Check className="size-3.5" /> : "Save"}
               </Button>
             </div>
@@ -223,7 +224,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
                     {m.email}
                   </span>
                   {isOwner && m.role !== "owner" && (
-                    <Button size="sm" variant="ghost" onClick={() => removeMember(m.userId)}>
+                    <Button size="sm" variant="ghost" onClick={() => removeMember(m.userId)} aria-label={`Remove ${m.email}`}>
                       <X className="size-3.5" />
                     </Button>
                   )}
@@ -233,7 +234,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
                 <div key={i.id} className="flex items-center justify-between gap-2 rounded-lg border border-dashed bg-muted/40 p-2 text-sm text-muted-foreground">
                   <span className="truncate">{i.email} · pending</span>
                   {isOwner && (
-                    <Button size="sm" variant="ghost" onClick={() => cancelInvite(i.id)}>
+                    <Button size="sm" variant="ghost" onClick={() => cancelInvite(i.id)} aria-label={`Cancel invite to ${i.email}`}>
                       <X className="size-3.5" />
                     </Button>
                   )}
@@ -245,6 +246,7 @@ export function TeamSettingsDialog({ open, onOpenChange, org, onUpgrade }: Props
               <form onSubmit={invite} className="flex gap-2">
                 <Input
                   type="email" placeholder="teammate@company.com" value={email}
+                  aria-label="Teammate's email address"
                   onChange={(e) => setEmail(e.target.value)} className="h-9"
                 />
                 <Button type="submit" size="sm" disabled={inviting} className="shrink-0">

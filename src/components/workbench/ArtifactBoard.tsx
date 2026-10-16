@@ -108,21 +108,21 @@ function BoardCard({
   return (
     <div
       data-node
-      className="absolute rounded-xl border bg-background shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden animate-item-in"
+      className="absolute rounded-xl border bg-background shadow-sm hover:border-primary/50 transition-colors flex flex-col overflow-hidden animate-item-in"
       style={{ left: frame.x, top: frame.y, width: frame.w, height: frame.h }}
     >
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b bg-muted/40">
-        <button {...drag} data-no-pan className="cursor-grab active:cursor-grabbing text-muted-foreground/70 hover:text-foreground shrink-0">
+        <button {...drag} data-no-pan tabIndex={-1} aria-hidden className="cursor-grab active:cursor-grabbing text-muted-foreground/70 hover:text-foreground shrink-0">
           <GripVertical className="size-3.5" />
         </button>
         <Icon className="size-3.5 text-muted-foreground shrink-0" />
-        <span className="text-[11px] font-mono-tight uppercase tracking-widest text-muted-foreground truncate">
+        <span className="eyebrow text-muted-foreground truncate">
           {meta.label}
         </span>
       </div>
       <button
         onClick={onOpen} data-no-pan
-        className={cn("flex-1 flex flex-col justify-between p-2.5 text-left hover:bg-muted/30 transition")}
+        className={cn("flex-1 flex flex-col justify-between p-2.5 text-left rounded-b-xl hover:bg-muted/30 transition focus-visible:outline-offset-[-2px]")}
       >
         <div className="text-sm font-semibold leading-tight line-clamp-2">{canvas.name}</div>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
