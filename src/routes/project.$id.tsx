@@ -178,7 +178,9 @@ function ProjectShell({ project }: { project: StoredProject }) {
   // matters even for an artifact this tab is not looking at).
   const [paneEditors, setPaneEditors] = useState<Record<string, Peer | null>>({});
   const onEditorChange = useCallback((key: string, editor: Peer | null) => {
-    setPaneEditors((cur) => (cur[key] === editor ? cur : { ...cur, [key]: editor }));
+    // Compare what matters, not object identity: a copy of the same editor
+    // must not count as a change, or the page re-renders without end.
+    setPaneEditors((cur) => (samePeer(cur[key] ?? null, editor) ? cur : { ...cur, [key]: editor }));
   }, []);
 
   // Arriving from the dashboard's comments inbox: jump to whichever pane
@@ -653,6 +655,13 @@ function ProjectShell({ project }: { project: StoredProject }) {
       <ShareLinkDialog open={shareOpen} onOpenChange={setShareOpen} projectId={project.id} />
     </div>
   );
+}
+
+function samePeer(a: Peer | null, b: Peer | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.tabId === b.tabId && a.userId === b.userId && a.email === b.email
+    && a.openedAt === b.openedAt && a.claimedAt === b.claimedAt;
 }
 
 /** "Another of your tabs" for the same person, else their email. */

@@ -13,7 +13,7 @@
 // decided by the project page from presence. Without `collab` (the landing
 // demo, the share page) this hook is plain local state.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import {
   type ArtifactModel, type BaseItem, type BMCBlock, type Connection,
@@ -308,9 +308,19 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   const [openedAt, setOpenedAt] = useState(0);
   const [claimedAt, setClaimedAt] = useState<number | null>(null);
   const open = !!collab?.open;
-  const me: Peer | null = collab && open
-    ? { tabId: collab.tabId, userId: collab.me.userId, email: collab.me.email, openedAt, claimedAt, lastSeen: Infinity }
-    : null;
+  // Built once per change, not per render: `editor` is often this object,
+  // and the project page stores it, so a fresh copy on every render made the
+  // page re-render forever while an artifact was open (and any dialog opened
+  // then tipped it into React's update-depth error).
+  const meTabId = collab?.tabId;
+  const meUserId = collab?.me.userId;
+  const meEmail = collab?.me.email;
+  const me: Peer | null = useMemo(
+    () => (meTabId !== undefined && open
+      ? { tabId: meTabId, userId: meUserId ?? "", email: meEmail ?? "", openedAt, claimedAt, lastSeen: Infinity }
+      : null),
+    [meTabId, meUserId, meEmail, open, openedAt, claimedAt],
+  );
   const editor = collab ? editorOf(me ? [...Object.values(peers), me] : Object.values(peers)) : null;
   const role: EditingRole = !collab || (open && editor !== null && editor.tabId === collab.tabId) ? "editor" : "viewer";
   // The channel and observer are set up once; anything that changes per
