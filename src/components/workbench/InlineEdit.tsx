@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { useArtifactFullscreen } from "./artifact-fullscreen";
 
 interface Props {
   value: string;
@@ -23,6 +24,7 @@ export function InlineEdit({
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+  const presenting = !!useArtifactFullscreen()?.presenting;
   const ref = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
   const displayRef = useRef<HTMLElement | null>(null);
   // Set when editing ends from the keyboard (Enter/Escape), so focus goes
@@ -53,7 +55,7 @@ export function InlineEdit({
 
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
-  if (editing) {
+  if (editing && !presenting) {
     const common = {
       value: draft,
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDraft(e.target.value),
@@ -80,6 +82,11 @@ export function InlineEdit({
 
   const Tag = as === "block" ? "div" : "span";
   const shown = value || placeholder || "—";
+  // Presenting: the text is shown, not edited, so a click on a call never
+  // turns a label into a text box.
+  // An empty field shows a dash, not its editing prompt: to an audience a
+  // prompt such as "Given the current state, when..." reads as content.
+  if (presenting) return <Tag className={cn("px-1 -mx-1", !value && "text-muted-foreground", className)}>{value || "—"}</Tag>;
   return (
     <Tag
       ref={(el: HTMLElement | null) => { displayRef.current = el; }}

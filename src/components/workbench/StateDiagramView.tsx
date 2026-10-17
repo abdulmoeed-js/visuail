@@ -6,6 +6,7 @@ import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { IdChip } from "./atoms";
+import { useArtifactFullscreen } from "./artifact-fullscreen";
 
 // State (Statechart) Diagram, from the corpus's State Diagram material:
 // states + transitions, with initial-state and final-state markers. A free
@@ -131,27 +132,44 @@ export function StateDiagramView({ model, editing }: Props) {
     if (t) revealNew(editing.onAddState(t));
     closeAdd();
   };
+  // Present mode (full screen, showing to others): the add form is hidden
+  // by the shell, so the legend stays even if the form was open.
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  // Turning Present on drops the add form from the screen; close it too, so
+  // leaving Present does not bring it back with its field grabbing focus.
+  // (The "Add state" button is gone as well, so there is no focus to hand
+  // back.)
+  useEffect(() => {
+    if (presenting) { setDraft(""); setAdding(false); }
+  }, [presenting]);
 
   return (
     <CanvasShell
       contentWidth={width}
       contentHeight={height}
       minimap
-      fullscreenLabel="State diagram — fullscreen"
+      fullscreenLabel="State diagram"
       viewId="state"
       apiRef={shellApi}
       drawnBounds={placed.length === 0 ? null : boundsOf(placed.map((p) => ({ x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H })))}
       // Empty: aim at the middle, where the "add a state" prompt is drawn.
       initialFocus={states.length === 0 ? { x: width / 2, y: 0, w: 0, h: 0 } : undefined}
-      bottomLeft={adding ? undefined : <Legend />}
+      bottomLeft={adding && !presenting ? undefined : <Legend />}
       bottomRight={
         adding ? (
-          <div className="flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
+          <div
+            className="flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm"
+            // Esc anywhere in the form (its field or either button) closes it
+            // as Cancel does, and is marked handled so it does not also take
+            // the artifact out of full screen.
+            onKeyDown={(e) => { if (e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); closeAdd(); } }}
+          >
             <input
               autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
               // preventDefault: focus returns to "Add state" on commit, and the
-              // same keystroke's keypress would press it again.
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(); } if (e.key === "Escape") closeAdd(); }}
+              // same keystroke's keypress would press it again. On Esc it
+              // marks the key handled (see the form above).
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(); } if (e.key === "Escape") { e.preventDefault(); closeAdd(); } }}
               placeholder="New state"
               aria-label="New state name"
               className="h-8 w-44 min-w-0 flex-1 text-sm px-2 rounded border bg-background"
@@ -169,7 +187,7 @@ export function StateDiagramView({ model, editing }: Props) {
       {states.length === 0 && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground pointer-events-none">
           <span>No states yet.</span>
-          <button onClick={() => setAdding(true)} data-no-pan className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-separator-strong bg-card px-3 py-1.5 text-xs hover:border-primary/60">
+          <button onClick={() => setAdding(true)} data-no-pan data-edit-control className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-separator-strong bg-card px-3 py-1.5 text-xs hover:border-primary/60">
             <Wand2 className="size-3.5 text-primary" /> Add a state
           </button>
         </div>
@@ -281,19 +299,24 @@ function StateNodeView({
         ...(node.ref.isFinal ? { boxShadow: "0 0 0 2px var(--color-card), 0 0 0 4px var(--color-primary)" } : {}),
       }}
     >
+      {/* The grip, the delete X, the initial/final toggles and the connect
+       *  handle only edit: Present mode hides them (data-edit-control). The
+       *  initial dot and the final ring themselves are drawn elsewhere and
+       *  stay. States move only by the grip, so while presenting a drag on
+       *  one pans the view instead (CanvasShell). */}
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1 min-w-0">
-          <GripVertical data-no-pan onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
+          <GripVertical data-no-pan data-edit-control onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
           <IdChip id={node.ref.id} tone="primary" />
         </div>
-        <button onClick={onDelete} data-no-pan aria-label={`Delete state ${node.ref.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete state ${node.ref.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
           <X className="size-3" />
         </button>
       </div>
       <div className="text-xs font-medium leading-snug break-words">
         <InlineEdit value={node.ref.text} onChange={onUpdateText} multiline />
       </div>
-      <div className="mt-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition" data-no-pan>
+      <div className="mt-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition" data-no-pan data-edit-control>
         <button onClick={onToggleInitial} title="Toggle initial state"
           className={node.ref.isInitial ? "text-primary" : "text-muted-foreground hover:text-foreground"}>
           <CircleDot className="size-3" />
@@ -305,6 +328,7 @@ function StateNodeView({
       </div>
       <div
         data-no-pan
+        data-edit-control
         onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e, (e.currentTarget.closest("[data-canvas-content]") as HTMLElement) ?? null); }}
         className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-primary bg-card opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-primary transition cursor-crosshair before:absolute before:-inset-2 before:content-['']"
         title="Drag to another state to connect (drag to itself for a self-transition)"
@@ -321,17 +345,50 @@ function TransitionLabel({
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  const chipRef = useRef<HTMLButtonElement | null>(null);
+  const fieldRef = useRef<HTMLInputElement | null>(null);
+  // Present mode shows the event without its editor; close the editor too,
+  // so leaving Present does not reopen it with its field grabbing focus.
+  useEffect(() => { if (presenting) setOpen(false); }, [presenting]);
+  // Esc while the editor is open (in its field, on Delete, or on the event
+  // chip itself) closes it without saving what was typed, and is marked
+  // handled so it does not also take the artifact out of full screen. Focus
+  // goes back to the chip first, so the field's blur sees the old text and
+  // saves nothing.
+  const onEditorKeyDown = (e: React.KeyboardEvent) => {
+    if (!open || e.key !== "Escape" || e.defaultPrevented) return;
+    e.preventDefault();
+    if (fieldRef.current) fieldRef.current.value = conn.label ?? "";
+    chipRef.current?.focus({ preventScroll: true });
+    setOpen(false);
+  };
+  const chip = "rounded border border-primary/60 bg-card px-1.5 py-0.5 text-[10px] font-mono-tight text-primary";
+  // Presenting: the transition's event stays, as plain words that do not
+  // open the edit/delete editor (and a drag over them pans). An unnamed
+  // transition's "event" placeholder is only an invitation to edit, so it
+  // goes.
+  if (presenting) {
+    if (!conn.label) return null;
+    return (
+      <div className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
+        <span className={`block ${chip}`}>{conn.label}</span>
+      </div>
+    );
+  }
   return (
-    <div data-no-pan className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
+    <div data-no-pan onKeyDown={onEditorKeyDown} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
       <button
+        ref={chipRef}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className="rounded border border-primary/60 bg-card px-1.5 py-0.5 text-[10px] font-mono-tight text-primary hover:bg-primary/10 transition"
+        className={`${chip} hover:bg-primary/10 transition`}
       >
         {conn.label || "event"}
       </button>
       {open && (
         <div className="absolute left-1/2 top-6 -translate-x-1/2 w-52 rounded-lg border bg-card shadow-lg p-2 flex flex-col gap-2">
           <input
+            ref={fieldRef}
             autoFocus
             defaultValue={conn.label ?? ""}
             onKeyDown={(e) => {
@@ -363,7 +420,8 @@ function Legend() {
     <>
       <span className={chip}><span className="h-2.5 w-2.5 rounded-full bg-foreground" /> Initial</span>
       <span className={chip}><span className="h-2.5 w-2.5 rounded-full border-2 border-primary" /> Final (ring)</span>
-      <span className={`hidden @min-[640px]:flex ${look}`}>Drag connect-handle to link · drag onto self for a self-transition</span>
+      {/* How to edit: describes handles Present mode hides, so it goes too. */}
+      <span data-edit-control className={`hidden @min-[640px]:flex ${look}`}>Drag connect-handle to link · drag onto self for a self-transition</span>
     </>
   );
 }

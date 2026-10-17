@@ -32,6 +32,10 @@ import { UseCaseDescriptionDialog } from "./workbench/UseCaseDescriptionDialog";
 import { RaciMatrixView } from "./workbench/RaciMatrixView";
 import { ToolkitPanel } from "./workbench/ToolkitPanel";
 import { DriftNotifier } from "./workbench/DriftNotifier";
+import {
+  ArtifactFullscreenProvider, ignoreShortcut, useArtifactFullscreenController,
+} from "./workbench/artifact-fullscreen";
+import { FullscreenHeader, LaserPointer, ShortcutsCard } from "./workbench/FullscreenChrome";
 import { TemplateGallery } from "./workbench/TemplateGallery";
 import { Link } from "@tanstack/react-router";
 import { FolderPlus } from "lucide-react";
@@ -305,6 +309,9 @@ function RefusedState({ reason, onRetry }: { reason: string; onRetry: () => void
  *  the one they are working in. */
 let activeArtifactRoot: HTMLElement | null = null;
 
+/** The tabs shown while presenting: diagrams to look at, nothing to edit. */
+const PRESENT_TABS = new Set<ArtifactTab>(["artifact", "usecases", "raci", "dfd", "decisiontree", "statediagram", "activity"]);
+
 /** Somewhere the browser's own text undo applies, so Ctrl/Cmd+Z must be left
  *  to it. A <select> is not one: it has no text history, and treating it as
  *  one made the shortcut go dead after any dropdown was used. */
@@ -436,6 +443,49 @@ export function ArtifactView({
   // dialog or popover lives outside this element), where the person is
   // plainly not addressing the diagram.
   const rootRef = useRef<HTMLDivElement | null>(null);
+  // Full screen takes the tabs, undo/redo and canvas together, so switching
+  // diagram type never drops you out of it.
+  const fsRef = useRef<HTMLDivElement | null>(null);
+  const fs = useArtifactFullscreenController(fsRef);
+  const fsToggleRef = useRef(fs.toggle);
+  fsToggleRef.current = fs.toggle;
+  const presentingRef = useRef(fs.presenting);
+  presentingRef.current = fs.presenting;
+  // Presenting shows the diagrams (and the read-only RACI grid); the
+  // document tabs are where editing happens, so they step aside.
+  const shownTabs = fs.presenting ? tabs.filter((t) => PRESENT_TABS.has(t.value)) : tabs;
+  useEffect(() => {
+    if (fs.presenting && !PRESENT_TABS.has(tab)) setTab("artifact");
+  }, [fs.presenting, tab]);
+  useEffect(() => {
+    // F toggles full screen for the artifact on screen. Exactly one answers:
+    // the project page keeps the others mounted but hidden, and the share
+    // page shows several at once.
+    const onKey = (e: KeyboardEvent) => {
+      if (ignoreShortcut(e)) return;
+      if (!(e.code === "KeyF" || e.key.toLowerCase() === "f")) return;
+      const root = rootRef.current;
+      if (!root || root.getClientRects().length === 0) return;
+      // A key pressed in the page's own controls (nav, sidebar) is theirs.
+      const t = e.target;
+      if (t instanceof Node && t !== document.body && !root.contains(t)) return;
+      const claimed = activeArtifactRoot;
+      if (claimed && claimed.isConnected && claimed.getClientRects().length > 0) {
+        if (claimed !== root) return;
+      } else {
+        const visible = [...document.querySelectorAll("[data-artifact-root]")].filter((r) => r.getClientRects().length > 0);
+        if (visible.length > 1) {
+          const hit = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+          if (!hit || !root.contains(hit)) return;
+        }
+      }
+      activeArtifactRoot = root;
+      e.preventDefault();
+      fsToggleRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // Created here rather than inside the provider below, because the undo
   // handler in this component needs to read it too.
   const viewStore = useNewCanvasViewStore();
@@ -522,15 +572,23 @@ export function ArtifactView({
       if (root.getClientRects().length === 0) return;
       if (isTextEntry(e.target)) return;
       const t = e.target;
-      // Focus must be somewhere that belongs to this artifact: inside it, on
-      // nothing in particular, on the history notice itself (its Undo/Redo
-      // button keeps focus after a click), or inside this artifact's canvas
-      // while the CSS-fallback fullscreen has moved that canvas to <body>.
       const el = t instanceof Element ? t : null;
+      // A pop-up over the artifact (full screen places them inside it) keeps
+      // its keys; the notice area is the one overlay whose Undo/Redo is ours.
+      if (el?.closest("[role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox'], [data-radix-popper-content-wrapper]")
+        && !el.closest("[data-sonner-toaster]")) return;
+      // Focus must be somewhere that belongs to this artifact: inside it, on
+      // nothing in particular, or on the history notice itself (its
+      // Undo/Redo button keeps focus after a click).
       const ours = t === document.body || (t instanceof Node && root.contains(t))
-        || !!el?.closest("[data-sonner-toaster], [data-canvas-fs]");
+        || !!el?.closest("[data-sonner-toaster]");
       if (!ours) return;
       e.preventDefault();
+      // Presenting: nothing changes in front of the audience.
+      if (presentingRef.current) {
+        historyToast("Editing is off while presenting", { description: "Press P to go back to editing." });
+        return;
+      }
       runHistoryRef.current(redo ? "redo" : "undo");
     };
     window.addEventListener("keydown", onKey);
@@ -544,7 +602,7 @@ export function ArtifactView({
 
   return (
     <CanvasViewStoreProvider store={viewStore}>
-    <div ref={rootRef} className="flex-1 flex flex-col">
+    <div ref={rootRef} className="flex-1 flex flex-col" data-artifact-root>
       {viewing && (
         <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b bg-unresolved/10 px-4 py-2 text-sm">
           <span>
@@ -598,8 +656,27 @@ export function ArtifactView({
         </div>
       )}
 
-      <div className="flex-1 flex min-h-0 flex-col isolate">
-        <div className="relative z-40 flex items-center gap-2 border-b bg-card px-4" data-no-pan>
+      <ArtifactFullscreenProvider value={fs}>
+      <div
+        ref={fsRef}
+        className={cn(
+          "flex-1 flex min-h-0 flex-col isolate",
+          fs.active && "bg-background",
+          fs.fallback && "fixed inset-0 z-[9999]",
+        )}
+        // Marks the fill-the-window fallback for the notice area and the
+        // overlay host; Present mode hides editing controls below it.
+        data-canvas-fs={fs.fallback ? "" : undefined}
+        data-presenting={fs.presenting ? "" : undefined}
+        tabIndex={-1}
+      >
+        <FullscreenHeader
+          kindLabel={model.kind === "process" ? "Process map" : "Business model canvas"}
+          title={model.title}
+          summary={<GradeBar summary={grades} />}
+          viewing={viewing}
+        />
+        <div className="relative z-40 flex items-center gap-2 border-b bg-card px-4" data-no-pan data-fs-chrome-end>
           {/* Scrolls instead of overflowing -- with 11 tabs (7 diagram types plus
            *  Toolkit/Items/BRD/Traced backlog) this row is wider than the container
            *  at any normal viewport width. It used to just overflow silently with no
@@ -608,7 +685,7 @@ export function ArtifactView({
             role="tablist" aria-label="Artifact views"
             className="flex h-11 min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 scroll-px-1 [scrollbar-width:thin]"
           >
-            {tabs.map((item) => {
+            {shownTabs.map((item) => {
               const active = tab === item.value;
               return (
                 <button
@@ -629,6 +706,7 @@ export function ArtifactView({
           </div>
           {/* Outside the scrolling tab list on purpose: history applies to
            *  every tab, so it must not scroll away with the tabs. */}
+          {!fs.presenting && (
           <div role="group" aria-label="Edit history" className="flex shrink-0 items-center gap-1.5 border-l pl-2">
             {/* aria-disabled, not disabled: a button that disables itself the
              *  moment it is used throws keyboard focus back to the top of the
@@ -652,12 +730,13 @@ export function ArtifactView({
               <Redo2 className="size-4" />
             </Button>
           </div>
+          )}
         </div>
 
-        <div className="relative z-0 flex-1 min-h-0 overflow-hidden" ref={canvasRef}>
+        <div className={cn("relative z-0 flex-1 min-h-0", fs.active ? "overflow-auto" : "overflow-hidden")} ref={canvasRef}>
           {tab === "artifact" && (
             <div className="h-full p-4">
-              <div className="h-[640px]">
+              <div className={fs.active ? "h-full" : "h-[640px]"}>
                 <RecoverableCanvas onRemoveLastAdded={editing.onRemoveLastAdded}>
                   {model.kind === "process" ? (
                     <ProcessCanvas
@@ -690,7 +769,7 @@ export function ArtifactView({
 
           {tab === "usecases" && model.kind === "process" && (
             <div className="h-full p-4">
-              <div className="h-[640px]">
+              <div className={fs.active ? "h-full" : "h-[640px]"}>
                 <UseCaseDiagramView model={model} onSelectUseCase={setDrilldownStepId} />
               </div>
             </div>
@@ -704,7 +783,7 @@ export function ArtifactView({
 
           {tab === "dfd" && model.kind === "process" && (
             <div className="h-full p-4">
-              <div className="h-[640px]">
+              <div className={fs.active ? "h-full" : "h-[640px]"}>
                 <DFDView model={model} editing={editing} />
               </div>
             </div>
@@ -712,7 +791,7 @@ export function ArtifactView({
 
           {tab === "decisiontree" && model.kind === "process" && (
             <div className="h-full p-4">
-              <div className="h-[640px]">
+              <div className={fs.active ? "h-full" : "h-[640px]"}>
                 <DecisionTreeView model={model} editing={editing} />
               </div>
             </div>
@@ -720,7 +799,7 @@ export function ArtifactView({
 
           {tab === "statediagram" && model.kind === "process" && (
             <div className="h-full p-4">
-              <div className="h-[640px]">
+              <div className={fs.active ? "h-full" : "h-[640px]"}>
                 <StateDiagramView model={model} editing={editing} />
               </div>
             </div>
@@ -728,7 +807,7 @@ export function ArtifactView({
 
           {tab === "activity" && model.kind === "process" && (
             <div className="h-full p-4">
-              <div className="h-[640px]">
+              <div className={fs.active ? "h-full" : "h-[640px]"}>
                 <ActivityDiagramView model={model} editing={editing} />
               </div>
             </div>
@@ -791,8 +870,9 @@ export function ArtifactView({
             </div>
           )}
         </div>
+        <ShortcutsCard />
+        <LaserPointer hostRef={fsRef} />
       </div>
-
       {model.kind === "process" && (
         <UseCaseDescriptionDialog
           model={model}
@@ -801,6 +881,7 @@ export function ArtifactView({
           onUpdateItem={editing.onUpdateItem}
         />
       )}
+      </ArtifactFullscreenProvider>
 
       {(demoHints || onPublish) && (
       <div className="border-t bg-muted/40 px-4 py-3 flex flex-wrap items-center justify-between gap-3">

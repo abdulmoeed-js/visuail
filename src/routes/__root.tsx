@@ -146,10 +146,19 @@ function RootShell({ children }: { children: ReactNode }) {
  *  and the row of pinned lane headers an activity diagram keeps under it. */
 function AppToaster() {
   const [container, setContainer] = useState<HTMLElement | null>(null);
-  const [inFullscreen, setInFullscreen] = useState(false);
+  // Distance from the top of the screen: below the page's nav normally, and
+  // in full screen below the artifact's own header and tab row (measured,
+  // since the header wraps on narrow screens).
+  const [top, setTop] = useState(72);
   useEffect(() => {
     const el = document.createElement("div");
     setContainer(el);
+    let ro: ResizeObserver | null = null;
+    const measureTop = () => {
+      const fsEl = document.fullscreenElement ?? document.querySelector("[data-canvas-fs]");
+      const chromeEnd = fsEl?.querySelector("[data-fs-chrome-end]");
+      setTop(chromeEnd ? Math.round(chromeEnd.getBoundingClientRect().bottom) + 8 : fsEl ? 108 : 72);
+    };
     const sync = () => {
       const host = document.fullscreenElement;
       const home = host ?? document.body;
@@ -160,7 +169,19 @@ function AppToaster() {
       // preview) the canvas fills the window by itself instead and marks
       // itself. The toaster can stay in <body> there -- it is drawn above --
       // but it needs the same lower position to clear the canvas's top rows.
-      setInFullscreen(!!host || !!document.querySelector("[data-canvas-fs]"));
+      ro?.disconnect();
+      ro = null;
+      const fsEl = host ?? document.querySelector("[data-canvas-fs]");
+      const chromeEnd = fsEl?.querySelector("[data-fs-chrome-end]");
+      if (chromeEnd) {
+        ro = new ResizeObserver(measureTop);
+        ro.observe(chromeEnd);
+        if (chromeEnd.parentElement) ro.observe(chromeEnd.parentElement);
+      }
+      measureTop();
+      // The artifact renders its full-screen header a moment after the
+      // browser's fullscreenchange; measure again once it is in place.
+      requestAnimationFrame(() => requestAnimationFrame(measureTop));
     };
     sync();
     document.addEventListener("fullscreenchange", sync);
@@ -168,11 +189,11 @@ function AppToaster() {
     return () => {
       document.removeEventListener("fullscreenchange", sync);
       document.removeEventListener(CANVAS_FULLSCREEN_EVENT, sync);
+      ro?.disconnect();
       el.remove();
     };
   }, []);
   if (!container) return null;
-  const top = inFullscreen ? 108 : 72;
   return createPortal(<Toaster position="top-center" offset={{ top }} mobileOffset={{ top }} />, container);
 }
 

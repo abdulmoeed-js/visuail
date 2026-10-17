@@ -7,6 +7,7 @@ import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { IdChip } from "./atoms";
+import { useArtifactFullscreen } from "./artifact-fullscreen";
 
 // Data Flow Diagram (Gane-Sarson notation, per the DFD Tutorial in the BA
 // corpus): processes (numbered rounded rects), data stores (open-ended
@@ -164,27 +165,44 @@ export function DFDView({ model, editing }: Props) {
   };
 
   const isEmpty = model.steps.length === 0 && (model.dataStores ?? []).length === 0 && (model.externalEntities ?? []).length === 0;
+  // Present mode (full screen, showing to others): the add controls are
+  // hidden by the shell, so the legend stays even if an add form was open.
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  // Turning Present on drops the add form from the screen; close it too, so
+  // leaving Present does not bring it back with its field grabbing focus.
+  // (The button that opened it is gone as well, so there is no focus to
+  // hand back.)
+  useEffect(() => {
+    if (presenting) { setAdding(null); setDraft(""); }
+  }, [presenting]);
 
   return (
     <CanvasShell
       contentWidth={width}
       contentHeight={height}
       minimap
-      fullscreenLabel="Data flow diagram — fullscreen"
+      fullscreenLabel="Data flow diagram"
       viewId="dfd"
       apiRef={shellApi}
       drawnBounds={nodes.length === 0 ? null : boundsOf(nodes.map((n) => ({ x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h })))}
       // Empty: aim at the middle, where the prompt is drawn.
       initialFocus={isEmpty ? { x: width / 2, y: 0, w: 0, h: 0 } : undefined}
-      bottomLeft={adding ? undefined : <Legend />}
+      bottomLeft={adding && !presenting ? undefined : <Legend />}
       bottomRight={
         adding ? (
-          <div className="flex max-w-full items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
+          <div
+            className="flex max-w-full items-center gap-1 rounded-md border bg-card p-1 shadow-sm"
+            // Esc anywhere in the form (its field or either button) closes it
+            // as Cancel does, and is marked handled so it does not also take
+            // the artifact out of full screen.
+            onKeyDown={(e) => { if (e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); closeAdd(); } }}
+          >
             <input
               autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
               // preventDefault: focus returns to the opener button on commit,
-              // and the same keystroke's keypress would press it again.
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(); } if (e.key === "Escape") closeAdd(); }}
+              // and the same keystroke's keypress would press it again. On
+              // Esc it marks the key handled (see the form above).
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(); } if (e.key === "Escape") { e.preventDefault(); closeAdd(); } }}
               placeholder={adding === "process" ? "New process" : adding === "store" ? "New data store" : "New external entity"}
               aria-label={adding === "process" ? "New process name" : adding === "store" ? "New data store name" : "New external entity name"}
               className="h-8 w-52 min-w-0 flex-1 text-sm px-2 rounded border bg-background"
@@ -213,7 +231,10 @@ export function DFDView({ model, editing }: Props) {
     >
       {isEmpty && (
         <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground pointer-events-none">
-          Add a process, data store, or external entity below to start the diagram.
+          {/* Presenting, the add buttons this points to are hidden. */}
+          {presenting
+            ? "No processes, data stores or external entities yet."
+            : "Add a process, data store, or external entity below to start the diagram."}
         </div>
       )}
       <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
@@ -306,13 +327,16 @@ function DFDNodeView({
     left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: 10,
   };
 
+  // The grip, the delete X and the connect handle only edit: Present mode
+  // hides them (data-edit-control). Nodes move only by the grip, so while
+  // presenting a drag on a node pans the view instead (CanvasShell).
   const header = (
     <div className="flex items-center justify-between gap-1 px-2 pt-1.5">
       <div className="flex items-center gap-1 min-w-0">
-        <GripVertical data-no-pan onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
+        <GripVertical data-no-pan data-edit-control onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
         {node.label && <IdChip id={node.label} tone="primary" />}
       </div>
-      <button onClick={onDelete} data-no-pan aria-label={`Delete ${node.kind === "process" ? "process" : node.kind === "store" ? "data store" : "external entity"} ${node.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+      <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${node.kind === "process" ? "process" : node.kind === "store" ? "data store" : "external entity"} ${node.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
         <X className="size-3" />
       </button>
     </div>
@@ -321,6 +345,7 @@ function DFDNodeView({
   const connectHandle = (
     <div
       data-no-pan
+      data-edit-control
       onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e, (e.currentTarget.closest("[data-canvas-content]") as HTMLElement) ?? null); }}
       className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-verified transition cursor-crosshair before:absolute before:-inset-2 before:content-['']"
       title="Drag to another node to connect"
@@ -368,17 +393,49 @@ function FlowLabel({
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  const chipRef = useRef<HTMLButtonElement | null>(null);
+  const fieldRef = useRef<HTMLInputElement | null>(null);
+  // Present mode shows the label without its editor; close the editor too,
+  // so leaving Present does not reopen it with its field grabbing focus.
+  useEffect(() => { if (presenting) setOpen(false); }, [presenting]);
+  // Esc while the editor is open (in its field, on Delete, or on the label
+  // itself) closes it without saving what was typed, and is marked handled
+  // so it does not also take the artifact out of full screen. Focus goes
+  // back to the label first, so the field's blur sees the old text and
+  // saves nothing.
+  const onEditorKeyDown = (e: React.KeyboardEvent) => {
+    if (!open || e.key !== "Escape" || e.defaultPrevented) return;
+    e.preventDefault();
+    if (fieldRef.current) fieldRef.current.value = conn.label ?? "";
+    chipRef.current?.focus({ preventScroll: true });
+    setOpen(false);
+  };
+  const chip = "rounded border border-verified/60 bg-card px-1.5 py-0.5 text-[10px] font-mono-tight text-verified-ink";
+  // Presenting: the flow's name stays, as plain words that do not open the
+  // rename/delete editor (and a drag over them pans). An unnamed flow's
+  // "label" placeholder is only an invitation to edit, so it goes.
+  if (presenting) {
+    if (!conn.label) return null;
+    return (
+      <div className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
+        <span className={`block ${chip}`}>{conn.label}</span>
+      </div>
+    );
+  }
   return (
-    <div data-no-pan className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
+    <div data-no-pan onKeyDown={onEditorKeyDown} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
       <button
+        ref={chipRef}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className="rounded border border-verified/60 bg-card px-1.5 py-0.5 text-[10px] font-mono-tight text-verified-ink hover:bg-verified/10 transition"
+        className={`${chip} hover:bg-verified/10 transition`}
       >
         {conn.label || "label"}
       </button>
       {open && (
         <div className="absolute left-1/2 top-6 -translate-x-1/2 w-52 rounded-lg border bg-card shadow-lg p-2 flex flex-col gap-2">
           <input
+            ref={fieldRef}
             autoFocus
             defaultValue={conn.label ?? ""}
             onKeyDown={(e) => {
@@ -404,7 +461,25 @@ function FlowLabel({
 function Legend() {
   // No bare `flex` here: it would sit beside `hidden` at the same weight and
   // leave which one wins to the order the stylesheet happens to be built in.
-  const hint = "hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
+  const look = "items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
+  const hint = `hidden @min-[640px]:flex ${look}`;
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  if (presenting) {
+    // While editing, the three Add buttons double as the key to the shapes
+    // (see the bottom-right slot). Present mode hides them, so the key is
+    // drawn here instead, one small swatch of each shape as the canvas
+    // draws it. The how-to-edit hint below would describe things that do
+    // nothing while presenting, so it is left out.
+    const chip = `flex ${look}`;
+    const swatch = "h-2.5 w-4 border-primary/60";
+    return (
+      <>
+        <span className={chip}><span className={`${swatch} rounded-full border-2`} /> Process</span>
+        <span className={chip}><span className={`${swatch} border-y-2`} /> Data store</span>
+        <span className={chip}><span className={`${swatch} rounded-[2px] border-2`} /> External entity</span>
+      </>
+    );
+  }
   return (
     <>
       <span className={hint}>Drag a node's handle to link · click a flow label to rename</span>

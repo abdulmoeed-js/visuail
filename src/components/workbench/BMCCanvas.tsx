@@ -199,6 +199,7 @@ function BlockResizeHandle({ h, setH }: { h: number; setH: (h: number) => void }
     <div
       onPointerDown={onPointerDown}
       data-no-pan
+      data-edit-control
       title="Resize block height"
       className="absolute bottom-0 left-1/2 -translate-x-1/2 h-2 w-16 rounded-t-md cursor-ns-resize bg-transparent hover:bg-primary/20 transition"
     />

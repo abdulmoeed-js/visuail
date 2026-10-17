@@ -2,12 +2,11 @@ import {
   createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type MutableRefObject, type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
-import { Maximize2, Minimize2, ZoomIn, ZoomOut, LocateFixed, X } from "lucide-react";
+import { Maximize2, ZoomIn, ZoomOut, LocateFixed } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCanvasViewStore } from "./canvas-view-store";
-import { CANVAS_FULLSCREEN_EVENT } from "@/lib/canvas-events";
+import { isTypingTarget, useArtifactFullscreen } from "./artifact-fullscreen";
 
 interface CanvasState {
   zoom: number;
@@ -115,7 +114,7 @@ export function CanvasShell({
   toolbar, bottomLeft, bottomRight, overlay, onCanvasDrop, minimap,
   gridClassName = "bp-grid",
   minZoom = 0.2, maxZoom = 3,
-  fullscreenLabel = "Fullscreen canvas",
+  fullscreenLabel = "Diagram canvas",
   viewId, initialView = "readable", readableZoom = 0.8, initialFocus, leftInset = 0, apiRef, drawnBounds,
 }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -129,7 +128,9 @@ export function CanvasShell({
 
   // One state object, not separate zoom/pan: every camera move is a single
   // pure update, which is also what gets parked in the view store.
-  const saved = storeKey ? (store?.get(storeKey) as (CanvasState & { moved?: boolean }) | undefined) : undefined;
+  const saved = storeKey
+    ? (store?.get(storeKey) as (CanvasState & { moved?: boolean; frame?: { w: number; h: number } }) | undefined)
+    : undefined;
   const [view, setView] = useState<CanvasState>(() =>
     saved ? { zoom: saved.zoom, pan: saved.pan } : { zoom: 1, pan: { x: 40, y: 40 } });
   const { zoom, pan } = view;
@@ -137,9 +138,10 @@ export function CanvasShell({
   // Parked with the camera, so a trip to another tab does not forget it.
   const [moved, setMoved] = useState<boolean>(() => saved?.moved ?? false);
   const [vp, setVp] = useState({ w: 0, h: 0 });
-  const [fs, setFs] = useState(false);
-  const [cssFs, setCssFs] = useState(false);
   const [gliding, setGliding] = useState(false);
+  // Full screen and Present mode belong to the artifact this canvas sits in.
+  const afs = useArtifactFullscreen();
+  const presenting = !!afs?.presenting;
 
   // Lifecycle of the opening view. `ready` flips once a real viewport size
   // has been seen; `restored` means the camera came from the store and must
@@ -149,7 +151,9 @@ export function CanvasShell({
   } | null>(null);
   if (!lifeRef.current) {
     const has = !!(storeKey && store?.has(storeKey));
-    lifeRef.current = { ready: has, restored: has, touched: has, at: 0, restoreChecked: false };
+    // A camera saved before the person ever moved it was aimed for them, so
+    // it may be aimed again for a different frame (full screen on another tab).
+    lifeRef.current = { ready: has, restored: has, touched: has && saved?.moved !== false, at: 0, restoreChecked: false };
   }
   const life = lifeRef.current;
 
@@ -216,6 +220,10 @@ export function CanvasShell({
     if (glideTimer.current !== null) window.clearTimeout(glideTimer.current);
   }, []);
 
+  // The frame size the camera was last aimed for; parked with the camera so a
+  // view restored into a different-sized frame (a tab opened in full screen)
+  // is re-aimed or re-centred like any other resize.
+  const lastSize = useRef<{ w: number; h: number } | null>(saved?.frame ?? null);
   const measure = () => {
     const el = viewportRef.current;
     if (!el) return;
@@ -234,7 +242,22 @@ export function CanvasShell({
     if (!life.ready) {
       life.ready = true;
       life.at = performance.now();
+      lastSize.current = { w: r.width, h: r.height };
       setView(openingView(r.width, r.height));
+      return;
+    }
+    // The frame changed size (full screen on or off, a window resize). A
+    // camera the person never moved is aimed afresh for the new frame, so
+    // entering full screen shows the diagram fitted to it; one they did move
+    // keeps the same point in the middle, so nobody loses their place.
+    const prev = lastSize.current;
+    lastSize.current = { w: r.width, h: r.height };
+    if (!prev || (Math.abs(prev.w - r.width) < 1 && Math.abs(prev.h - r.height) < 1)) return;
+    if (!life.touched) {
+      setView(openingView(r.width, r.height));
+    } else {
+      const dx = (r.width - prev.w) / 2, dy = (r.height - prev.h) / 2;
+      setView((v) => ({ zoom: v.zoom, pan: { x: v.pan.x + dx, y: v.pan.y + dy } }));
     }
   };
 
@@ -365,8 +388,20 @@ export function CanvasShell({
   // The observer, the key listener and the imperative handle are registered
   // once but must always run the latest closures (current content size,
   // insets, props). Declared before the effects that call through it.
-  const latest = useRef({ measure, fitView, reveal, checkRestoredView, touch, followFocus });
-  useLayoutEffect(() => { latest.current = { measure, fitView, reveal, checkRestoredView, touch, followFocus }; });
+  // zoomTo is declared further down; the layout effect fills it in before
+  // any listener can fire.
+  const latest = useRef({
+    measure, fitView, reveal, checkRestoredView, touch, followFocus,
+    zoomBy: (_d: number) => {}, zoomTo: (_z: number) => {}, fullscreen: false,
+  });
+  useLayoutEffect(() => {
+    latest.current = {
+      measure, fitView, reveal, checkRestoredView, touch, followFocus,
+      zoomBy: (d: number) => zoomTo((z) => +(z + d).toFixed(2)),
+      zoomTo: (z: number) => zoomTo(z),
+      fullscreen: !!afs?.active,
+    };
+  });
 
   // Was the last thing the person did a Tab press? Tracked on the window:
   // the Tab that brings focus INTO the canvas is pressed outside it.
@@ -395,10 +430,7 @@ export function CanvasShell({
     const ro = new ResizeObserver(() => latest.current.measure());
     ro.observe(el);
     return () => ro.disconnect();
-    // Re-attach when the CSS-fallback fullscreen swaps the shell into a
-    // portal: that rebuilds the DOM, and an observer left on the old viewport
-    // element would report nothing ever again.
-  }, [cssFs]);
+  }, []);
 
   // Content size is rarely final on the first frame: nodes report their real
   // heights a frame later and the BMC measures its grid after mount. Re-aim
@@ -418,7 +450,7 @@ export function CanvasShell({
   }, [contentWidth, contentHeight, leftInset]);
 
   useEffect(() => {
-    if (storeKey && store && life.ready) store.set(storeKey, { ...view, moved });
+    if (storeKey && store && life.ready) store.set(storeKey, { ...view, moved, frame: lastSize.current ?? undefined });
   }, [store, storeKey, view, moved, life]);
 
   useEffect(() => {
@@ -445,67 +477,37 @@ export function CanvasShell({
     });
   };
 
-  // Try native Fullscreen API first; fall back to a CSS-portal fullscreen when
-  // the browser rejects it (common inside iframes without allow="fullscreen",
-  // like the Lovable preview).
-  const toggleFs = async () => {
-    const el = rootRef.current;
-    if (!el) return;
-    if (document.fullscreenElement === el) {
-      try { await document.exitFullscreen(); } catch { /* noop */ }
-      setFs(false);
-      return;
-    }
-    if (cssFs) { setCssFs(false); setFs(false); return; }
-    if (el.requestFullscreen) {
-      try {
-        await el.requestFullscreen();
-        setFs(true);
-        return;
-      } catch { /* fall through to CSS fallback */ }
-    }
-    setCssFs(true);
-    setFs(true);
-  };
-
+  // Keys for the canvas on screen. Several canvases can be mounted at once
+  // (the project page keeps every artifact loaded and hides all but one), so
+  // a canvas only answers while it is visible, and while full screen only the
+  // one inside the full-screen element does. Ctrl/Cmd+0 has always fitted;
+  // the plain keys work when the canvas has focus or is full screen, so they
+  // never fight the page or a text field.
   useEffect(() => {
-    const onFsChange = () => {
-      const native = document.fullscreenElement === rootRef.current;
-      setFs(native || cssFs);
+    const live = () => {
+      const root = rootRef.current;
+      if (!root || root.getClientRects().length === 0) return false;
+      const fsEl = document.fullscreenElement ?? document.querySelector("[data-canvas-fs]");
+      return !fsEl || fsEl.contains(root);
     };
-    document.addEventListener("fullscreenchange", onFsChange);
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || !live()) return;
       if ((e.metaKey || e.ctrlKey) && (e.key === "0" || e.code === "Digit0")) {
-        e.preventDefault(); latest.current.fitView();
+        e.preventDefault(); latest.current.fitView(); return;
       }
-      if (e.key === "Escape" && fs) {
-        e.preventDefault();
-        if (document.fullscreenElement) {
-          document.exitFullscreen().catch(() => undefined);
-        }
-        setCssFs(false);
-        setFs(false);
-      }
+      if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return;
+      const root = rootRef.current;
+      const engaged = latest.current.fullscreen || (!!root && root.contains(document.activeElement));
+      if (!engaged) return;
+      // Shift+digit by physical key first: on many European layouts Shift+0
+      // types "=", which would otherwise read as zoom in.
+      if (e.shiftKey && e.code === "Digit1") { e.preventDefault(); latest.current.fitView(); }
+      else if (e.shiftKey && e.code === "Digit0") { e.preventDefault(); latest.current.zoomTo(1); }
+      else if (e.key === "+" || e.key === "=") { e.preventDefault(); latest.current.zoomBy(0.1); }
+      else if (e.key === "-" || e.key === "_") { e.preventDefault(); latest.current.zoomBy(-0.1); }
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("fullscreenchange", onFsChange);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [fs, cssFs]);
-
-  // The fallback fullscreen is this component's own doing, so nothing else
-  // can know about it unless told. Effects run after the commit, when the
-  // marker attribute is (or is no longer) in the page. Said only when the
-  // state really flips, and once more if the canvas goes away while in it.
-  const announcedCssFs = useRef(false);
-  useEffect(() => {
-    if (cssFs === announcedCssFs.current) return;
-    announcedCssFs.current = cssFs;
-    document.dispatchEvent(new Event(CANVAS_FULLSCREEN_EVENT));
-  }, [cssFs]);
-  useEffect(() => () => {
-    if (announcedCssFs.current) document.dispatchEvent(new Event(CANVAS_FULLSCREEN_EVENT));
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // Non-passive wheel listener — needed so ctrl/pinch-zoom can call preventDefault
@@ -532,13 +534,15 @@ export function CanvasShell({
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [minZoom, maxZoom, life, cssFs]);
+  }, [minZoom, maxZoom, life]);
 
   const dragRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
   const onPointerDown = (e: React.PointerEvent) => {
     const t = e.target as HTMLElement;
     if (
-      t.closest("[data-node]") ||
+      // While presenting nothing on the canvas is edited, so dragging
+      // anywhere, a shape included, moves the view.
+      (!presenting && t.closest("[data-node]")) ||
       t.closest("[data-no-pan]") ||
       t.closest("button, input, textarea, select, a, [role='tab']")
     ) return;
@@ -580,18 +584,10 @@ export function CanvasShell({
     <div
       ref={rootRef}
       className={cn(
-        "relative isolate overflow-hidden rounded-lg border",
-        !fs && "h-full w-full",
+        "relative isolate h-full w-full overflow-hidden rounded-lg border",
         gridClassName,
-        fs && "fixed inset-0 z-[9999] rounded-none border-0 bg-background",
       )}
-      style={fs ? { width: "100dvw", height: "100dvh" } : undefined}
-      role={fs ? "dialog" : undefined}
-      aria-label={fs ? fullscreenLabel : undefined}
-      // In the CSS-fallback fullscreen this element is portalled to <body>,
-      // outside the artifact it belongs to. The marker lets the artifact's
-      // keyboard handling still recognise it as its own canvas.
-      data-canvas-fs={cssFs ? "" : undefined}
+      aria-label={fullscreenLabel}
       // overflow-hidden still leaves this a scroll container: focusing a node
       // or field that sits outside the frame makes the browser scroll the
       // frame itself, dragging the toolbar and bottom bar out of place. The
@@ -633,32 +629,22 @@ export function CanvasShell({
           aria-label={cutOff ? "Part of the diagram is off-screen. Fit to view" : "Fit to view"}>
           <LocateFixed className="size-3.5" />
         </Button>
-        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={toggleFs}
-          title={fs ? "Exit fullscreen (Esc)" : "Fullscreen"} aria-label={fs ? "Exit fullscreen" : "Fullscreen"}>
-          {fs ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-        </Button>
+        {/* Full screen is the artifact's (tabs, undo and canvas together). Once
+         *  on, its own header holds the one way out, so this button only
+         *  ever goes in. */}
+        {afs && !afs.active && (
+          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={afs.toggle}
+            title="Full screen (F)" aria-label="Full screen">
+            <Maximize2 className="size-3.5" />
+          </Button>
+        )}
       </div>
 
 
-      {toolbar && (
+      {/* Present mode hides the view's editing tools (the shapes palette,
+       *  the add controls); zoom and fit stay. */}
+      {toolbar && !presenting && (
         <div className="absolute top-3 left-3 z-30 flex gap-1" data-no-pan>{toolbar}</div>
-      )}
-
-      {fs && (
-        <>
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 rounded-md border bg-card/95 backdrop-blur px-3 py-1 text-[11px] font-mono-tight text-muted-foreground" data-no-pan>
-            Fullscreen · press <kbd className="px-1 rounded bg-muted mx-0.5">Esc</kbd> to exit
-          </div>
-          <Button
-            size="icon" variant="outline"
-            className="absolute top-3 right-[220px] z-30 h-8 w-8 bg-card/95 backdrop-blur"
-            onClick={toggleFs}
-            title="Close fullscreen" aria-label="Close fullscreen"
-            data-no-pan
-          >
-            <X className="size-4" />
-          </Button>
-        </>
       )}
 
       <div
@@ -719,7 +705,7 @@ export function CanvasShell({
                 {bottomLeft}
               </div>
             )}
-            {bottomRight && (
+            {bottomRight && !presenting && (
               <div className="pointer-events-auto ml-auto min-w-0 max-w-full" data-no-pan>
                 {bottomRight}
               </div>
@@ -739,11 +725,6 @@ export function CanvasShell({
     </div>
   );
 
-  // When we're in CSS-fallback fullscreen (native rejected, e.g. iframe without
-  // allow="fullscreen"), portal into <body> so no ancestor overflow/transform clips us.
-  if (cssFs && typeof document !== "undefined") {
-    return createPortal(shell, document.body);
-  }
   return shell;
 }
 

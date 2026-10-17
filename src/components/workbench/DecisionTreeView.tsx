@@ -4,6 +4,7 @@ import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { Plus, X, GripVertical, Wand2 } from "lucide-react";
 import { CanvasShell, boundsOf } from "./CanvasShell";
 import { InlineEdit } from "./InlineEdit";
+import { isTypingTarget, useArtifactFullscreen } from "./artifact-fullscreen";
 import { IdChip } from "./atoms";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -134,7 +135,9 @@ export function DecisionTreeView({ model, editing }: Props) {
           : { x: width / 2, y: 0, w: 0, h: 0 };
       })()}
       bottomLeft={
-        <span className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground">
+        // How-to-edit hint only, so Present mode hides it with the controls it
+        // describes.
+        <span data-edit-control className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground">
           Press a question's branch count to edit its answers · add a branch to turn an outcome into a question
         </span>
       }
@@ -142,7 +145,7 @@ export function DecisionTreeView({ model, editing }: Props) {
       {!root && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground pointer-events-none">
           <span>No decision tree yet.</span>
-          <button onClick={insertRoot} data-no-pan className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-separator-strong bg-card px-3 py-1.5 text-xs hover:border-primary/60">
+          <button onClick={insertRoot} data-no-pan data-edit-control className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-separator-strong bg-card px-3 py-1.5 text-xs hover:border-primary/60">
             <Wand2 className="size-3.5 text-primary" /> Add root question
           </button>
         </div>
@@ -198,6 +201,12 @@ function RuleNodeView({
 }) {
   const branches = node.ref.branches ?? [];
   const isLeaf = branches.length === 0;
+  // Present mode hides every editing control here (data-edit-control) and
+  // shuts a branch editor left open, which would otherwise float, anchored
+  // to its hidden trigger, with its add and remove controls.
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  const [branchesOpen, setBranchesOpen] = useState(false);
+  if (presenting && branchesOpen) setBranchesOpen(false);
 
   // Decision tree nodes are always positioned by the tree layout, recomputed
   // from `branches` on every render -- there's no manual override map or
@@ -208,7 +217,9 @@ function RuleNodeView({
   return (
     <div
       data-node
-      onPointerDown={(e) => e.stopPropagation()}
+      // While presenting, a drag that starts on a node moves the view, so
+      // the press has to reach the canvas.
+      onPointerDown={presenting ? undefined : (e) => e.stopPropagation()}
       className={
         isLeaf
           ? "group absolute rounded-full border-2 border-verified/60 bg-card shadow-sm flex flex-col items-center justify-center gap-0.5 text-center px-3"
@@ -218,10 +229,10 @@ function RuleNodeView({
     >
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1 min-w-0">
-          <GripVertical className="size-3.5 text-muted-foreground/70 shrink-0" />
+          <GripVertical data-edit-control className="size-3.5 text-muted-foreground/70 shrink-0" />
           <IdChip id={node.id} tone={isRoot ? "primary" : "muted"} />
         </div>
-        <button onClick={onDelete} data-no-pan aria-label={`Delete ${isLeaf ? "outcome" : "question"} ${node.ref.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${isLeaf ? "outcome" : "question"} ${node.ref.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
           <X className="size-3" />
         </button>
       </div>
@@ -229,31 +240,36 @@ function RuleNodeView({
         <InlineEdit value={node.ref.text} onChange={onUpdateText} multiline />
       </div>
       {!isLeaf && (
-        <Popover>
+        <Popover open={branchesOpen && !presenting} onOpenChange={setBranchesOpen}>
           <PopoverTrigger asChild>
-            <button data-no-pan className="text-[9px] font-mono-tight text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition self-start">
+            <button data-no-pan data-edit-control className="text-[9px] font-mono-tight text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition self-start">
               {branches.length} branch{branches.length === 1 ? "" : "es"} ▾
             </button>
           </PopoverTrigger>
-          <PopoverContent data-no-pan className="w-60 p-2" align="start">
+          <PopoverContent
+            data-no-pan className="w-60 p-2" align="start"
+            // Esc while typing a branch label cancels that edit and leaves the
+            // editor open; the next Esc closes it.
+            onEscapeKeyDown={(e) => { if (isTypingTarget(e.target)) e.preventDefault(); }}
+          >
             <div className="flex flex-col gap-1 px-2 py-1 text-[11px] font-mono-tight max-h-56 overflow-y-auto">
               {branches.map((b) => (
                 <div key={b.id} className="flex items-center gap-1">
                   <InlineEdit value={b.label} onChange={(v) => onUpdateBranch(b.id, v)} className="text-primary" />
-                  <button onClick={() => onRemoveBranch(b.id)} aria-label={`Remove branch ${b.label}`} className="ml-auto text-muted-foreground hover:text-destructive transition">
+                  <button onClick={() => onRemoveBranch(b.id)} data-edit-control aria-label={`Remove branch ${b.label}`} className="ml-auto text-muted-foreground hover:text-destructive transition">
                     <X className="size-3" />
                   </button>
                 </div>
               ))}
             </div>
-            <button onClick={onAddBranch} className="mt-1.5 flex items-center gap-1 text-muted-foreground hover:text-primary transition">
+            <button onClick={onAddBranch} data-edit-control className="mt-1.5 flex items-center gap-1 text-muted-foreground hover:text-primary transition">
               <Plus className="size-3" /> Add branch
             </button>
           </PopoverContent>
         </Popover>
       )}
       {isLeaf && (
-        <button onClick={onAddBranch} data-no-pan className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-[9px] font-mono-tight text-muted-foreground hover:text-primary transition flex items-center gap-0.5">
+        <button onClick={onAddBranch} data-no-pan data-edit-control className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-[9px] font-mono-tight text-muted-foreground hover:text-primary transition flex items-center gap-0.5">
           <Plus className="size-2.5" /> Add branch
         </button>
       )}

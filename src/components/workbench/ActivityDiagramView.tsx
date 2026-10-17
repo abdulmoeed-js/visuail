@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { CanvasShell, useCanvas, CANVAS_TOP_INSET, CANVAS_GLIDE_CLASS, type RevealTarget } from "./CanvasShell";
 import { useRevealNew, FlashRing, FlashOutline } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
+import { isTypingTarget, useArtifactFullscreen } from "./artifact-fullscreen";
 import { IdChip, ConfidenceBadge } from "./atoms";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { gradeOf } from "@/lib/grade";
@@ -201,6 +202,26 @@ export function ActivityDiagramView({ model, editing }: Props) {
     closeActor();
   };
 
+  // Present mode hides both add forms. One left open would come back when
+  // Present mode ends, and its field would grab focus as it mounted again, so
+  // it is shut instead. Focus is not handed back: the buttons it would go to
+  // are hidden while presenting.
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  useEffect(() => {
+    if (!presenting) return;
+    setDraft(""); setAddingLane(null);
+    setActorDraft(""); setAddingActor(false);
+  }, [presenting]);
+
+  // Esc anywhere in an add form (its field or its buttons) closes the form,
+  // as Cancel does, and is marked handled so it does not also leave full
+  // screen. The field closes it itself first; this catches the buttons.
+  const escCloses = (close: () => void) => (e: React.KeyboardEvent) => {
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    e.preventDefault();
+    close();
+  };
+
   return (
     <CanvasShell
       contentWidth={width}
@@ -223,12 +244,12 @@ export function ActivityDiagramView({ model, editing }: Props) {
       }
       bottomRight={
         addingActor ? (
-          <div className="flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
+          <div onKeyDown={escCloses(closeActor)} className="flex items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
             <input autoFocus value={actorDraft} onChange={(e) => setActorDraft(e.target.value)}
               // preventDefault: committing hands focus back to the button that
               // opened this form, and the same keystroke's keypress would land
               // on that button and open the form again.
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitActor(); } if (e.key === "Escape") closeActor(); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitActor(); } if (e.key === "Escape") { e.preventDefault(); closeActor(); } }}
               placeholder="New lane (actor)" aria-label="Name of the new lane's actor"
               className="h-8 w-40 text-sm px-2 rounded border bg-background" />
             <button onClick={commitActor} title="Add lane" aria-label="Add lane" className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><Plus className="size-4" /></button>
@@ -245,16 +266,18 @@ export function ActivityDiagramView({ model, editing }: Props) {
         <div key={a.id} className="absolute top-0 bottom-0 border-r border-dashed border-border/70" style={{ left: LEFT_PAD + i * LANE_W, width: LANE_W }}>
           <LaneHeader maxOffset={height - LANE_HEADER_H} flash={flashId === a.id}>
             <span className="text-xs font-semibold truncate">{a.text}</span>
+            {/* Adding a step is editing: Present mode hides it (data-edit-control),
+             *  the lane name stays. */}
             {addingLane === a.id ? (
-              <div className="flex items-center gap-0.5 shrink-0">
+              <div data-edit-control onKeyDown={escCloses(() => closeAdd(a.id))} className="flex items-center gap-0.5 shrink-0">
                 <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(a.id); } if (e.key === "Escape") closeAdd(a.id); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(a.id); } if (e.key === "Escape") { e.preventDefault(); closeAdd(a.id); } }}
                   placeholder="New step" aria-label={`New step for ${a.text}`}
                   className="h-6 w-24 text-[11px] px-1.5 rounded border bg-background" />
                 <button onClick={() => commitAdd(a.id)} title="Add step" aria-label={`Add this step for ${a.text}`} className="text-primary"><Plus className="size-3.5" /></button>
               </div>
             ) : (
-              <button ref={(el) => { laneButtons.current.set(a.id, el); }} onClick={() => { setDraft(""); setAddingLane(a.id); }} title={`Add a step for ${a.text}`} aria-label={`Add a step for ${a.text}`} className="text-muted-foreground hover:text-primary transition shrink-0"><Plus className="size-3.5" /></button>
+              <button data-edit-control ref={(el) => { laneButtons.current.set(a.id, el); }} onClick={() => { setDraft(""); setAddingLane(a.id); }} title={`Add a step for ${a.text}`} aria-label={`Add a step for ${a.text}`} className="text-muted-foreground hover:text-primary transition shrink-0"><Plus className="size-3.5" /></button>
             )}
           </LaneHeader>
         </div>
@@ -354,12 +377,12 @@ function ActivityStepNode({
     >
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1 min-w-0">
-          <GripVertical className="size-3.5 text-muted-foreground/70 shrink-0" />
+          <GripVertical data-edit-control className="size-3.5 text-muted-foreground/70 shrink-0" />
           <IdChip id={step.id} tone="primary" />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <ConfidenceBadge item={step} compact />
-          <button onClick={onDelete} data-no-pan aria-label={`Delete step ${step.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
+          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete step ${step.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
@@ -383,6 +406,12 @@ function ActivityDecisionNode({
 }) {
   const isBar = d.shape === "gateway-parallel";
   const branches = decisionBranches(d);
+  // The branch editor is editing. Present mode hides its trigger, and one
+  // left open when Present mode starts is shut (it would otherwise float,
+  // anchored to a hidden button, with its add and remove controls).
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  const [branchesOpen, setBranchesOpen] = useState(false);
+  if (presenting && branchesOpen) setBranchesOpen(false);
 
   if (isBar) {
     return (
@@ -392,7 +421,7 @@ function ActivityDecisionNode({
         style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: 10 }}
         title="Fork / join"
       >
-        <button onClick={onDelete} data-no-pan aria-label={`Delete fork / join ${d.id}`} className="absolute -top-4 right-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
+        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete fork / join ${d.id}`} className="absolute -top-4 right-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
           <X className="size-3" />
         </button>
         <IdChip id={d.id} />
@@ -408,20 +437,25 @@ function ActivityDecisionNode({
     >
       <div className="flex items-center justify-between gap-1">
         <IdChip id={d.id} />
-        <button onClick={onDelete} data-no-pan aria-label={`Delete decision ${d.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
+        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete decision ${d.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
           <X className="size-3" />
         </button>
       </div>
       <div className="text-[11px] font-medium leading-snug break-words">
         <InlineEdit value={d.text} onChange={onUpdate} multiline />
       </div>
-      <Popover>
+      <Popover open={branchesOpen && !presenting} onOpenChange={setBranchesOpen}>
         <PopoverTrigger asChild>
-          <button data-no-pan className="text-[9px] font-mono-tight text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition self-start mt-auto">
+          <button data-no-pan data-edit-control className="text-[9px] font-mono-tight text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition self-start mt-auto">
             {branches.length} branch{branches.length === 1 ? "" : "es"} ▾
           </button>
         </PopoverTrigger>
-        <PopoverContent data-no-pan className="w-64 p-2" align="start">
+        <PopoverContent
+          data-no-pan className="w-64 p-2" align="start"
+          // Esc while typing a branch label cancels that edit and leaves the
+          // editor open; the next Esc closes it.
+          onEscapeKeyDown={(e) => { if (isTypingTarget(e.target)) e.preventDefault(); }}
+        >
           <div className="flex flex-col gap-1 px-2 py-1 text-[11px] font-mono-tight max-h-56 overflow-y-auto">
             {branches.map((b) => (
               <div key={b.id} className="flex items-center gap-1">
@@ -429,14 +463,14 @@ function ActivityDecisionNode({
                 <span className="text-muted-foreground">→</span>
                 <InlineEdit value={b.targetId} onChange={(v) => onUpdateBranch(b.id, { targetId: v })} />
                 {branches.length > 2 && (
-                  <button onClick={() => onRemoveBranch(b.id)} aria-label={`Remove branch ${b.label}`} className="ml-auto text-muted-foreground hover:text-destructive transition">
+                  <button onClick={() => onRemoveBranch(b.id)} data-edit-control aria-label={`Remove branch ${b.label}`} className="ml-auto text-muted-foreground hover:text-destructive transition">
                     <X className="size-3" />
                   </button>
                 )}
               </div>
             ))}
           </div>
-          <button onClick={onAddBranch} className="mt-1.5 flex items-center gap-1 text-muted-foreground hover:text-primary transition">
+          <button onClick={onAddBranch} data-edit-control className="mt-1.5 flex items-center gap-1 text-muted-foreground hover:text-primary transition">
             <Plus className="size-3" /> Add branch
           </button>
         </PopoverContent>

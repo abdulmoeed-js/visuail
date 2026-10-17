@@ -19,6 +19,7 @@ import { isUserCreatedId } from "@/lib/item-origin";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { RefineControl } from "./RefineControl";
+import { useArtifactFullscreen, isTypingTarget } from "./artifact-fullscreen";
 import { applyProposal, type Proposal } from "@/lib/refine";
 
 
@@ -374,6 +375,10 @@ export function ProcessCanvas({
   const [, setZCounter] = useCanvasViewState<number>("process:z", 1);
 
   const isEmpty = model.steps.length === 0 && model.decisions.length === 0 && model.exceptions.length === 0;
+  // Present mode (full screen, showing the diagram to others): every editing
+  // control is marked data-edit-control and hidden by the stylesheet; what
+  // can still change the diagram without one of them is guarded here.
+  const presenting = !!useArtifactFullscreen()?.presenting;
 
   // The shape menu (Flowchart / BPMN / UML / Database) starts closed on every
   // diagram, a newly created empty one included. It used to open by default,
@@ -457,6 +462,9 @@ export function ProcessCanvas({
       return { ...cur, [id]: { ...cur[id], z: minZ } };
     });
   }, [setOverrides]);
+  // Pressing on a node brings it to the front. Not while presenting: there a
+  // press on a node starts panning the view, and the stacking stays put.
+  const selectNode = (id: string) => { if (!presenting) bringToFront(id); };
 
   const handleRefine = (p: Proposal) => {
     if (onApplyRefinement) onApplyRefinement(p);
@@ -520,6 +528,15 @@ export function ProcessCanvas({
     setAdding(true);
   };
   const closeAddBar = () => { setAdding(false); setDraft(""); setNewActorName(""); setRefocusAdd(true); };
+  // Present mode hides the bar (CanvasShell drops its bottom-right slot), and
+  // leaving it would mount the bar afresh, its autoFocus field taking the
+  // focus nobody asked to move. Close it as Cancel does when Present starts.
+  useEffect(() => {
+    if (presenting && adding) closeAddBar();
+    // Only the switch into Present closes it; closeAddBar is a fresh
+    // function every render and adding is read at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presenting]);
   // The select can outlive its own option: an actor deleted elsewhere while
   // the bar is open. Fall back to something that exists.
   const addActorValue = addActorId === NEW_ACTOR || model.actors.some((a) => a.id === addActorId)
@@ -595,6 +612,7 @@ export function ProcessCanvas({
   const manualConnections = model.connections ?? [];
 
   const handleDrop = (cx: number, cy: number, e: React.DragEvent) => {
+    if (presenting) return;
     const raw = e.dataTransfer.getData(PALETTE_MIME);
     if (!raw) return;
     let payload: { kind: string; shape?: string };
@@ -717,17 +735,19 @@ export function ProcessCanvas({
       contentWidth={Math.max(width, 900)}
       contentHeight={Math.max(height, 620)}
       minimap
-      fullscreenLabel="Process map — fullscreen"
+      fullscreenLabel="Process map"
       viewId="process"
       apiRef={shellApi}
       drawnBounds={drawnBounds}
-      leftInset={paletteOpen ? PALETTE_INSET : 0}
+      // The palette is hidden while presenting, so nothing needs the room.
+      leftInset={paletteOpen && !presenting ? PALETTE_INSET : 0}
       initialFocus={spine[0] ? {
         x: spine[0].cx - spine[0].w / 2, y: spine[0].cy - spine[0].h / 2, w: spine[0].w, h: spine[0].h,
       } : undefined}
       // The add form needs the row to itself on a narrow canvas; the legend
-      // steps aside while it is open rather than fighting it for space.
-      bottomLeft={adding ? undefined : <Legend />}
+      // steps aside while it is open rather than fighting it for space. While
+      // presenting the form is hidden, so the legend is back.
+      bottomLeft={adding && !presenting ? undefined : <Legend />}
       onCanvasDrop={handleDrop}
       overlay={
         <>
@@ -738,8 +758,10 @@ export function ProcessCanvas({
             onInsertStarter={insertStarter}
           />
           {/* Gone as soon as there is anything to look at, and while the
-           *  person is already using one of the ways it offers. */}
-          {isEmpty && !paletteOpen && !adding && (
+           *  person is already using one of the ways it offers. While
+           *  presenting those ways are hidden, so an empty diagram still
+           *  says it is empty (its buttons hide themselves). */}
+          {isEmpty && (presenting || (!paletteOpen && !adding)) && (
             <EmptyDiagramPrompt
               onStarter={insertStarter}
               onAddStep={openAddBar}
@@ -755,7 +777,15 @@ export function ProcessCanvas({
             // A set width so the form is predictable beside the minimap, capped
             // to the row on a narrow canvas where the actor select then wraps
             // under the text field instead of crushing it.
-            <div className="flex w-[26rem] max-w-full flex-wrap items-center gap-1 rounded-md border bg-card p-1 shadow-sm">
+            <div
+              className="flex w-[26rem] max-w-full flex-wrap items-center gap-1 rounded-md border bg-card p-1 shadow-sm"
+              // Esc anywhere in the bar (its buttons included) closes it as
+              // Cancel does. Marked handled so full screen stays on: the
+              // artifact leaves full screen only on an Esc nobody took.
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); closeAddBar(); }
+              }}
+            >
               <Input
                 ref={draftRef}
                 autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
@@ -764,7 +794,7 @@ export function ProcessCanvas({
                   // step" button, and the same keystroke's keypress would
                   // then land on that button and open this bar again.
                   if (e.key === "Enter") { e.preventDefault(); commitAdd(); }
-                  if (e.key === "Escape") closeAddBar();
+                  if (e.key === "Escape") { e.preventDefault(); closeAddBar(); }
                 }}
                 placeholder="New step description"
                 aria-label="New step description"
@@ -780,7 +810,7 @@ export function ProcessCanvas({
                   onPointerDown={() => { pickedByKey.current = false; }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") { e.preventDefault(); commitAdd(); return; }
-                    if (e.key === "Escape") { closeAddBar(); return; }
+                    if (e.key === "Escape") { e.preventDefault(); closeAddBar(); return; }
                     if (e.key !== "Tab" && e.key !== "Shift") pickedByKey.current = true;
                   }}
                   aria-label="Who does this step"
@@ -805,7 +835,7 @@ export function ProcessCanvas({
                   value={newActorName} onChange={(e) => setNewActorName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") { e.preventDefault(); commitAdd(); }
-                    if (e.key === "Escape") closeAddBar();
+                    if (e.key === "Escape") { e.preventDefault(); closeAddBar(); }
                   }}
                   placeholder={model.actors.length ? "New actor's name (required)" : "Who does it? (optional)"}
                   aria-label={model.actors.length ? "New actor's name (required)" : "Who does this step (optional)"}
@@ -988,7 +1018,7 @@ export function ProcessCanvas({
               onResize={(w, h) => moveOverride(s.id, { w: snap(w), h: snap(h) })}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(s.id, e) : undefined}
-              onSelect={() => bringToFront(s.id)}
+              onSelect={() => selectNode(s.id)}
               onBringToFront={() => bringToFront(s.id)}
               onSendToBack={() => sendToBack(s.id)}
               onOpenUseCase={onOpenUseCase ? () => onOpenUseCase(s.id) : undefined}
@@ -1011,7 +1041,7 @@ export function ProcessCanvas({
               onResize={(w, h) => moveOverride(d.id, { w: snap(w), h: snap(h) })}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(d.id, e) : undefined}
-              onSelect={() => bringToFront(d.id)}
+              onSelect={() => selectNode(d.id)}
               onBringToFront={() => bringToFront(d.id)}
               onSendToBack={() => sendToBack(d.id)}
               z={n.z}
@@ -1032,7 +1062,7 @@ export function ProcessCanvas({
             onResize={(w, h) => moveOverride(e.id, { w: snap(w), h: snap(h) })}
             onRefine={handleRefine}
             onStartConnect={onAddConnection ? (ev) => startConnDrag(e.id, ev) : undefined}
-            onSelect={() => bringToFront(e.id)}
+            onSelect={() => selectNode(e.id)}
             onBringToFront={() => bringToFront(e.id)}
             onSendToBack={() => sendToBack(e.id)}
             z={n.z}
@@ -1096,13 +1126,31 @@ function ConnectorControl({
   onUpdate?: (patch: Partial<Connection>) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
+  // Hidden while presenting; close the settings then so they do not come
+  // back open afterwards.
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  useEffect(() => {
+    if (presenting) setOpen(false);
+  }, [presenting]);
   return (
     <div
       data-no-pan
+      data-edit-control
       className="absolute -translate-x-1/2 -translate-y-1/2"
       style={{ left: x, top: y, zIndex: 40 }}
+      // Esc in the open settings (label field and buttons included) closes
+      // them, focus back on the button that opened them, and is marked
+      // handled so full screen stays on.
+      onKeyDown={(e) => {
+        if (e.key !== "Escape" || !open || e.defaultPrevented) return;
+        e.preventDefault();
+        setOpen(false);
+        toggleRef.current?.focus({ preventScroll: true });
+      }}
     >
       <button
+        ref={toggleRef}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
         title="Connector settings"
         className="h-5 w-5 rounded-full border border-primary/60 bg-card text-primary opacity-70 hover:opacity-100 focus-visible:opacity-100 hover:bg-primary hover:text-primary-foreground transition flex items-center justify-center"
@@ -1204,7 +1252,7 @@ function ShapePalette({
   const [tab, setTab] = useState<PaletteTab>("flow");
   const items = PALETTE_TABS.find((t) => t.id === tab)?.items ?? FLOWCHART_ITEMS;
   return (
-    <div className="absolute top-3 left-3 z-30 flex items-start gap-2" data-no-pan>
+    <div className="absolute top-3 left-3 z-30 flex items-start gap-2" data-no-pan data-edit-control>
       <Button
         size="sm" variant="outline"
         className={cn("h-8 bg-card/95 backdrop-blur gap-1.5", open ? "w-8 px-0" : "px-2.5")}
@@ -1290,12 +1338,14 @@ function EmptyDiagramPrompt({
         data-no-pan
       >
         <div className="text-sm font-semibold">Nothing on this diagram yet</div>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+        {/* How to begin, and the ways in: editing, so hidden while
+         *  presenting, which leaves only the line above. */}
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground" data-edit-control>
           Begin with a ready-made flow, add steps one at a time, or drag shapes in.
         </p>
         {/* Three equal ways in, all ordinary: the project page's one solid
          *  button is Re-check (DESIGN.md 6.1). */}
-        <div className="mt-3 flex flex-col items-stretch gap-1.5">
+        <div className="mt-3 flex flex-col items-stretch gap-1.5" data-edit-control>
           <Button size="sm" variant="outline" className="h-8 justify-center gap-1.5" onClick={onStarter}>
             <Wand2 className="size-3.5" />
             <span className="text-xs">Start with Request → Review → Decision</span>
@@ -1433,8 +1483,9 @@ function Legend() {
       <span className={chip}><span className="h-2 w-3 border border-drift rounded-[2px] bg-drift/20" /> Source changed or sources disagree</span>
       {/* How-to, not legend: shown only where the bar has the room for it
        *  (the bottom bar is a container-query container). The same words
-       *  live in the shape palette for narrower canvases. */}
-      <span className={cn(chip, "hidden @min-[900px]:flex")}><GripVertical className="size-3" /> Drag to move · drag a corner to resize</span>
+       *  live in the shape palette for narrower canvases. Editing help, so
+       *  hidden while presenting. */}
+      <span className={cn(chip, "hidden @min-[900px]:flex")} data-edit-control><GripVertical className="size-3" /> Drag to move · drag a corner to resize</span>
     </>
   );
 }
@@ -1534,6 +1585,7 @@ function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: 
     <div
       onPointerDown={onPointerDown}
       data-no-pan
+      data-edit-control
       className="absolute bottom-0 right-0 w-3 h-3 rounded-[3px] border border-primary/60 bg-card cursor-nwse-resize opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition z-10"
       title="Resize"
     />
@@ -1545,6 +1597,7 @@ function DragHandle({ handlers }: { handlers: ReturnType<typeof useNodeDrag> }) 
     <button
       {...handlers}
       data-no-pan
+      data-edit-control
       className="cursor-grab active:cursor-grabbing text-muted-foreground/70 hover:text-foreground shrink-0"
       title="Drag to reposition"
     >
@@ -1557,6 +1610,7 @@ function ConnectHandle({ onStartConnect }: { onStartConnect: (e: React.PointerEv
   return (
     <div
       data-no-pan
+      data-edit-control
       onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e); }}
       className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-verified transition cursor-crosshair z-10"
       title="Drag to another node to connect"
@@ -1566,7 +1620,7 @@ function ConnectHandle({ onStartConnect }: { onStartConnect: (e: React.PointerEv
 
 function ZOrderButtons({ onFront, onBack }: { onFront: () => void; onBack: () => void }) {
   return (
-    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition" data-no-pan>
+    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition" data-no-pan data-edit-control>
       <button
         onClick={(e) => { e.stopPropagation(); onFront(); }}
         title="Bring to front"
@@ -1802,7 +1856,7 @@ function StepNode({
             <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} />
           </div>
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
-          <button onClick={onDelete} data-no-pan aria-label={`Delete ${step.id}`}
+          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${step.id}`}
             className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
@@ -1885,7 +1939,7 @@ function StepNode({
               <BookOpen className="size-3" />
             </button>
           )}
-          <button onClick={onDelete} data-no-pan aria-label={`Delete ${step.id}`}
+          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${step.id}`}
             className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
@@ -2027,7 +2081,7 @@ function SectionedNode({
         </div>
         <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
         <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
-        <button onClick={onDelete} data-no-pan aria-label={`Delete ${step.id}`}
+        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${step.id}`}
           className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
           <X className="size-3" />
         </button>
@@ -2073,6 +2127,7 @@ function SectionList({
         <button
           onClick={onAdd}
           data-no-pan
+          data-edit-control
           className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-foreground transition"
           title={`Add ${label.slice(0, -1)}`}
         >
@@ -2090,6 +2145,7 @@ function SectionList({
           <button
             onClick={() => onRemove(i)}
             data-no-pan
+            data-edit-control
             className="opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive transition"
             title="Remove"
             aria-label={`Remove ${v}`}
@@ -2118,12 +2174,17 @@ function MetaSelect({
   // that first option then fires no change at all.
   const known = options.some((o) => o.id === value);
   const current = known ? options.find((o) => o.id === value)!.text : "Unassigned";
+  // Presenting: the name is shown, with nothing to pick it from and no hover
+  // that says it can be changed.
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  if (presenting) return <span>{current}</span>;
   return (
     // The select itself is invisible, so its keyboard focus ring is drawn on
     // this wrapper instead.
     <span className="relative inline-flex items-center rounded px-1 -mx-1 hover:bg-verified/10 hover:ring-1 hover:ring-verified/30 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring transition" data-no-pan>
       <span className="pointer-events-none">{current}</span>
       <select
+        data-edit-control
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onPointerDown={(e) => e.stopPropagation()}
@@ -2164,6 +2225,7 @@ function DecisionNode({
 }) {
   const drag = useNodeDrag(onDrag, onSelect);
   const ref = useMeasure(onMeasure);
+  const presenting = !!useArtifactFullscreen()?.presenting;
   const shape = d.shape ?? "decision";
   const isGateway = shape !== "decision";
   const gatewayGlyph = shape === "gateway-parallel" ? "+" : "×";
@@ -2244,7 +2306,7 @@ function DecisionNode({
           <ConfidenceBadge item={d} compact />
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: d.id, kind: "decision", text: d.text }} model={model} onApply={onRefine} />
-          <button onClick={onDelete} data-no-pan aria-label={`Delete ${d.id}`}
+          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${d.id}`}
             className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition">
             <X className="size-3" />
           </button>
@@ -2253,7 +2315,9 @@ function DecisionNode({
         <div className="text-[11px] font-medium leading-tight break-words w-full">
           <InlineEdit value={d.text} onChange={(v) => onUpdate({ text: v })} multiline />
         </div>
-        {!isGateway && (
+        {/* Not there at all while presenting, so a branch editor left open
+         *  closes then and comes back closed. */}
+        {!isGateway && !presenting && (
           // Branch editing lives in a popover rather than stacked inline rows.
           // A diamond's usable interior shrinks fast away from vertical
           // center, so an arbitrary-length branch list packed in directly
@@ -2266,12 +2330,18 @@ function DecisionNode({
             <PopoverTrigger asChild>
               <button
                 data-no-pan
+                data-edit-control
                 className="text-[9px] font-mono-tight text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition"
               >
                 {branches.length} branch{branches.length === 1 ? "" : "es"} ▾
               </button>
             </PopoverTrigger>
-            <PopoverContent data-no-pan className="w-64 p-2" align="center">
+            <PopoverContent
+              data-no-pan className="w-64 p-2" align="center"
+              // Esc while typing a branch label cancels that edit first
+              // (InlineEdit handles it); the next Esc closes the popover.
+              onEscapeKeyDown={(e) => { if (isTypingTarget(e.target)) e.preventDefault(); }}
+            >
               <div className="flex flex-col gap-1 text-[11px] font-mono-tight">
                 {/* Capped + scrollable so a decision with many branches (a real
                     possibility now that branches are N-way) can't push the
@@ -2366,7 +2436,7 @@ function ExceptionNode({
           <ConfidenceBadge item={e} compact />
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: e.id, kind: "exception", text: e.text }} model={model} onApply={onRefine} />
-          <button onClick={onDelete} data-no-pan aria-label={`Delete ${e.id}`}
+          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${e.id}`}
             className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>

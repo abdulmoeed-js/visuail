@@ -10,6 +10,7 @@ import {
   type NodeKind,
   type Proposal,
 } from "@/lib/refine";
+import { useArtifactFullscreen } from "./artifact-fullscreen";
 
 interface Props {
   node: { id: string; kind: NodeKind; text: string };
@@ -22,8 +23,17 @@ interface Props {
  * Small pencil affordance rendered next to node controls. Opens a compact
  * inline prompt, produces a mocked-deterministic Proposal, and shows a
  * before/after diff before the user commits to writing anything to the IR.
+ *
+ * Present mode edits nothing, so the control is not there at all; an open
+ * prompt closes with it (closing it any other way drops the draft too).
  */
-export function RefineControl({ node, model, onApply, className }: Props) {
+export function RefineControl(props: Props) {
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  if (presenting) return null;
+  return <RefinePopover {...props} />;
+}
+
+function RefinePopover({ node, model, onApply, className }: Props) {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [proposal, setProposal] = useState<Proposal | null>(null);
@@ -56,6 +66,7 @@ export function RefineControl({ node, model, onApply, className }: Props) {
       <PopoverTrigger asChild>
         <button
           data-no-pan
+          data-edit-control
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
           className={cn(

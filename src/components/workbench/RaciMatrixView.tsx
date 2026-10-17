@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { IdChip } from "./atoms";
+import { useArtifactFullscreen } from "./artifact-fullscreen";
 
 // A RACI matrix is just the Process canvas's existing actors x steps, with a
 // code per cell -- no new artifact type, no new axes, reuses what's already
@@ -92,6 +93,22 @@ function RaciCell({ code, onSet, actorName, stepText }: {
   stepText: string;
 }) {
   const codeLabel = code ? CODES.find((c) => c.code === code)?.label : undefined;
+  // Presenting: the grid is read, not edited.
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  if (presenting) {
+    return (
+      <span
+        aria-label={`${actorName} on ${stepText}: ${code ? `${code}, ${codeLabel}` : "not set"}`}
+        title={codeLabel}
+        className={cn(
+          "inline-flex size-7 items-center justify-center rounded-md border text-xs font-mono-tight font-semibold",
+          code ? CODE_TONE[code] : "border-dashed text-muted-foreground",
+        )}
+      >
+        {code ?? "—"}
+      </span>
+    );
+  }
   return (
     <Popover>
       <PopoverTrigger asChild>

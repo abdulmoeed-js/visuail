@@ -117,6 +117,7 @@ export function EditableList({
               />
             )}
             <button
+              data-edit-control
               onClick={() => onDelete(item.id)}
               className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition text-muted-foreground hover:text-destructive"
               aria-label="Delete item"
@@ -126,8 +127,9 @@ export function EditableList({
           </li>
         );
       })}
+      {/* The add row is an editing tool: Present mode hides it (styles.css). */}
       {adding ? (
-        <li className="flex items-center gap-1.5">
+        <li className="flex items-center gap-1.5" data-edit-control>
           <Input
             autoFocus
             value={draft}
@@ -148,7 +150,7 @@ export function EditableList({
           </Button>
         </li>
       ) : (
-        <li>
+        <li data-edit-control>
           <button
             onClick={() => setAdding(true)}
             className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-border/70 px-2.5 py-1.5 text-xs text-muted-foreground hover:border-verified hover:text-verified-ink hover:bg-verified/5 transition"

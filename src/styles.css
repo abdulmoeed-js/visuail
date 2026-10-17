@@ -194,6 +194,15 @@
   text-wrap-style: balance;
 }
 
+/* Present mode (full screen, showing to others): editing controls that a
+   view marks with data-edit-control disappear; the diagram, its words and
+   the zoom controls stay. */
+@layer base {
+  [data-presenting] [data-edit-control] {
+    display: none !important;
+  }
+}
+
 /* Tiny section label: the one place capitals are allowed (DESIGN.md 4). */
 @utility eyebrow {
   font-family: var(--font-mono);
