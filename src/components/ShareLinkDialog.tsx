@@ -8,7 +8,6 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { InlineError } from "@/components/ui/inline-error";
 import { Loader2, Copy, Check, X, Plus } from "lucide-react";
@@ -101,6 +100,7 @@ export function ShareLinkDialog({ open, onOpenChange, projectId }: Props) {
   }, [open, projectId]);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
@@ -110,11 +110,10 @@ export function ShareLinkDialog({ open, onOpenChange, projectId }: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        {loading ? (
-          <div className="flex justify-center py-6"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
-        ) : (
-          <div className="space-y-3">
-            {loadError ? (
+        <div className="space-y-3">
+            {loading ? (
+              <div className="flex justify-center py-6"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+            ) : loadError ? (
               <InlineError error={loadError} onRetry={load} />
             ) : (
               <>
@@ -140,9 +139,13 @@ export function ShareLinkDialog({ open, onOpenChange, projectId }: Props) {
             )}
 
             <div className="flex items-center gap-2 pt-2 border-t">
-              <Checkbox
-                id="include-sources" checked={includeSources}
-                onCheckedChange={(v) => setIncludeSources(v === true)}
+              {/* A native tick box, styled as the design's. This dialog hit an
+                  endless re-render on open, and the Radix checkbox was the one
+                  part it didn't share with the dialogs that open fine. */}
+              <input
+                type="checkbox" id="include-sources" checked={includeSources}
+                onChange={(e) => setIncludeSources(e.target.checked)}
+                className="grid size-5 shrink-0 cursor-pointer appearance-none place-content-center rounded-[5px] border-[1.5px] border-muted-foreground bg-transparent transition-colors duration-150 hover:border-secondary-foreground checked:border-primary checked:bg-primary focus-ring before:h-[5px] before:w-[9px] before:-translate-y-px before:-rotate-45 before:border-b-2 before:border-l-2 before:border-primary-foreground before:opacity-0 before:content-[''] checked:before:opacity-100"
               />
               <label htmlFor="include-sources" className="text-xs text-muted-foreground">
                 Also show source transcripts on this link
@@ -152,9 +155,9 @@ export function ShareLinkDialog({ open, onOpenChange, projectId }: Props) {
             <Button onClick={create} disabled={creating || !loaded} className="w-full">
               {creating ? <Loader2 className="size-4 animate-spin" /> : <><Plus className="size-4" /> Create new link</>}
             </Button>
-          </div>
-        )}
+        </div>
       </DialogContent>
+    </Dialog>
 
       <ConfirmDialog
         open={confirmOpen}
@@ -173,6 +176,6 @@ export function ShareLinkDialog({ open, onOpenChange, projectId }: Props) {
         doing="revoke this link"
         onConfirm={revoke}
       />
-    </Dialog>
+    </>
   );
 }
