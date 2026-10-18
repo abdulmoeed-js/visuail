@@ -159,6 +159,13 @@ interface Props {
   drawnBounds?: CanvasRect | null;
   /** Every shape's rectangle, drawn in the minimap. */
   shapes?: CanvasRect[];
+  /** Given, a mouse drag on empty canvas draws a selection box instead of
+   *  panning (pan with Space+drag, the middle button, two fingers or the
+   *  wheel). Called with the box, in canvas units, as it is drawn, and once
+   *  more with `done`; `additive` is Shift held (add to the selection). */
+  onSelectBox?: (box: CanvasRect, done: boolean, additive: boolean) => void;
+  /** A press on empty canvas that did not become a drag (clears a selection). */
+  onBackgroundPress?: () => void;
 }
 
 const EDGE = 16;                 // breathing room between content and the canvas edge
@@ -186,6 +193,7 @@ export function CanvasShell({
   minZoom = 0.2, maxZoom = 3,
   fullscreenLabel = "Diagram canvas",
   viewId, initialView = "readable", readableZoom = 0.8, initialFocus, leftInset = 0, apiRef, drawnBounds, shapes,
+  onSelectBox, onBackgroundPress,
 }: Props) {
   // What is drawn, and the world the camera has to cover: the sheet plus any
   // shape outside it (see drawnBounds).
@@ -794,8 +802,13 @@ export function CanvasShell({
     };
   }, []);
 
-  // A left-button drag on empty canvas pans. (A second finger, the middle
-  // button and Space+drag are handled above, before the shapes see them.)
+  // A press on empty canvas: with a mouse, a selection box where the view
+  // offers one (onSelectBox), else -- and always for a finger, and while
+  // presenting -- a pan. (A second finger, the middle button and Space+drag
+  // are handled above, before the shapes see them.)
+  const boxRef = useRef<{ id: number; x0: number; y0: number; moved: boolean } | null>(null);
+  const [box, setBox] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const boxing = !!onSelectBox && !presenting;
   const onPointerDown = (e: React.PointerEvent) => {
     const t = e.target as HTMLElement;
     if (
@@ -807,9 +820,31 @@ export function CanvasShell({
     ) return;
     if (e.button !== 0 || gestureRef.current.pinch) return;
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+    if (boxing && e.pointerType !== "touch") {
+      const r = viewportRef.current!.getBoundingClientRect();
+      boxRef.current = { id: e.pointerId, x0: e.clientX - r.left, y0: e.clientY - r.top, moved: false };
+      return;
+    }
     dragRef.current = { id: e.pointerId, x: pan.x, y: pan.y, startX: e.clientX, startY: e.clientY };
   };
+  /** The selection box in canvas units, from viewport-pixel corners. */
+  const boxInWorld = (b: { x0: number; y0: number; x1: number; y1: number }): CanvasRect => {
+    const x0 = (Math.min(b.x0, b.x1) - pan.x) / zoom, y0 = (Math.min(b.y0, b.y1) - pan.y) / zoom;
+    return { x: x0, y: y0, w: Math.abs(b.x1 - b.x0) / zoom, h: Math.abs(b.y1 - b.y0) / zoom };
+  };
   const onPointerMove = (e: React.PointerEvent) => {
+    const b = boxRef.current;
+    if (b && b.id === e.pointerId) {
+      const r = viewportRef.current!.getBoundingClientRect();
+      const x1 = e.clientX - r.left, y1 = e.clientY - r.top;
+      // A few pixels of wobble is still a click.
+      if (!b.moved && Math.hypot(x1 - b.x0, y1 - b.y0) < 4) return;
+      b.moved = true;
+      const next = { x0: b.x0, y0: b.y0, x1, y1 };
+      setBox(next);
+      onSelectBox?.(boxInWorld(next), false, e.shiftKey);
+      return;
+    }
     const d = dragRef.current;
     if (!d || d.id !== e.pointerId || gestureRef.current.pinch) return;
     touch();
@@ -817,6 +852,14 @@ export function CanvasShell({
     setView((v) => ({ zoom: v.zoom, pan: { x, y } }));
   };
   const stopPan = (e: React.PointerEvent) => {
+    const b = boxRef.current;
+    if (b && b.id === e.pointerId) {
+      boxRef.current = null;
+      if (!b.moved) onBackgroundPress?.();
+      else if (box && e.type === "pointerup") onSelectBox?.(boxInWorld(box), true, e.shiftKey);
+      setBox(null);
+      return;
+    }
     if (dragRef.current?.id === e.pointerId) dragRef.current = null;
   };
 
@@ -922,7 +965,7 @@ export function CanvasShell({
 
       <div
         ref={viewportRef}
-        className="absolute inset-0 cursor-grab active:cursor-grabbing touch-none select-none"
+        className={cn("absolute inset-0 touch-none select-none", boxing ? "cursor-default" : "cursor-grab active:cursor-grabbing")}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={stopPan}
@@ -967,6 +1010,13 @@ export function CanvasShell({
         {/* Space held: a pane over the shapes, so the press reaches the
          *  camera and the cursor says what a drag will do. */}
         {spaceHeld && <div className="absolute inset-0 z-[5] cursor-grab active:cursor-grabbing" aria-hidden />}
+        {box && (
+          <div
+            className="pointer-events-none absolute z-[6] rounded-sm border border-primary/70 bg-primary/10"
+            style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }}
+            aria-hidden
+          />
+        )}
       </div>
 
       {overlay}

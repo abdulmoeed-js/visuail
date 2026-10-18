@@ -5,6 +5,7 @@ import { Plus, X, GripVertical, Database, Square, CircleDot, Wand2 } from "lucid
 import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
+import { SelectionBar, SelectionOutlines, useShapeSelection } from "./canvas-selection";
 import { InlineEdit } from "./InlineEdit";
 import { edgePoint, roundedPath } from "@/lib/canvas/geometry";
 import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
@@ -129,6 +130,47 @@ export function DFDView({ model, editing }: Props) {
   };
   const tidyUp = () => { if (editing.onTidyUp("dfd")) setOverrides({}); };
 
+  const presenting = !!useArtifactFullscreen()?.presenting;
+  // Selecting nodes (click, Shift-click, a box), moving them together, the
+  // keys, copy and paste (canvas-selection.tsx).
+  const rectsById = useMemo(() => new Map(nodes.map((n) => [n.id, { x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h }])), [nodes]);
+  const sizeOf = (id: string) => {
+    const n = nodesRef.current.find((x) => x.id === id);
+    if (n) return { w: n.w, h: n.h };
+    return id.startsWith("DS-") ? { w: STORE_W, h: STORE_H } : id.startsWith("EE-") ? { w: ENTITY_W, h: ENTITY_H } : { w: PROC_W, h: PROC_H };
+  };
+  const sel = useShapeSelection({
+    view: "dfd", model, rects: rectsById, shellApi, presenting,
+    canEdit: editing.canEdit,
+    preview: (places) => {
+      if (!SAVE_LAYOUTS) noteMove(model);
+      setOverrides((cur) => {
+        const next = { ...cur };
+        for (const [id, p] of Object.entries(places)) { const z = sizeOf(id); next[id] = { cx: p.x + z.w / 2, cy: p.y + z.h / 2 }; }
+        return next;
+      });
+    },
+    commit: (places, mergeKey) => {
+      if (!SAVE_LAYOUTS) return;
+      const now = nodesRef.current;
+      editing.onPlaceShapes("dfd", places, Object.fromEntries(now.map((x) => [x.id, { x: x.cx - x.w / 2, y: x.cy - x.h / 2 }])), mergeKey);
+      setOverrides((cur) => { const next = { ...cur }; for (const id of Object.keys(places)) delete next[id]; return next; });
+    },
+    onDeleteMany: editing.onDeleteMany,
+    onPaste: (clip, dx, dy) => {
+      const now = nodesRef.current;
+      const made = editing.onPasteShapes("dfd", clip, dx, dy, Object.fromEntries(now.map((x) => [x.id, { x: x.cx - x.w / 2, y: x.cy - x.h / 2 }])));
+      if (made && !SAVE_LAYOUTS) {
+        setOverrides((cur) => {
+          const next = { ...cur };
+          for (const id of made.ids) { const p = made.places[id]; if (p) { const z = sizeOf(id); next[id] = { cx: p.x + z.w / 2, cy: p.y + z.h / 2 }; } }
+          return next;
+        });
+      }
+      return made;
+    },
+  });
+
   const startConnDrag = (fromId: string, e: React.PointerEvent, contentEl: HTMLElement | null) => {
     const from = byId.get(fromId);
     if (!from) return;
@@ -176,7 +218,6 @@ export function DFDView({ model, editing }: Props) {
   const isEmpty = model.steps.length === 0 && (model.dataStores ?? []).length === 0 && (model.externalEntities ?? []).length === 0;
   // Present mode (full screen, showing to others): the add controls are
   // hidden by the shell, so the legend stays even if an add form was open.
-  const presenting = !!useArtifactFullscreen()?.presenting;
   // Turning Present on drops the add form from the screen; close it too, so
   // leaving Present does not bring it back with its field grabbing focus.
   // (The button that opened it is gone as well, so there is no focus to
@@ -186,6 +227,8 @@ export function DFDView({ model, editing }: Props) {
   }, [presenting]);
 
   return (
+    // The frame the selection keys answer for (canvas-selection.tsx).
+    <div ref={sel.frameRef} className="h-full w-full">
     <CanvasShell
       contentWidth={width}
       contentHeight={height}
@@ -194,6 +237,8 @@ export function DFDView({ model, editing }: Props) {
       viewId="dfd"
       apiRef={shellApi}
       shapes={nodes.map((n) => ({ x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h }))}
+      onSelectBox={sel.onSelectBox}
+      onBackgroundPress={sel.onBackgroundPress}
       // Empty: aim at the middle, where the prompt is drawn.
       initialFocus={isEmpty ? { x: width / 2, y: 0, w: 0, h: 0 } : undefined}
       bottomLeft={adding && !presenting ? undefined : <Legend />}
@@ -254,6 +299,8 @@ export function DFDView({ model, editing }: Props) {
         </div>
       )}
       <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
+      {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
+      {!presenting && <SelectionBar ids={sel.selection.ids} rects={rectsById} actions={sel.actions} />}
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <marker id="dfd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -287,6 +334,14 @@ export function DFDView({ model, editing }: Props) {
           node={n}
           onDrag={(dx, dy, done) => patchPos(n.id, n.cx + dx, n.cy + dy, done)}
           canEdit={editing.canEdit}
+          onPress={(e) => sel.pressShape(n.id, e)}
+          onGrip={(e) => {
+            // A grip on one of several selected shapes moves them all.
+            const ids = sel.selection.ids;
+            if (ids.length < 2 || !ids.includes(n.id)) return false;
+            sel.dragSelection(e, ids);
+            return true;
+          }}
           onDelete={() => editing.onDeleteAny(n.id)}
           onUpdate={(text) => editing.onUpdateItem(n.id, { text })}
           onStartConnect={(e, contentEl) => startConnDrag(n.id, e, contentEl)}
@@ -307,17 +362,24 @@ export function DFDView({ model, editing }: Props) {
         );
       })}
     </CanvasShell>
+    {sel.pasteDialog}
+    </div>
   );
 }
 
 function DFDNodeView({
-  node, onDrag, onDelete, onUpdate, onStartConnect, canEdit,
+  node, onDrag, onDelete, onUpdate, onStartConnect, canEdit, onPress, onGrip,
 }: {
   node: DFDNode;
   /** Called with `done` once more when the drag ends. */
   onDrag: (dx: number, dy: number, done?: boolean) => void;
   /** Asked before a drag starts (a viewer is told who is editing). */
   canEdit: () => boolean;
+  /** A press on the body: select, and drag the selection (canvas-selection). */
+  onPress: (e: React.PointerEvent) => void;
+  /** A press on the grip; true when it was taken (the shape is one of
+   *  several selected, so the selection moves). */
+  onGrip: (e: React.PointerEvent) => boolean;
   onDelete: () => void;
   onUpdate: (text: string) => void;
   onStartConnect: (e: React.PointerEvent, contentEl: HTMLElement | null) => void;
@@ -333,6 +395,7 @@ function DFDNodeView({
     // codebase) does it. An incremental-since-last delta would silently
     // discard all but the last move event's worth of movement, since the
     // stale `node.cx` captured in this closure never updates mid-drag.
+    if (onGrip(e)) return;
     if (!canEdit()) return;
     // A press that never moved is a click, not a move: nothing to save.
     let last: { dx: number; dy: number } | null = null;
@@ -371,10 +434,10 @@ function DFDNodeView({
 
   if (node.kind === "process") {
     return (
-      <div data-node data-dfd-node={node.id} className="group absolute rounded-full border-2 border-primary/60 bg-card shadow-sm flex flex-col items-center justify-center gap-0.5 text-center px-3" style={style}>
+      <div data-node data-dfd-node={node.id} data-shape-id={node.id} onPointerDown={onPress} className="group absolute rounded-full border-2 border-primary/60 bg-card shadow-sm flex flex-col items-center justify-center gap-0.5 text-center px-3" style={style}>
         {header}
         <div className="text-xs font-medium leading-snug break-words px-1">
-          <InlineEdit value={node.text} onChange={onUpdate} multiline />
+          <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" />
         </div>
         {connectHandle}
       </div>
@@ -382,20 +445,20 @@ function DFDNodeView({
   }
   if (node.kind === "store") {
     return (
-      <div data-node data-dfd-node={node.id} className="group absolute border-t-2 border-b-2 border-primary/60 bg-card shadow-sm flex flex-col justify-center gap-0.5 px-2" style={style}>
+      <div data-node data-dfd-node={node.id} data-shape-id={node.id} onPointerDown={onPress} className="group absolute border-t-2 border-b-2 border-primary/60 bg-card shadow-sm flex flex-col justify-center gap-0.5 px-2" style={style}>
         {header}
         <div className="text-xs font-medium leading-snug break-words px-1">
-          <InlineEdit value={node.text} onChange={onUpdate} multiline />
+          <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" />
         </div>
         {connectHandle}
       </div>
     );
   }
   return (
-    <div data-node data-dfd-node={node.id} className="group absolute rounded-md border-2 border-primary/60 bg-card shadow-sm flex flex-col gap-0.5" style={style}>
+    <div data-node data-dfd-node={node.id} data-shape-id={node.id} onPointerDown={onPress} className="group absolute rounded-md border-2 border-primary/60 bg-card shadow-sm flex flex-col gap-0.5" style={style}>
       {header}
       <div className="text-xs font-medium leading-snug break-words px-2 pb-1.5">
-        <InlineEdit value={node.text} onChange={onUpdate} multiline />
+        <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" />
       </div>
       {connectHandle}
     </div>
@@ -499,7 +562,7 @@ function Legend() {
   }
   return (
     <>
-      <span className={hint}>Drag a node's handle to link · click a flow label to rename</span>
+      <span className={hint}>Click to select · double-click to edit · drag a node's handle to link</span>
     </>
   );
 }

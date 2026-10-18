@@ -4,6 +4,7 @@ import { Plus, X, GripVertical, CircleDot, Wand2 } from "lucide-react";
 import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
+import { SelectionBar, SelectionOutlines, useShapeSelection } from "./canvas-selection";
 import { InlineEdit } from "./InlineEdit";
 import { edgePoint, roundedPath } from "@/lib/canvas/geometry";
 import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
@@ -98,6 +99,41 @@ export function StateDiagramView({ model, editing }: Props) {
     setOverrides((cur) => { const next = { ...cur }; delete next[id]; return next; });
   };
   const tidyUp = () => { if (editing.onTidyUp("state")) setOverrides({}); };
+  const presenting = !!useArtifactFullscreen()?.presenting;
+
+  // Selecting states (click, Shift-click, a box), moving them together, the
+  // keys, copy and paste (canvas-selection.tsx).
+  const rectsById = useMemo(() => new Map(placed.map((p) => [p.ref.id, { x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H }])), [placed]);
+  const currentPlaces = () => Object.fromEntries(placedRef.current.map((p) => [p.ref.id, { x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2 }]));
+  const sel = useShapeSelection({
+    view: "state", model, rects: rectsById, shellApi, presenting,
+    canEdit: editing.canEdit,
+    preview: (places) => {
+      if (!SAVE_LAYOUTS) noteMove(model);
+      setOverrides((cur) => {
+        const next = { ...cur };
+        for (const [id, p] of Object.entries(places)) next[id] = { cx: p.x + STATE_W / 2, cy: p.y + STATE_H / 2 };
+        return next;
+      });
+    },
+    commit: (places, mergeKey) => {
+      if (!SAVE_LAYOUTS) return;
+      editing.onPlaceShapes("state", places, currentPlaces(), mergeKey);
+      setOverrides((cur) => { const next = { ...cur }; for (const id of Object.keys(places)) delete next[id]; return next; });
+    },
+    onDeleteMany: editing.onDeleteMany,
+    onPaste: (clip, dx, dy) => {
+      const made = editing.onPasteShapes("state", clip, dx, dy, currentPlaces());
+      if (made && !SAVE_LAYOUTS) {
+        setOverrides((cur) => {
+          const next = { ...cur };
+          for (const id of made.ids) { const p = made.places[id]; if (p) next[id] = { cx: p.x + STATE_W / 2, cy: p.y + STATE_H / 2 }; }
+          return next;
+        });
+      }
+      return made;
+    },
+  });
 
   const startConnDrag = (fromId: string, e: React.PointerEvent, contentEl: HTMLElement | null) => {
     const from = byId.get(fromId);
@@ -139,7 +175,6 @@ export function StateDiagramView({ model, editing }: Props) {
   };
   // Present mode (full screen, showing to others): the add form is hidden
   // by the shell, so the legend stays even if the form was open.
-  const presenting = !!useArtifactFullscreen()?.presenting;
   // Turning Present on drops the add form from the screen; close it too, so
   // leaving Present does not bring it back with its field grabbing focus.
   // (The "Add state" button is gone as well, so there is no focus to hand
@@ -149,6 +184,8 @@ export function StateDiagramView({ model, editing }: Props) {
   }, [presenting]);
 
   return (
+    // The frame the selection keys answer for (canvas-selection.tsx).
+    <div ref={sel.frameRef} className="h-full w-full">
     <CanvasShell
       contentWidth={width}
       contentHeight={height}
@@ -157,6 +194,8 @@ export function StateDiagramView({ model, editing }: Props) {
       viewId="state"
       apiRef={shellApi}
       shapes={placed.map((p) => ({ x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H }))}
+      onSelectBox={sel.onSelectBox}
+      onBackgroundPress={sel.onBackgroundPress}
       // Empty: aim at the middle, where the "add a state" prompt is drawn.
       initialFocus={states.length === 0 ? { x: width / 2, y: 0, w: 0, h: 0 } : undefined}
       bottomLeft={adding && !presenting ? undefined : <Legend />}
@@ -207,6 +246,8 @@ export function StateDiagramView({ model, editing }: Props) {
         </div>
       )}
       <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
+      {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
+      {!presenting && <SelectionBar ids={sel.selection.ids} rects={rectsById} actions={sel.actions} />}
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <marker id="sd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -258,6 +299,14 @@ export function StateDiagramView({ model, editing }: Props) {
           node={p}
           onDrag={(dx, dy, done) => patchPos(p.ref.id, p.cx + dx, p.cy + dy, done)}
           canEdit={editing.canEdit}
+          onPress={(e) => sel.pressShape(p.ref.id, e)}
+          onGrip={(e) => {
+            // A grip on one of several selected shapes moves them all.
+            const ids = sel.selection.ids;
+            if (ids.length < 2 || !ids.includes(p.ref.id)) return false;
+            sel.dragSelection(e, ids);
+            return true;
+          }}
           onDelete={() => editing.onDeleteAny(p.ref.id)}
           onUpdateText={(text) => editing.onUpdateItem(p.ref.id, { text })}
           onToggleInitial={() => editing.onUpdateItem(p.ref.id, { isInitial: !p.ref.isInitial })}
@@ -278,17 +327,24 @@ export function StateDiagramView({ model, editing }: Props) {
         );
       })}
     </CanvasShell>
+    {sel.pasteDialog}
+    </div>
   );
 }
 
 function StateNodeView({
-  node, onDrag, onDelete, onUpdateText, onToggleInitial, onToggleFinal, onStartConnect, canEdit,
+  node, onDrag, onDelete, onUpdateText, onToggleInitial, onToggleFinal, onStartConnect, canEdit, onPress, onGrip,
 }: {
   node: Placed;
   /** Called with `done` once more when the drag ends. */
   onDrag: (dx: number, dy: number, done?: boolean) => void;
   /** Asked before a drag starts (a viewer is told who is editing). */
   canEdit: () => boolean;
+  /** A press on the body: select, and drag the selection (canvas-selection). */
+  onPress: (e: React.PointerEvent) => void;
+  /** A press on the grip; true when it was taken (the shape is one of
+   *  several selected, so the selection moves). */
+  onGrip: (e: React.PointerEvent) => boolean;
   onDelete: () => void;
   onUpdateText: (t: string) => void;
   onToggleInitial: () => void;
@@ -299,6 +355,7 @@ function StateNodeView({
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    if (onGrip(e)) return;
     if (!canEdit()) return;
     // A press that never moved is a click, not a move: nothing to save.
     let last: { dx: number; dy: number } | null = null;
@@ -310,6 +367,8 @@ function StateNodeView({
     <div
       data-node
       data-state-node={node.ref.id}
+      data-shape-id={node.ref.id}
+      onPointerDown={onPress}
       className="group absolute rounded-xl border-2 border-primary/60 bg-card shadow-sm flex flex-col gap-1 px-2.5 py-2"
       style={{
         left: node.cx - STATE_W / 2, top: node.cy - STATE_H / 2, width: STATE_W, height: STATE_H, zIndex: 10,
@@ -331,7 +390,7 @@ function StateNodeView({
         </button>
       </div>
       <div className="text-xs font-medium leading-snug break-words">
-        <InlineEdit value={node.ref.text} onChange={onUpdateText} multiline />
+        <InlineEdit value={node.ref.text} onChange={onUpdateText} multiline activate="double" />
       </div>
       <div className="mt-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition" data-no-pan data-edit-control>
         <button onClick={onToggleInitial} title="Toggle initial state"

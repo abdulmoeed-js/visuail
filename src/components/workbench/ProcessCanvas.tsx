@@ -15,6 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
+import { SelectionBar, SelectionOutlines, useShapeSelection } from "./canvas-selection";
+import type { ShapeClip } from "@/lib/canvas/clipboard";
 import { isUserCreatedId } from "@/lib/item-origin";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
@@ -338,11 +340,16 @@ interface Props {
   /** Opens the Use Case Description drill-down for a step (see Workbench.tsx). */
   onOpenUseCase?: (stepId: string) => void;
   /** Saves where shapes were moved or resized to (see ArtifactEditing). */
-  onPlaceShapes?: (view: ViewId, moved: Record<string, NodeLayout | null>, current: Record<string, NodeLayout>) => boolean;
+  onPlaceShapes?: (view: ViewId, moved: Record<string, NodeLayout | null>, current: Record<string, NodeLayout>, mergeKey?: string) => boolean;
   /** Back to the automatic layout. */
   onTidyUp?: (view: ViewId) => boolean;
   /** Whether this tab may edit; says why not when it may not. */
   canEdit?: () => boolean;
+  /** Several shapes at once (a selection), as one undo step. */
+  onDeleteMany?: (ids: string[]) => void;
+  /** Pastes copies as new items (see ArtifactEditing.onPasteShapes). */
+  onPasteShapes?: (view: ViewId, clip: ShapeClip, dx: number, dy: number, current: Record<string, NodeLayout>) =>
+    { ids: string[]; places: Record<string, NodeLayout> } | null;
 }
 
 interface PaletteItem {
@@ -406,7 +413,7 @@ export function ProcessCanvas({
   model, onAddStep, onAddActor, onAddDecision, onAddException,
   onAddConnection, onDeleteConnection, onUpdateConnection,
   onDeleteAny, onUpdateItem, onApplyRefinement, onOpenUseCase,
-  onPlaceShapes, onTidyUp, canEdit,
+  onPlaceShapes, onTidyUp, canEdit, onDeleteMany, onPasteShapes,
 }: Props) {
 
   // Hand-placed positions, sizes and stacking are view state, not model
@@ -595,6 +602,78 @@ export function ProcessCanvas({
     () => [...geomById.values()].map((g) => ({ x: g.cx - g.w / 2, y: g.cy - g.h / 2, w: g.w, h: g.h })),
     [geomById],
   );
+  const rectsById = useMemo(
+    () => new Map([...geomById].map(([id, g]) => [id, { x: g.cx - g.w / 2, y: g.cy - g.h / 2, w: g.w, h: g.h }])),
+    [geomById],
+  );
+
+  // Selecting shapes (click, Shift-click, a box), moving them together, the
+  // keys, copy and paste (canvas-selection.tsx).
+  const sel = useShapeSelection({
+    view: "process", model, rects: rectsById, shellApi, presenting,
+    canEdit: canEdit ?? alwaysEditable,
+    preview: (places) => {
+      for (const [id, p] of Object.entries(places)) {
+        const g = geomRef.current.get(id);
+        if (g) moveOverride(id, { cx: p.x + g.w / 2, cy: p.y + g.h / 2 });
+      }
+    },
+    commit: (places, mergeKey) => {
+      if (!SAVE_LAYOUTS || !onPlaceShapes) return;
+      onPlaceShapes("process", places, currentPlaces(), mergeKey);
+      // The saved places draw them from now on; only stacking stays local.
+      setOverrides((cur) => {
+        const next = { ...cur };
+        for (const id of Object.keys(places)) {
+          const z = cur[id]?.z;
+          if (z === undefined) delete next[id]; else next[id] = { z };
+        }
+        return next;
+      });
+    },
+    onDeleteMany: (ids) => (onDeleteMany ? onDeleteMany(ids) : ids.forEach(onDeleteAny)),
+    onPaste: (clip, dx, dy) => {
+      const made = onPasteShapes?.("process", clip, dx, dy, currentPlaces()) ?? null;
+      // Saving off: draw them where they were pasted until the page reloads.
+      if (made && !SAVE_LAYOUTS) {
+        for (const id of made.ids) {
+          const p = made.places[id];
+          if (!p) continue;
+          const kind = id.startsWith("DC-") ? "decision" : id.startsWith("EX-") ? "exception" : "step";
+          // The copy keeps its special shape (event, document...): size by it.
+          const shape = kind === "step" ? clip.items[made.ids.indexOf(id)]?.item.shape : undefined;
+          const size = defaultSizeFor(kind, typeof shape === "string" ? shape : undefined);
+          patchOverride(id, { cx: p.x + size.w / 2, cy: p.y + size.h / 2 });
+        }
+      }
+      return made;
+    },
+    onBringToFront: bringToFront,
+    onSendToBack: sendToBack,
+    snap,
+  });
+  /** A drag by a grip: the whole selection when that shape is part of a
+   *  bigger one, else just the shape. */
+  const gripGroup = useRef<Record<string, { x: number; y: number }> | null>(null);
+  const gripDrag = (id: string, cx: number, cy: number, delta: { dx: number; dy: number }, done?: boolean) => {
+    const ids = sel.selection.ids;
+    if (ids.length > 1 && ids.includes(id)) {
+      if (!gripGroup.current) {
+        gripGroup.current = Object.fromEntries(ids.map((x) => [x, rectsById.get(x)]).filter(([, r]) => r)
+          .map(([x, r]) => [x as string, { x: (r as { x: number }).x, y: (r as { y: number }).y }]));
+      }
+      const moved = Object.fromEntries(Object.entries(gripGroup.current)
+        .map(([x, p]) => [x, { x: snap(p.x + delta.dx), y: snap(p.y + delta.dy) }]));
+      if (!done) { for (const [x, p] of Object.entries(moved)) { const g = geomRef.current.get(x); if (g) moveOverride(x, { cx: p.x + g.w / 2, cy: p.y + g.h / 2 }); } return; }
+      gripGroup.current = null;
+      if (SAVE_LAYOUTS && onPlaceShapes) {
+        onPlaceShapes("process", moved, currentPlaces());
+        setOverrides((cur) => { const next = { ...cur }; for (const x of Object.keys(moved)) { const z = cur[x]?.z; if (z === undefined) delete next[x]; else next[x] = { z }; } return next; });
+      }
+      return;
+    }
+    place(id, { cx: snap(cx + delta.dx), cy: snap(cy + delta.dy) }, done);
+  };
 
   // Adding from the bar asks who does the step instead of assuming. The
   // select opens on whoever did the previous step -- the likeliest answer --
@@ -819,6 +898,8 @@ export function ProcessCanvas({
 
   return (
     <EditGuardCtx.Provider value={canEdit ?? alwaysEditable}>
+    {/* The frame the selection keys answer for (canvas-selection.tsx). */}
+    <div ref={sel.frameRef} className="h-full w-full">
     <CanvasShell
       contentWidth={Math.max(width, 900)}
       contentHeight={Math.max(height, 620)}
@@ -827,6 +908,8 @@ export function ProcessCanvas({
       viewId="process"
       apiRef={shellApi}
       shapes={shapeRects}
+      onSelectBox={sel.onSelectBox}
+      onBackgroundPress={sel.onBackgroundPress}
       // The palette is hidden while presenting, so nothing needs the room.
       leftInset={paletteOpen && !presenting ? PALETTE_INSET : 0}
       initialFocus={spine[0] ? {
@@ -1138,11 +1221,11 @@ export function ProcessCanvas({
               onMeasure={(w, h) => reportMeasure(s.id, w, h)}
               onDelete={() => onDeleteAny(s.id)}
               onUpdate={(patch) => onUpdateItem(s.id, patch as Record<string, unknown>)}
-              onDrag={(delta, done) => place(s.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) }, done)}
+              onDrag={(delta, done) => gripDrag(s.id, n.cx, n.cy, delta, done)}
               onResize={(w, h, done) => place(s.id, { w: snap(w), h: snap(h) }, done)}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(s.id, e) : undefined}
-              onSelect={() => selectNode(s.id)}
+              onSelect={(ev) => { selectNode(s.id); if (ev) sel.pressShape(s.id, ev); }}
               onBringToFront={() => bringToFront(s.id)}
               onSendToBack={() => sendToBack(s.id)}
               onOpenUseCase={onOpenUseCase ? () => onOpenUseCase(s.id) : undefined}
@@ -1162,11 +1245,11 @@ export function ProcessCanvas({
               onMeasure={(w, h) => reportMeasure(d.id, w, h)}
               onDelete={() => onDeleteAny(d.id)}
               onUpdate={(patch) => onUpdateItem(d.id, patch as Record<string, unknown>)}
-              onDrag={(delta, done) => place(d.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) }, done)}
+              onDrag={(delta, done) => gripDrag(d.id, n.cx, n.cy, delta, done)}
               onResize={(w, h, done) => place(d.id, { w: snap(w), h: snap(h) }, done)}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(d.id, e) : undefined}
-              onSelect={() => selectNode(d.id)}
+              onSelect={(ev) => { selectNode(d.id); if (ev) sel.pressShape(d.id, ev); }}
               onBringToFront={() => bringToFront(d.id)}
               onSendToBack={() => sendToBack(d.id)}
               z={n.z}
@@ -1184,17 +1267,20 @@ export function ProcessCanvas({
             onMeasure={(w, h) => reportMeasure(e.id, w, h)}
             onDelete={() => onDeleteAny(e.id)}
             onUpdate={(patch) => onUpdateItem(e.id, patch as Record<string, unknown>)}
-            onDrag={(delta, done) => place(e.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) }, done)}
+            onDrag={(delta, done) => gripDrag(e.id, n.cx, n.cy, delta, done)}
             onResize={(w, h, done) => place(e.id, { w: snap(w), h: snap(h) }, done)}
             onRefine={handleRefine}
             onStartConnect={onAddConnection ? (ev) => startConnDrag(e.id, ev) : undefined}
-            onSelect={() => selectNode(e.id)}
+            onSelect={(ev) => { selectNode(e.id); if (ev) sel.pressShape(e.id, ev); }}
             onBringToFront={() => bringToFront(e.id)}
             onSendToBack={() => sendToBack(e.id)}
             z={n.z}
           />
         );
       })}
+
+      {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
+      {!presenting && <SelectionBar ids={sel.selection.ids} rects={rectsById} actions={sel.actions} />}
 
       <FlashRing key={flashId ?? "idle"} rect={flashGeom ? {
         x: flashGeom.cx - flashGeom.w / 2, y: flashGeom.cy - flashGeom.h / 2, w: flashGeom.w, h: flashGeom.h,
@@ -1218,6 +1304,8 @@ export function ProcessCanvas({
         );
       })}
     </CanvasShell>
+    {sel.pasteDialog}
+    </div>
     </EditGuardCtx.Provider>
   );
 }
@@ -1612,7 +1700,7 @@ function Legend() {
        *  (the bottom bar is a container-query container). The same words
        *  live in the shape palette for narrower canvases. Editing help, so
        *  hidden while presenting. */}
-      <span className={cn(chip, "hidden @min-[900px]:flex")} data-edit-control><GripVertical className="size-3" /> Drag to move · drag a corner to resize</span>
+      <span className={cn(chip, "hidden @min-[900px]:flex")} data-edit-control><GripVertical className="size-3" /> Click to select · drag to move · double-click to edit</span>
     </>
   );
 }
@@ -1906,7 +1994,8 @@ function StepNode({
   onResize: (w: number, h: number, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
-  onSelect: () => void;
+  /** A press on the body (with the event) or the grip (without). */
+  onSelect: (e?: React.PointerEvent) => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
   onOpenUseCase?: () => void;
@@ -1956,7 +2045,7 @@ function StepNode({
         ref={ref}
         data-node
         data-node-id={step.id}
-        onPointerDown={() => onSelect()}
+        onPointerDown={(e) => onSelect(e)}
         className="group absolute animate-item-in flex flex-col items-center"
         style={{
           left: node.cx - node.w / 2,
@@ -1977,7 +2066,7 @@ function StepNode({
           <DragHandle handlers={drag} />
           <IdChip id={step.id} tone="primary" />
           <div className="text-xs font-medium flex-1 text-center break-words">
-            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} />
+            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} activate="double" />
           </div>
           <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${step.id}`}
@@ -2070,7 +2159,7 @@ function StepNode({
         </div>
       </div>
       <div className="text-xs leading-snug font-medium break-words">
-        <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} multiline />
+        <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" />
       </div>
       {shape !== "swimlane" && shape !== "event" && (
         <div className="flex flex-wrap gap-1 text-[10px] font-mono-tight text-muted-foreground mt-auto">
@@ -2097,7 +2186,7 @@ function StepNode({
       ref={ref}
       data-node
       data-node-id={step.id}
-      onPointerDown={() => onSelect()}
+      onPointerDown={(e) => onSelect(e)}
       className={cn("group absolute animate-item-in flex flex-col gap-1", baseClass, padClass)}
       style={{
         left: node.cx - node.w / 2,
@@ -2135,7 +2224,8 @@ function SectionedNode({
   onResize: (w: number, h: number, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
-  onSelect: () => void;
+  /** A press on the body (with the event) or the grip (without). */
+  onSelect: (e?: React.PointerEvent) => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
   z: number;
@@ -2173,7 +2263,7 @@ function SectionedNode({
       ref={refEl}
       data-node
       data-node-id={step.id}
-      onPointerDown={() => onSelect()}
+      onPointerDown={(e) => onSelect(e)}
       className={cn(
         "group absolute animate-item-in rounded-lg border-2 bg-card shadow-sm overflow-hidden flex flex-col",
         frame === "drift" && "border-drift",
@@ -2200,7 +2290,7 @@ function SectionedNode({
             <div className="text-[9px] font-mono-tight text-muted-foreground leading-none">{stereotype}</div>
           )}
           <div className="text-xs font-semibold break-words leading-tight">
-            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} />
+            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} activate="double" />
           </div>
         </div>
         <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
@@ -2264,7 +2354,7 @@ function SectionList({
       {items.map((v, i) => (
         <div key={i} className="flex items-center gap-1 group/row">
           <span className="text-[11px] font-mono-tight text-foreground/90 flex-1 break-words min-w-0">
-            <InlineEdit value={v} onChange={(next) => onChange(i, next)} />
+            <InlineEdit value={v} onChange={(next) => onChange(i, next)} activate="double" />
           </span>
           <button
             onClick={() => onRemove(i)}
@@ -2342,7 +2432,8 @@ function DecisionNode({
   onResize: (w: number, h: number, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
-  onSelect: () => void;
+  /** A press on the body (with the event) or the grip (without). */
+  onSelect: (e?: React.PointerEvent) => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
   z: number;
@@ -2389,7 +2480,7 @@ function DecisionNode({
       ref={ref}
       data-node
       data-node-id={d.id}
-      onPointerDown={() => onSelect()}
+      onPointerDown={(e) => onSelect(e)}
       className={cn("group absolute animate-item-in", d.drift && "animate-drift")}
       style={{
         left: node.cx - node.w / 2,
@@ -2437,7 +2528,7 @@ function DecisionNode({
         </div>
 
         <div className="text-[11px] font-medium leading-tight break-words w-full">
-          <InlineEdit value={d.text} onChange={(v) => onUpdate({ text: v })} multiline />
+          <InlineEdit value={d.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" />
         </div>
         {/* Not there at all while presenting, so a branch editor left open
          *  closes then and comes back closed. */}
@@ -2515,7 +2606,8 @@ function ExceptionNode({
   onResize: (w: number, h: number, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (ev: React.PointerEvent) => void;
-  onSelect: () => void;
+  /** A press on the body (with the event) or the grip (without). */
+  onSelect: (e?: React.PointerEvent) => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
   z: number;
@@ -2531,7 +2623,7 @@ function ExceptionNode({
       ref={ref}
       data-node
       data-node-id={e.id}
-      onPointerDown={() => onSelect()}
+      onPointerDown={(e) => onSelect(e)}
       className={cn(
         "group absolute rounded-xl border bg-card px-2.5 py-2",
         "shadow-[0_1px_3px_rgba(0,0,0,0.08)]",
@@ -2571,7 +2663,7 @@ function ExceptionNode({
         <Zap className="size-3" aria-hidden /> Exception
       </span>
       <div className="text-[11px] leading-snug break-words">
-        <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline />
+        <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" />
       </div>
       {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />

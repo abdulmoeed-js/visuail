@@ -12,16 +12,27 @@ interface Props {
   /** What this field is, for screen readers (e.g. "Preconditions for TC-1").
    *  Names the edit field, and prefixes the text when not editing. */
   label?: string;
+  /** "click" (lists, tables, pop-ups): a click starts typing. "double" (text
+   *  on a diagram shape): a click belongs to the shape -- it selects it, or
+   *  starts moving it -- and a double-click, Enter (when focused) or Enter/F2
+   *  on the selected shape starts typing (EDIT_TEXT_EVENT). */
+  activate?: "click" | "double";
 }
 
+/** Sent to a shape's text (marked `data-edit-text`) to start typing on it,
+ *  for Enter or F2 on a selected shape. */
+export const EDIT_TEXT_EVENT = "visu:edit-text";
+
 /**
- * Click-to-edit text. Enter to save, Escape to cancel.
+ * Text you can edit where it is. Enter to save, Escape to cancel.
  * Reachable from the keyboard too: Tab to it, then Enter or Space to edit.
- * Stops propagation so it doesn't trigger canvas pan or node drag.
+ * A click starts typing ("click"), or on a diagram shape a double-click does
+ * ("double"); see `activate`.
  */
 export function InlineEdit({
-  value, onChange, className, multiline, placeholder, as = "inline", label,
+  value, onChange, className, multiline, placeholder, as = "inline", label, activate = "click",
 }: Props) {
+  const onShape = activate === "double";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const presenting = !!useArtifactFullscreen()?.presenting;
@@ -33,6 +44,14 @@ export function InlineEdit({
   const refocus = useRef(false);
 
   useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
+  // Enter or F2 on a selected shape asks its text to start typing.
+  useEffect(() => {
+    const el = displayRef.current;
+    if (!onShape || !el) return;
+    const start = () => setEditing(true);
+    el.addEventListener(EDIT_TEXT_EVENT, start);
+    return () => el.removeEventListener(EDIT_TEXT_EVENT, start);
+  });
   useLayoutEffect(() => {
     if (editing && ref.current) {
       // The field appears exactly where the text that was clicked sits, so
@@ -93,7 +112,10 @@ export function InlineEdit({
       role="button"
       tabIndex={0}
       aria-label={label ? `${label}: ${shown}` : undefined}
-      onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+      {...(onShape
+        // On a shape a click is the shape's; typing starts on a double-click.
+        ? { onDoubleClick: (e: React.MouseEvent) => { e.stopPropagation(); setEditing(true); }, "data-edit-text": "" }
+        : { onClick: (e: React.MouseEvent) => { e.stopPropagation(); setEditing(true); } })}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -101,13 +123,14 @@ export function InlineEdit({
           setEditing(true);
         }
       }}
-      onPointerDown={stop}
+      onPointerDown={onShape ? undefined : stop}
       className={cn(
-        "cursor-text rounded px-1 -mx-1 hover:bg-verified/10 hover:ring-1 hover:ring-verified/30 transition",
+        "rounded px-1 -mx-1 transition",
+        onShape ? "cursor-default" : "cursor-text hover:bg-verified/10 hover:ring-1 hover:ring-verified/30",
         !value && "text-muted-foreground italic",
         className,
       )}
-      title="Click to edit"
+      title={onShape ? "Double-click to edit" : "Click to edit"}
     >
       {shown}
     </Tag>

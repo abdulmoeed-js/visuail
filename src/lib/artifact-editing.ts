@@ -32,7 +32,8 @@ import { connectArtifactChannel, editorOf, type ArtifactChannelHandle, type Here
 import { summariseEdit, type EditSummary } from "@/lib/describe-edit";
 import { MODEL_SCHEMA, isOutdated, noteSchema, schemaOf, useOutdated } from "@/lib/model-schema";
 import { removeById } from "@/lib/remove-item";
-import { clearLayout, placeShapes, setBlockHeight } from "@/lib/canvas/layout";
+import { SAVE_LAYOUTS, clearLayout, placeShapes, setBlockHeight } from "@/lib/canvas/layout";
+import { pasteShapes, type ShapeClip } from "@/lib/canvas/clipboard";
 
 let uid = 1000;
 
@@ -147,11 +148,23 @@ export interface ArtifactEditing {
   onAddState: (t: string) => string;
 
   onDeleteAny: (id: string) => void;
+  /** Several at once (a selection), as one undo step. */
+  onDeleteMany: (ids: string[]) => void;
+  /** Copies (see clipboard.ts) added as new items, moved by (dx, dy) from
+   *  where they were copied, as one undo step; their places are saved in
+   *  `view` when saving is on (SAVE_LAYOUTS). Returns the new ids and their
+   *  places (for a view to draw when saving is off), or null when refused. */
+  onPasteShapes: (view: ViewId, clip: ShapeClip, dx: number, dy: number, current: Record<string, NodeLayout>) =>
+    { ids: string[]; places: Record<string, NodeLayout> } | null;
   /** Hand-made arrangement (src/lib/canvas/layout.ts). Saves where shapes
    *  were moved or resized to in one diagram, as one undo step; `current`
    *  is where every shape is drawn now, kept the first time the diagram is
    *  arranged so nothing else jumps. True when it was saved. */
-  onPlaceShapes: (view: ViewId, moved: Record<string, NodeLayout | null>, current: Record<string, NodeLayout>) => boolean;
+  onPlaceShapes: (
+    view: ViewId, moved: Record<string, NodeLayout | null>, current: Record<string, NodeLayout>,
+    /** Repeats with the same key within a second are one undo step (arrow-key nudges). */
+    mergeKey?: string,
+  ) => boolean;
   /** Back to the automatic layout for one diagram ("Tidy up"). */
   onTidyUp: (view: ViewId) => boolean;
   /** Business model canvas: one block's height. */
@@ -566,9 +579,22 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   const onClearDrift = () => { if (mutate(() => pristine, { label: "source restore" })) setDrifted(false); };
 
   const onDeleteAny = (id: string) => mutate((m) => removeById(m, id));
+  const onDeleteMany = (ids: string[]) => mutate((m) => ids.reduce((acc, id) => removeById(acc, id), m));
+  const onPasteShapes = (view: ViewId, clip: ShapeClip, dx: number, dy: number, current: Record<string, NodeLayout>) => {
+    let out: { ids: string[]; places: Record<string, NodeLayout> } | null = null;
+    const ok = mutate((m) => {
+      if (m.kind !== "process") return m;
+      const pasted = pasteShapes(m, clip, nextId, dx, dy);
+      out = { ids: pasted.ids, places: pasted.places };
+      return SAVE_LAYOUTS ? placeShapes(pasted.model, view, pasted.places, current) : pasted.model;
+    }, { label: "paste" });
+    if (!ok || !out) return null;
+    noteLastAdded((out as { ids: string[] }).ids.at(-1) ?? null);
+    return out;
+  };
 
-  const onPlaceShapes = (view: ViewId, moved: Record<string, NodeLayout | null>, current: Record<string, NodeLayout>) =>
-    mutate((m) => placeShapes(m, view, moved, current), { label: "move" });
+  const onPlaceShapes = (view: ViewId, moved: Record<string, NodeLayout | null>, current: Record<string, NodeLayout>, mergeKey?: string) =>
+    mutate((m) => placeShapes(m, view, moved, current), { label: "move", mergeKey });
   const onTidyUp = (view: ViewId) => mutate((m) => clearLayout(m, view), { label: "tidy-up" });
   const onSetBlockHeight = (blockId: string, h: number) =>
     mutate((m) => (m.kind === "bmc" ? setBlockHeight(m, blockId, h) : m), { label: "resize" });
@@ -783,7 +809,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     onAddRisk, onAddChangeRequest, onAddCommunicationPlanItem, onAddTestCase, onAddStakeholder,
     onUpdateBusinessCase, onAddBusinessCaseOption, onUpdateRMP,
     onAddDataStore, onAddExternalEntity, onAddRuleNode, onAddState,
-    onDeleteAny, onPlaceShapes, onTidyUp, onSetBlockHeight, canEdit, onUpdateItem, onApplyRefinement,
+    onDeleteAny, onDeleteMany, onPasteShapes, onPlaceShapes, onTidyUp, onSetBlockHeight, canEdit, onUpdateItem, onApplyRefinement,
     onRemoveLastAdded,
     onUndo, onRedo,
     canUndo: historySize.past > 0,

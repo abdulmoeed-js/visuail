@@ -770,6 +770,8 @@ export function ArtifactView({
                       onPlaceShapes={editing.onPlaceShapes}
                       onTidyUp={editing.onTidyUp}
                       canEdit={editing.canEdit}
+                      onDeleteMany={editing.onDeleteMany}
+                      onPasteShapes={editing.onPasteShapes}
                     />
                   ) : (
                     <BMCCanvas
