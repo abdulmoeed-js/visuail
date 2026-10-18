@@ -11,6 +11,7 @@
 // drawing while staying in the data.
 
 import type { ArtifactModel, Decision, ProcessModel, RuleNode, Step } from "@/data/samples";
+import { pruneLayouts } from "@/lib/canvas/layout";
 
 /** What a branch target holds when it leads nowhere (see decisionBranches). */
 export const NO_TARGET = "—";
@@ -135,6 +136,7 @@ function removeFromProcess(m: ProcessModel, id: string): ProcessModel {
         : n
     )),
     states: keep(m.states ?? []),
+    layouts: pruneLayouts(m.layouts, gone),
   };
 }
 
@@ -153,5 +155,6 @@ export function removeById(m: ArtifactModel, id: string): ArtifactModel {
     ...m, ...shared,
     blocks: m.blocks.map((b) => ({ ...b, items: b.items.filter((i) => i.id !== id) })),
     stakeholders: (m.stakeholders ?? []).filter((x) => x.id !== id),
+    layouts: pruneLayouts(m.layouts, new Set([id])),
   };
 }

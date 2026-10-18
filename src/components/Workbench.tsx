@@ -767,6 +767,9 @@ export function ArtifactView({
                       onUpdateItem={editing.onUpdateItem}
                       onApplyRefinement={editing.onApplyRefinement}
                       onOpenUseCase={setDrilldownStepId}
+                      onPlaceShapes={editing.onPlaceShapes}
+                      onTidyUp={editing.onTidyUp}
+                      canEdit={editing.canEdit}
                     />
                   ) : (
                     <BMCCanvas
@@ -774,6 +777,8 @@ export function ArtifactView({
                       onAdd={editing.onAddBMC}
                       onDelete={(_, id) => editing.onDeleteAny(id)}
                       onUpdate={editing.onUpdateItem}
+                      onSetBlockHeight={editing.onSetBlockHeight}
+                      canEdit={editing.canEdit}
                     />
                   )}
                 </RecoverableCanvas>

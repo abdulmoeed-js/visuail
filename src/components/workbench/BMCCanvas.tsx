@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState } from "react";
 import type { BMCModel, BMCBlock, BaseItem } from "@/data/samples";
 import { EditableList } from "./EditableList";
 import { cn } from "@/lib/utils";
@@ -8,31 +8,45 @@ import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { InlineEdit } from "./InlineEdit";
 import { IdChip } from "./atoms";
 import { gradeOf } from "@/lib/grade";
+import { SAVE_LAYOUTS, layoutOf } from "@/lib/canvas/layout";
 
 interface Props {
   model: BMCModel;
   onAdd: (blockId: BMCBlock["id"], text: string) => void;
   onDelete: (blockId: BMCBlock["id"], itemId: string) => void;
   onUpdate: (id: string, patch: Partial<BaseItem>) => void;
+  /** Saves a block's height (see ArtifactEditing). */
+  onSetBlockHeight?: (blockId: string, h: number) => boolean;
+  /** Whether this tab may edit; says why not when it may not. */
+  canEdit?: () => boolean;
 }
+
+/** May this tab resize blocks? Asked when a resize starts. */
+const alwaysEditable = () => true;
+const EditGuardCtx = createContext<() => boolean>(alwaysEditable);
 
 const DEFAULT_W = 1180;
 const DEFAULT_H = 720;
 
-export function BMCCanvas({ model, onAdd, onDelete, onUpdate }: Props) {
+export function BMCCanvas({ model, onAdd, onDelete, onUpdate, onSetBlockHeight, canEdit }: Props) {
   // Per-block minimum-height overrides (resize handle drags this). Blocks are
-  // free to grow past this to fit their content.
+  // free to grow past this to fit their content. A resize in progress is
+  // drawn from here; once saved (SAVE_LAYOUTS) the model's height draws it.
   const [heights, setHeights] = useCanvasViewState<Record<string, number>>("bmc:heights", {});
-  const h = (id: BMCBlock["id"], base: number) => heights[id] ?? base;
+  const saved = layoutOf(model, "bmc")?.blocks;
+  const h = (id: BMCBlock["id"], base: number) => heights[id] ?? saved?.[id]?.h ?? base;
   const noteMove = useNoteLayoutMove();
   /** Height props for one block. A resize counts as "a move" for Undo only
    *  when the height really changes -- compared with the height the block has
    *  now, which for one never resized is its default, not "no entry". */
   const size = (id: BMCBlock["id"], base: number) => ({
     h: h(id, base),
-    setH: (v: number) => {
-      if (h(id, base) !== v) noteMove(model);
+    setH: (v: number, done?: boolean) => {
+      if (!SAVE_LAYOUTS && h(id, base) !== v) noteMove(model);
       setHeights((cur) => ({ ...cur, [id]: v }));
+      if (!done || !SAVE_LAYOUTS || !onSetBlockHeight) return;
+      onSetBlockHeight(id, v);
+      setHeights((cur) => { const next = { ...cur }; delete next[id]; return next; });
     },
   });
 
@@ -56,6 +70,7 @@ export function BMCCanvas({ model, onAdd, onDelete, onUpdate }: Props) {
   }, []);
 
   return (
+    <EditGuardCtx.Provider value={canEdit ?? alwaysEditable}>
     <CanvasShell
       contentWidth={dims.w}
       contentHeight={dims.h}
@@ -112,6 +127,7 @@ export function BMCCanvas({ model, onAdd, onDelete, onUpdate }: Props) {
         </div>
       </div>
     </CanvasShell>
+    </EditGuardCtx.Provider>
   );
 }
 
@@ -120,7 +136,7 @@ function Block({
 }: {
   b: BMCBlock;
   h: number;
-  setH: (h: number) => void;
+  setH: (h: number, done?: boolean) => void;
   onAdd: (id: BMCBlock["id"], text: string) => void;
   onDelete: (id: BMCBlock["id"], itemId: string) => void;
   onUpdate: (id: string, patch: Partial<BaseItem>) => void;
@@ -176,13 +192,18 @@ function Block({
   );
 }
 
-function BlockResizeHandle({ h, setH }: { h: number; setH: (h: number) => void }) {
+function BlockResizeHandle({ h, setH }: { h: number; setH: (h: number, done?: boolean) => void }) {
   const worldDrag = useWorldDrag();
+  const mayEdit = useContext(EditGuardCtx);
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    if (!mayEdit()) return;
     const startH = h;
-    worldDrag(e, (_dx, dy) => setH(Math.max(120, Math.min(700, startH + dy))));
+    // A press that never moved is a click, not a resize: nothing to save.
+    let last: number | null = null;
+    const finish = () => { if (last !== null && last !== startH) setH(last, true); };
+    worldDrag(e, (_dx, dy) => { last = Math.max(120, Math.min(700, startH + dy)); setH(last); }, { up: finish, cancel: finish });
   };
   return (
     <div

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { decisionBranches, type BaseItem, type ProcessModel, type Step, type Decision, type DecisionBranch, type Exception, type Connection, type CrowMarker } from "@/data/samples";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { decisionBranches, type BaseItem, type ProcessModel, type Step, type Decision, type DecisionBranch, type Exception, type Connection, type CrowMarker, type NodeLayout, type ViewId } from "@/data/samples";
 import { cn } from "@/lib/utils";
 import { gradeOf } from "@/lib/grade";
 import { ConfidenceBadge, IdChip } from "./atoms";
@@ -18,7 +18,8 @@ import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { isUserCreatedId } from "@/lib/item-origin";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
-import { roundedPath, type Point } from "@/lib/canvas/geometry";
+import { edgePoint, roundedPath, type Point } from "@/lib/canvas/geometry";
+import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
 import { RefineControl } from "./RefineControl";
 import { useArtifactFullscreen, isTypingTarget } from "./artifact-fullscreen";
 import { applyProposal, type Proposal } from "@/lib/refine";
@@ -67,6 +68,8 @@ const CONNECTOR_RADIUS = 14;
 const connectorPath = (points: Point[]) => roundedPath(points, CONNECTOR_RADIUS);
 
 export type NodeOverride = { cx?: number; cy?: number; w?: number; h?: number; z?: number };
+/** The saved arrangement of the process map, by item id (top-left corners). */
+type Saved = Record<string, NodeLayout>;
 export type Overrides = Record<string, NodeOverride>;
 export type Measured = Record<string, { w: number; h: number }>;
 
@@ -84,6 +87,12 @@ interface Route {
   laneX: number;
   from: { x: number; y: number };
   to: { x: number; y: number };
+  /** Which side of the target `to` is on: an exception is entered from its
+   *  left, a step looped back to from its right. */
+  enter: "left" | "right";
+  /** For a left entry, the target's right-hand side: used instead when a
+   *  shape moved by hand puts the target left of the line's start. */
+  toRight?: { x: number; y: number };
   label?: string;
 }
 
@@ -125,24 +134,33 @@ function bottomInsetFor(shape?: string): number {
   return shape === "document" ? 0.12 : 0;
 }
 
-function effSize(id: string, defW: number, defH: number, overrides: Overrides, measured: Measured) {
+function effSize(id: string, defW: number, defH: number, overrides: Overrides, measured: Measured, saved?: Saved) {
   const o = overrides[id];
+  const sv = saved?.[id];
   const m = measured[id];
   // A measurement of 0 is "not laid out", never a size (see useMeasure).
   // Belt and braces: `??` alone would accept it and draw the node zero wide.
   const mw = m && m.w > 0 ? m.w : undefined;
   const mh = m && m.h > 0 ? m.h : undefined;
-  return { w: o?.w ?? mw ?? defW, h: o?.h ?? mh ?? defH };
+  return { w: o?.w ?? sv?.w ?? mw ?? defW, h: o?.h ?? sv?.h ?? mh ?? defH };
 }
 
 function zOf(id: string, overrides: Overrides) {
   return overrides[id]?.z ?? 0;
 }
 
-function layout(model: ProcessModel, overrides: Overrides, measured: Measured): Layout {
+/** Positions in the order of precedence: a drag or resize in progress
+ *  (`overrides`, this tab only), then the saved arrangement (`saved`, when
+ *  the person has arranged this diagram), then the automatic layout. In an
+ *  arranged diagram a shape with no saved place (just added, or arriving
+ *  from a re-check) goes under the shape before it in the flow, moved down
+ *  until it is clear of the others. */
+function layout(model: ProcessModel, overrides: Overrides, measured: Measured, saved?: Saved): Layout {
   const spine: SpineNode[] = [];
   const spineIndexById = new Map<string, number>();
   let cursor = TOP_PAD;
+  // Shapes still to be placed in an arranged diagram (see above).
+  const floating = new Set<string>();
 
   const pushSpine = (
     kind: "step" | "decision",
@@ -151,10 +169,12 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
     defH: number,
   ) => {
     const id = ref.id;
-    const { w, h } = effSize(id, defW, defH, overrides, measured);
+    const { w, h } = effSize(id, defW, defH, overrides, measured, saved);
     const naturalCy = cursor + h / 2;
-    const cx = overrides[id]?.cx ?? CENTER_X;
-    const cy = overrides[id]?.cy ?? naturalCy;
+    const o = overrides[id], sv = saved?.[id];
+    const cx = o?.cx ?? (sv ? sv.x + w / 2 : CENTER_X);
+    const cy = o?.cy ?? (sv ? sv.y + h / 2 : naturalCy);
+    if (saved && !sv && o?.cx === undefined) floating.add(id);
     spine.push({ kind, ref: ref as never, cx, cy, w, h, z: zOf(id, overrides) });
     spineIndexById.set(id, spine.length - 1);
     cursor = naturalCy + h / 2 + V_GAP;
@@ -190,16 +210,43 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
   const right: RightNode[] = [];
   const occupiedYs: number[] = [];
   model.exceptions.forEach((e) => {
-    const { w, h } = effSize(e.id, EX_W, EX_H, overrides, measured);
+    const { w, h } = effSize(e.id, EX_W, EX_H, overrides, measured, saved);
+    const o = overrides[e.id], sv = saved?.[e.id];
+    if (saved && !sv && o?.cx === undefined) floating.add(e.id);
     const anchor = e.relatedStepId ? spine[spineIndexById.get(e.relatedStepId) ?? 0] : spine[0];
-    let cy = overrides[e.id]?.cy ?? anchor?.cy ?? TOP_PAD + h / 2;
-    if (overrides[e.id]?.cy === undefined) {
+    let cy = o?.cy ?? (sv ? sv.y + h / 2 : anchor?.cy ?? TOP_PAD + h / 2);
+    if (o?.cy === undefined && !sv) {
       while (occupiedYs.some((y) => Math.abs(y - cy) < h + 20)) cy += h + 20;
     }
     occupiedYs.push(cy);
-    const cx = overrides[e.id]?.cx ?? exceptionColX + w / 2;
+    const cx = o?.cx ?? (sv ? sv.x + w / 2 : exceptionColX + w / 2);
     right.push({ kind: "exception", ref: e, cx, cy, w, h, z: zOf(e.id, overrides) });
   });
+
+  if (floating.size > 0) {
+    const rectOf = (n: { cx: number; cy: number; w: number; h: number }) => ({ x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h });
+    const taken = [...spine, ...right].filter((n) => !floating.has(n.ref.id)).map(rectOf);
+    const settle = (n: { cx: number; cy: number; w: number; h: number }, want: { x: number; y: number }) => {
+      const r = placeClear({ ...want, w: n.w, h: n.h }, taken, 24);
+      n.cx = r.x + n.w / 2;
+      n.cy = r.y + n.h / 2;
+      taken.push(r);
+    };
+    spine.forEach((n, i) => {
+      if (!floating.has(n.ref.id)) return;
+      const prev = spine[i - 1];
+      settle(n, prev
+        ? { x: prev.cx - n.w / 2, y: prev.cy + prev.h / 2 + V_GAP }
+        : { x: CENTER_X - n.w / 2, y: TOP_PAD });
+    });
+    right.forEach((n) => {
+      if (!floating.has(n.ref.id)) return;
+      const rel = n.ref.relatedStepId ? spine[spineIndexById.get(n.ref.relatedStepId) ?? -1] : undefined;
+      settle(n, rel
+        ? { x: rel.cx + rel.w / 2 + 120, y: rel.cy - n.h / 2 }
+        : { x: exceptionColX, y: TOP_PAD });
+    });
+  }
 
   const routes: Route[] = [];
   let laneCounter = 0;
@@ -217,6 +264,7 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
       id: `route-ex-${ex.ref.id}`, kind: "exception", laneX: nextLaneX(),
       from: { x: src.cx + src.w / 2, y: src.cy },
       to:   { x: ex.cx - ex.w / 2, y: ex.cy },
+      enter: "left", toRight: { x: ex.cx + ex.w / 2, y: ex.cy },
       label: ex.ref.id,
     });
   });
@@ -240,6 +288,7 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
           id: `route-${d.id}-${b.id}`, kind: "no-branch", laneX: nextLaneX(),
           from: { x: n.cx + n.w / 2, y: n.cy },
           to:   { x: exRight.cx - exRight.w / 2, y: exRight.cy },
+          enter: "left", toRight: { x: exRight.cx + exRight.w / 2, y: exRight.cy },
           label: `${b.label} → ${b.targetId}`,
         });
         return;
@@ -251,6 +300,7 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
           id: `route-${d.id}-${b.id}`, kind: "no-branch", laneX: nextLaneX(),
           from: { x: n.cx + n.w / 2, y: n.cy },
           to:   { x: tgt.cx + tgt.w / 2, y: tgt.cy },
+          enter: "right",
           label: `${b.label} → ${b.targetId}`,
         });
       }
@@ -287,6 +337,12 @@ interface Props {
   onApplyRefinement?: (p: Proposal) => void;
   /** Opens the Use Case Description drill-down for a step (see Workbench.tsx). */
   onOpenUseCase?: (stepId: string) => void;
+  /** Saves where shapes were moved or resized to (see ArtifactEditing). */
+  onPlaceShapes?: (view: ViewId, moved: Record<string, NodeLayout | null>, current: Record<string, NodeLayout>) => boolean;
+  /** Back to the automatic layout. */
+  onTidyUp?: (view: ViewId) => boolean;
+  /** Whether this tab may edit; says why not when it may not. */
+  canEdit?: () => boolean;
 }
 
 interface PaletteItem {
@@ -350,6 +406,7 @@ export function ProcessCanvas({
   model, onAddStep, onAddActor, onAddDecision, onAddException,
   onAddConnection, onDeleteConnection, onUpdateConnection,
   onDeleteAny, onUpdateItem, onApplyRefinement, onOpenUseCase,
+  onPlaceShapes, onTidyUp, canEdit,
 }: Props) {
 
   // Hand-placed positions, sizes and stacking are view state, not model
@@ -390,9 +447,11 @@ export function ProcessCanvas({
     });
   }, []);
 
+  // The person's own arrangement, when they have made one (see layout()).
+  const saved = layoutOf(model, "process")?.nodes;
   const { spine, right, routes, width, height } = useMemo(
-    () => layout(model, overrides, measured),
-    [model, overrides, measured],
+    () => layout(model, overrides, measured, saved),
+    [model, overrides, measured, saved],
   );
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -475,8 +534,51 @@ export function ProcessCanvas({
   const moveOverride = (id: string, o: NodeOverride) => {
     const g = geomById.get(id);
     const differs = (k: "cx" | "cy" | "w" | "h") => o[k] !== undefined && o[k] !== g?.[k];
-    if (!g || differs("cx") || differs("cy") || differs("w") || differs("h")) noteMove(model);
+    // Only while moves are not saved: once they are, Undo steps back through them.
+    if (!SAVE_LAYOUTS && (!g || differs("cx") || differs("cy") || differs("w") || differs("h"))) noteMove(model);
     patchOverride(id, o);
+  };
+  // Where everything is drawn as of the latest render. A drag's handlers are
+  // the ones from when it started; at its end they need the shapes as they
+  // are now (a resize has changed the size since).
+  const geomRef = useRef(geomById);
+  geomRef.current = geomById;
+  /** Every shape's place as drawn now: saved along with the first move, so
+   *  nothing else jumps when the automatic layout stops. */
+  const currentPlaces = () => Object.fromEntries(
+    [...geomRef.current].map(([id, g]) => [id, { x: g.cx - g.w / 2, y: g.cy - g.h / 2 }]),
+  );
+  /** A move or resize: drawn live while it lasts; saved, as one undo step,
+   *  when it ends. */
+  const place = (id: string, o: NodeOverride, done?: boolean) => {
+    moveOverride(id, o);
+    if (!done || !SAVE_LAYOUTS || !onPlaceShapes) return;
+    const g = geomRef.current.get(id);
+    if (!g) return;
+    const w = o.w ?? g.w, h = o.h ?? g.h;
+    const at: NodeLayout = { x: (o.cx ?? g.cx) - w / 2, y: (o.cy ?? g.cy) - h / 2 };
+    if (o.w !== undefined) at.w = w;
+    if (o.h !== undefined) at.h = h;
+    onPlaceShapes("process", { [id]: at }, currentPlaces());
+    // The saved place draws it from now on; only the stacking stays local.
+    setOverrides((cur) => {
+      const next = { ...cur };
+      const z = cur[id]?.z;
+      if (z === undefined) delete next[id]; else next[id] = { z };
+      return next;
+    });
+  };
+  /** New shapes placed by this code (a palette drop, the starter flow). */
+  const placeNew = (entries: { id: string; cx: number; cy: number; w: number; h: number }[]) => {
+    if (SAVE_LAYOUTS && onPlaceShapes) {
+      onPlaceShapes("process", Object.fromEntries(entries.map((e) => [e.id, { x: e.cx - e.w / 2, y: e.cy - e.h / 2 }])), currentPlaces());
+    } else {
+      entries.forEach((e) => patchOverride(e.id, { cx: e.cx, cy: e.cy }));
+    }
+  };
+  const tidyUp = () => {
+    if (!onTidyUp?.("process")) return;
+    setOverrides({});
   };
 
   const { apiRef: shellApi, revealNew, flash, flashId } = useRevealNew((id) => {
@@ -617,7 +719,8 @@ export function ProcessCanvas({
     }
     // "" is a refused add (someone else is editing): nothing to place.
     if (newId) {
-      patchOverride(newId, { cx: sx, cy: sy });
+      const size = defaultSizeFor(payload.kind === "decision" ? "decision" : payload.kind === "exception" ? "exception" : "step", payload.shape);
+      placeNew([{ id: newId, cx: sx, cy: sy, ...size }]);
       bringToFront(newId);
       flash(newId);
       // Seed sectioned content for class/interface/entity boxes.
@@ -649,9 +752,11 @@ export function ProcessCanvas({
     if (!a) return;
     const b = onAddStep("Review", "step");
     const c = onAddDecision?.("Approve?", "decision");
-    patchOverride(a, { cx: centerX, cy: y0 });
-    if (b) patchOverride(b, { cx: centerX, cy: y0 + gap });
-    if (c) patchOverride(c, { cx: centerX, cy: y0 + gap * 2 });
+    placeNew([
+      { id: a, cx: centerX, cy: y0, ...defaultSizeFor("step", "terminator") },
+      ...(b ? [{ id: b, cx: centerX, cy: y0 + gap, ...defaultSizeFor("step", "step") }] : []),
+      ...(c ? [{ id: c, cx: centerX, cy: y0 + gap * 2, ...defaultSizeFor("decision") }] : []),
+    ]);
     if (b) onAddConnection?.(a, b);
     if (b && c) onAddConnection?.(b, c);
   };
@@ -713,6 +818,7 @@ export function ProcessCanvas({
   }, [spine, right]);
 
   return (
+    <EditGuardCtx.Provider value={canEdit ?? alwaysEditable}>
     <CanvasShell
       contentWidth={Math.max(width, 900)}
       contentHeight={Math.max(height, 620)}
@@ -841,9 +947,18 @@ export function ProcessCanvas({
               </Button>
             </div>
           ) : (
-            <Button ref={addButtonRef} size="sm" variant="outline" className="bg-card/95 backdrop-blur" onClick={openAddBar}>
-              <Plus className="size-3.5" /> Add step
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {/* Only once the person has arranged the map by hand. */}
+              {saved && onTidyUp && (
+                <Button size="sm" variant="ghost" className="bg-card/95 backdrop-blur" onClick={tidyUp}
+                  title="Put every shape back in the automatic layout (Undo brings your arrangement back)">
+                  <Wand2 className="size-3.5" /> Tidy up
+                </Button>
+              )}
+              <Button ref={addButtonRef} size="sm" variant="outline" className="bg-card/95 backdrop-blur" onClick={openAddBar}>
+                <Plus className="size-3.5" /> Add step
+              </Button>
+            </div>
           )}
         </>
       }
@@ -889,34 +1004,47 @@ export function ProcessCanvas({
 
         {spine.slice(0, -1).map((n, i) => {
           const next = spine[i + 1];
-          if (overrides[n.ref.id]?.cx !== undefined || overrides[next.ref.id]?.cx !== undefined) return null;
-          // An arrow joins two steps of the flow. This used to be skipped for
+          // An arrow joins two steps of the flow, wherever they have been
+          // moved to: it used to vanish as soon as either end was dragged. This used to be skipped for
           // anything flagged userAdded, to keep palette-dropped boxes loose --
           // but that flag is also set by adding a step from the bar and by
           // simply rewording an extracted one, so a new step appeared
           // disconnected and an edited step lost both its arrows.
           // What must never be threaded is (a) a box that is not a step, and
-          // (b) a shape the person placed by hand. (b) has to be read from
-          // the saved item, not from where it currently sits: positions are
-          // not saved, so after a reload a dropped shape is back in the
-          // column, and judging by position would wire it into the flow.
+          // (b) a shape the person placed by hand. (b) is read from the item,
+          // not from where it sits: a palette drawing stays out of the flow
+          // wherever it is.
           // A shape placed by hand is one the person created (see
           // item-origin) WITH an explicit shape: only the palette and the
           // starter flow pass one; the add bar and the lane "+" never do.
           const inFlow = (s: SpineNode) => s.kind === "decision" || !NON_FLOW_SHAPES.has((s.ref as Step).shape ?? "step");
           const placedByHand = (s: SpineNode) => isUserCreatedId(s.ref.id) && (s.ref as Step | Decision).shape != null;
           if (!inFlow(n) || !inFlow(next) || placedByHand(n) || placedByHand(next)) return null;
-          const fromInset = n.kind === "step" ? bottomInsetFor((n.ref as Step).shape) : 0;
-          const from = { x: n.cx, y: n.cy + n.h / 2 * (1 - fromInset) };
-          const to = { x: next.cx, y: next.cy - next.h / 2 };
           const primaryBranch = n.kind === "decision"
             ? decisionBranches(n.ref as Decision).find((b) => b.targetId === next.ref.id)
             : undefined;
           const yesLabel = primaryBranch ? `${primaryBranch.label} → ${primaryBranch.targetId}` : null;
-          const midY = (from.y + to.y) / 2;
-          const path = Math.abs(from.x - to.x) < 4
-            ? `M ${from.x} ${from.y} L ${to.x} ${to.y}`
-            : connectorPath([from, { x: from.x, y: midY }, { x: to.x, y: midY }, to]);
+          // Down the page when the next shape is below (the usual case);
+          // otherwise side to side, from the faces that look at each other.
+          const below = next.cy - next.h / 2 > n.cy + n.h / 2 + 8;
+          let from: Point, to: Point, path: string, midY: number;
+          if (below) {
+            const fromInset = n.kind === "step" ? bottomInsetFor((n.ref as Step).shape) : 0;
+            from = { x: n.cx, y: n.cy + n.h / 2 * (1 - fromInset) };
+            to = { x: next.cx, y: next.cy - next.h / 2 };
+            midY = (from.y + to.y) / 2;
+            path = Math.abs(from.x - to.x) < 4
+              ? `M ${from.x} ${from.y} L ${to.x} ${to.y}`
+              : connectorPath([from, { x: from.x, y: midY }, { x: to.x, y: midY }, to]);
+          } else {
+            from = edgePoint(n, next);
+            to = edgePoint(next, n);
+            midY = (from.y + to.y) / 2;
+            const midX = (from.x + to.x) / 2;
+            path = from.y === n.cy
+              ? connectorPath([from, { x: midX, y: from.y }, { x: midX, y: to.y }, to])
+              : connectorPath([from, { x: from.x, y: midY }, { x: to.x, y: midY }, to]);
+          }
           return (
             <g key={`spine-${i}`}>
               <path
@@ -939,7 +1067,18 @@ export function ProcessCanvas({
           const labelFill = isException ? "var(--color-unresolved-ink)" : "var(--color-drift-ink)";
           const dash = isException ? "4 3" : undefined;
           const marker = isException ? "url(#arrow-dashed)" : "url(#arrow)";
-          const path = connectorPath([r.from, { x: r.laneX, y: r.from.y }, { x: r.laneX, y: r.to.y }, r.to]);
+          // Out to a lane and into the target from the side it is entered
+          // on. A line into a right-hand side runs beyond both ends; one into
+          // a left-hand side sits between them, unless shapes moved by hand
+          // put the target left of the start -- then it comes round into the
+          // target's right-hand side instead of through it. (In the automatic
+          // layout this is always the lane as laid out.)
+          const intoLeft = r.enter === "left" && r.to.x - r.from.x >= 48;
+          const end = r.enter === "left" && !intoLeft ? r.toRight ?? r.to : r.to;
+          const laneX = intoLeft
+            ? Math.min(Math.max(r.laneX, r.from.x + 24), end.x - 24)
+            : Math.max(r.laneX, r.from.x + 24, end.x + 24);
+          const path = connectorPath([r.from, { x: laneX, y: r.from.y }, { x: laneX, y: end.y }, end]);
           const labelY = (r.from.y + r.to.y) / 2;
           return (
             <g key={r.id}>
@@ -948,7 +1087,7 @@ export function ProcessCanvas({
                 strokeDasharray={dash} markerEnd={marker}
               />
               {r.label && (
-                <text x={r.laneX + 6} y={labelY} fill={labelFill} fontSize="10" fontFamily="var(--font-mono)">
+                <text x={laneX + 6} y={labelY} fill={labelFill} fontSize="10" fontFamily="var(--font-mono)">
                   {r.label}
                 </text>
               )}
@@ -989,7 +1128,8 @@ export function ProcessCanvas({
         if (it.kind === "step") {
           const n = it.node;
           const s = n.ref as Step;
-          const hasHeightOverride = overrides[s.id]?.h !== undefined;
+          // A height set by hand, live or saved, is drawn as set.
+          const hasHeightOverride = overrides[s.id]?.h !== undefined || saved?.[s.id]?.h !== undefined;
           return (
             <StepNode
               key={s.id} node={n} step={s} model={model}
@@ -998,8 +1138,8 @@ export function ProcessCanvas({
               onMeasure={(w, h) => reportMeasure(s.id, w, h)}
               onDelete={() => onDeleteAny(s.id)}
               onUpdate={(patch) => onUpdateItem(s.id, patch as Record<string, unknown>)}
-              onDrag={(delta) => moveOverride(s.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) })}
-              onResize={(w, h) => moveOverride(s.id, { w: snap(w), h: snap(h) })}
+              onDrag={(delta, done) => place(s.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) }, done)}
+              onResize={(w, h, done) => place(s.id, { w: snap(w), h: snap(h) }, done)}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(s.id, e) : undefined}
               onSelect={() => selectNode(s.id)}
@@ -1013,7 +1153,8 @@ export function ProcessCanvas({
         if (it.kind === "decision") {
           const n = it.node;
           const d = n.ref as Decision;
-          const hasHeightOverride = overrides[d.id]?.h !== undefined;
+          // A height set by hand, live or saved, is drawn as set.
+          const hasHeightOverride = overrides[d.id]?.h !== undefined || saved?.[d.id]?.h !== undefined;
           return (
             <DecisionNode
               key={d.id} node={n} d={d} model={model}
@@ -1021,8 +1162,8 @@ export function ProcessCanvas({
               onMeasure={(w, h) => reportMeasure(d.id, w, h)}
               onDelete={() => onDeleteAny(d.id)}
               onUpdate={(patch) => onUpdateItem(d.id, patch as Record<string, unknown>)}
-              onDrag={(delta) => moveOverride(d.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) })}
-              onResize={(w, h) => moveOverride(d.id, { w: snap(w), h: snap(h) })}
+              onDrag={(delta, done) => place(d.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) }, done)}
+              onResize={(w, h, done) => place(d.id, { w: snap(w), h: snap(h) }, done)}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(d.id, e) : undefined}
               onSelect={() => selectNode(d.id)}
@@ -1034,7 +1175,8 @@ export function ProcessCanvas({
         }
         const n = it.node;
         const e = n.ref;
-        const hasHeightOverride = overrides[e.id]?.h !== undefined;
+        // A height set by hand, live or saved, is drawn as set.
+          const hasHeightOverride = overrides[e.id]?.h !== undefined || saved?.[e.id]?.h !== undefined;
         return (
           <ExceptionNode
             key={e.id} node={n} e={e} model={model}
@@ -1042,8 +1184,8 @@ export function ProcessCanvas({
             onMeasure={(w, h) => reportMeasure(e.id, w, h)}
             onDelete={() => onDeleteAny(e.id)}
             onUpdate={(patch) => onUpdateItem(e.id, patch as Record<string, unknown>)}
-            onDrag={(delta) => moveOverride(e.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) })}
-            onResize={(w, h) => moveOverride(e.id, { w: snap(w), h: snap(h) })}
+            onDrag={(delta, done) => place(e.id, { cx: snap(n.cx + delta.dx), cy: snap(n.cy + delta.dy) }, done)}
+            onResize={(w, h, done) => place(e.id, { w: snap(w), h: snap(h) }, done)}
             onRefine={handleRefine}
             onStartConnect={onAddConnection ? (ev) => startConnDrag(e.id, ev) : undefined}
             onSelect={() => selectNode(e.id)}
@@ -1076,6 +1218,7 @@ export function ProcessCanvas({
         );
       })}
     </CanvasShell>
+    </EditGuardCtx.Provider>
   );
 }
 
@@ -1476,15 +1619,27 @@ function Legend() {
 
 // ---- Node primitives ----
 
-function useNodeDrag(onDrag: (d: { dx: number; dy: number }) => void, onSelect?: () => void) {
+/** May this tab move shapes? Asked when a drag starts, so a viewer is told
+ *  who is editing before anything moves, rather than seeing it snap back. */
+const alwaysEditable = () => true;
+const EditGuardCtx = createContext<() => boolean>(alwaysEditable);
+
+/** Drags a node by its grip. `onDrag` gets the distance from the press, in
+ *  the diagram (see useWorldDrag), and is called once more with `done` when
+ *  the pointer lets go or the drag is cut short (a pinch). */
+function useNodeDrag(onDrag: (d: { dx: number; dy: number }, done?: boolean) => void, onSelect?: () => void) {
   const worldDrag = useWorldDrag();
+  const mayEdit = useContext(EditGuardCtx);
   return {
     onPointerDown: (e: React.PointerEvent) => {
       if (e.button !== 0) return;
       e.stopPropagation();
+      if (!mayEdit()) return;
       onSelect?.();
-      // Distance from the press, in the diagram (see useWorldDrag).
-      worldDrag(e, (dx, dy) => onDrag({ dx, dy }));
+      // A press that never moved is a click, not a move: nothing to save.
+      let last: { dx: number; dy: number } | null = null;
+      const finish = () => { if (last) onDrag(last, true); };
+      worldDrag(e, (dx, dy) => { last = { dx, dy }; onDrag(last); }, { up: finish, cancel: finish });
     },
   };
 }
@@ -1531,16 +1686,24 @@ function useMeasure(onMeasure: (w: number, h: number) => void) {
   return ref;
 }
 
-function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: number, h: number) => void }) {
+function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: number, h: number, done?: boolean) => void }) {
   const worldDrag = useWorldDrag();
+  const mayEdit = useContext(EditGuardCtx);
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    if (!mayEdit()) return;
     const startW = w, startH = h;
-    worldDrag(e, (dx, dy) => onResize(
-      Math.min(MAX_W, Math.max(MIN_W, startW + dx)),
-      Math.min(MAX_H, Math.max(MIN_H, startH + dy)),
-    ));
+    // A press that never moved is a click, not a resize: nothing to save.
+    let last: { w: number; h: number } | null = null;
+    const finish = () => { if (last) onResize(last.w, last.h, true); };
+    worldDrag(e, (dx, dy) => {
+      last = {
+        w: Math.min(MAX_W, Math.max(MIN_W, startW + dx)),
+        h: Math.min(MAX_H, Math.max(MIN_H, startH + dy)),
+      };
+      onResize(last.w, last.h);
+    }, { up: finish, cancel: finish });
   };
   return (
     <div
@@ -1739,8 +1902,8 @@ function StepNode({
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Step>) => void;
-  onDrag: (d: { dx: number; dy: number }) => void;
-  onResize: (w: number, h: number) => void;
+  onDrag: (d: { dx: number; dy: number }, done?: boolean) => void;
+  onResize: (w: number, h: number, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
   onSelect: () => void;
@@ -1968,8 +2131,8 @@ function SectionedNode({
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Step>) => void;
-  onDrag: (d: { dx: number; dy: number }) => void;
-  onResize: (w: number, h: number) => void;
+  onDrag: (d: { dx: number; dy: number }, done?: boolean) => void;
+  onResize: (w: number, h: number, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
   onSelect: () => void;
@@ -2175,8 +2338,8 @@ function DecisionNode({
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Decision>) => void;
-  onDrag: (delta: { dx: number; dy: number }) => void;
-  onResize: (w: number, h: number) => void;
+  onDrag: (delta: { dx: number; dy: number }, done?: boolean) => void;
+  onResize: (w: number, h: number, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
   onSelect: () => void;
@@ -2348,8 +2511,8 @@ function ExceptionNode({
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Exception>) => void;
-  onDrag: (d: { dx: number; dy: number }) => void;
-  onResize: (w: number, h: number) => void;
+  onDrag: (d: { dx: number; dy: number }, done?: boolean) => void;
+  onResize: (w: number, h: number, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (ev: React.PointerEvent) => void;
   onSelect: () => void;

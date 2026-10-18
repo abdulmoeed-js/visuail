@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ProcessModel, Connection, StateItem } from "@/data/samples";
+import type { ProcessModel, Connection, StateItem, NodeLayout } from "@/data/samples";
 import { Plus, X, GripVertical, CircleDot, Wand2 } from "lucide-react";
 import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { edgePoint, roundedPath } from "@/lib/canvas/geometry";
+import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
 import { IdChip } from "./atoms";
 import { useArtifactFullscreen } from "./artifact-fullscreen";
 
@@ -26,14 +27,32 @@ const COLS = 4;
 interface Placed { ref: StateItem; cx: number; cy: number; }
 type Pos = Record<string, { cx: number; cy: number }>;
 
-function layout(states: StateItem[], overrides: Pos) {
+/** A four-column grid until the person arranges the diagram; then their
+ *  saved places (top-left corners), with a drag in progress drawn on top. In
+ *  an arranged diagram a new state starts at its grid place, moved down until
+ *  it is clear of the others. */
+function layout(states: StateItem[], overrides: Pos, saved?: Record<string, NodeLayout>) {
+  const floating = new Set<string>();
   const placed: Placed[] = states.map((s, i) => {
     const col = i % COLS, row = Math.floor(i / COLS);
     const naturalCx = LEFT_PAD + col * (STATE_W + COL_GAP) + STATE_W / 2;
     const naturalCy = TOP_PAD + row * (STATE_H + ROW_GAP) + STATE_H / 2;
-    const o = overrides[s.id];
-    return { ref: s, cx: o?.cx ?? naturalCx, cy: o?.cy ?? naturalCy };
+    const o = overrides[s.id], sv = saved?.[s.id];
+    if (saved && !sv && !o) floating.add(s.id);
+    return { ref: s, cx: o?.cx ?? (sv ? sv.x + STATE_W / 2 : naturalCx), cy: o?.cy ?? (sv ? sv.y + STATE_H / 2 : naturalCy) };
   });
+  if (floating.size > 0) {
+    const rectOf = (p: Placed) => ({ x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H });
+    const taken = placed.filter((p) => !floating.has(p.ref.id)).map(rectOf);
+    for (const p of placed) {
+      if (!floating.has(p.ref.id)) continue;
+      // Room for the start dot to the left and a loop above.
+      const r = placeClear(rectOf(p), taken, 44);
+      p.cx = r.x + STATE_W / 2;
+      p.cy = r.y + STATE_H / 2;
+      taken.push(r);
+    }
+  }
   const width = Math.max(900, ...placed.map((p) => p.cx + STATE_W / 2 + 60));
   const height = Math.max(560, ...placed.map((p) => p.cy + STATE_H / 2 + 60));
   return { placed, width, height };
@@ -51,7 +70,8 @@ export function StateDiagramView({ model, editing }: Props) {
   const [overrides, setOverrides] = useCanvasViewState<Pos>("state:overrides", {});
   const [pendingConn, setPendingConn] = useState<null | { fromId: string; fromX: number; fromY: number; toX: number; toY: number }>(null);
   const states = useMemo(() => model.states ?? [], [model.states]);
-  const { placed, width, height } = useMemo(() => layout(states, overrides), [states, overrides]);
+  const saved = layoutOf(model, "state")?.nodes;
+  const { placed, width, height } = useMemo(() => layout(states, overrides, saved), [states, overrides, saved]);
   const byId = useMemo(() => new Map(placed.map((p) => [p.ref.id, p])), [placed]);
   const rectFor = (id: string) => {
     const p = byId.get(id);
@@ -61,13 +81,23 @@ export function StateDiagramView({ model, editing }: Props) {
   const transitions = model.connections ?? [];
 
   const noteMove = useNoteLayoutMove();
-  const patchPos = (id: string, cx: number, cy: number) => {
+  const placedRef = useRef(placed);
+  placedRef.current = placed;
+  /** A move: drawn live while it lasts; saved, as one undo step, when it
+   *  ends (see SAVE_LAYOUTS). */
+  const patchPos = (id: string, cx: number, cy: number, done?: boolean) => {
     // Only a real move counts: pressing a node's grip without dragging runs
     // this too, with the position it already has.
     const at = byId.get(id);
-    if (!at || at.cx !== cx || at.cy !== cy) noteMove(model);
+    if (!SAVE_LAYOUTS && (!at || at.cx !== cx || at.cy !== cy)) noteMove(model);
     setOverrides((cur) => ({ ...cur, [id]: { cx, cy } }));
+    if (!done || !SAVE_LAYOUTS) return;
+    editing.onPlaceShapes("state", { [id]: { x: cx - STATE_W / 2, y: cy - STATE_H / 2 } },
+      Object.fromEntries(placedRef.current.map((p) => [p.ref.id, { x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2 }])));
+    // The saved place draws it from now on.
+    setOverrides((cur) => { const next = { ...cur }; delete next[id]; return next; });
   };
+  const tidyUp = () => { if (editing.onTidyUp("state")) setOverrides({}); };
 
   const startConnDrag = (fromId: string, e: React.PointerEvent, contentEl: HTMLElement | null) => {
     const from = byId.get(fromId);
@@ -153,9 +183,18 @@ export function StateDiagramView({ model, editing }: Props) {
             <button onClick={closeAdd} title="Cancel" aria-label="Cancel" className="h-8 w-8 shrink-0 flex items-center justify-center rounded hover:bg-muted"><X className="size-4" /></button>
           </div>
         ) : (
-          <button ref={addButton} onClick={() => setAdding(true)} data-no-pan className="h-8 px-2.5 rounded-md border border-separator-strong bg-card text-xs flex items-center gap-1.5 hover:border-primary/60">
-            <Plus className="size-3.5 text-primary" /> Add state
-          </button>
+          <div className="flex items-center gap-1" data-no-pan>
+            {/* Only once the person has arranged the diagram by hand. */}
+            {saved && (
+              <button onClick={tidyUp} title="Put every state back in the automatic layout (Undo brings your arrangement back)"
+                className="h-8 px-2.5 rounded-md bg-card text-xs flex items-center gap-1.5 hover:bg-muted">
+                <Wand2 className="size-3.5" /> Tidy up
+              </button>
+            )}
+            <button ref={addButton} onClick={() => setAdding(true)} data-no-pan className="h-8 px-2.5 rounded-md border border-separator-strong bg-card text-xs flex items-center gap-1.5 hover:border-primary/60">
+              <Plus className="size-3.5 text-primary" /> Add state
+            </button>
+          </div>
         )
       }
     >
@@ -217,7 +256,8 @@ export function StateDiagramView({ model, editing }: Props) {
         <StateNodeView
           key={p.ref.id}
           node={p}
-          onDrag={(dx, dy) => patchPos(p.ref.id, p.cx + dx, p.cy + dy)}
+          onDrag={(dx, dy, done) => patchPos(p.ref.id, p.cx + dx, p.cy + dy, done)}
+          canEdit={editing.canEdit}
           onDelete={() => editing.onDeleteAny(p.ref.id)}
           onUpdateText={(text) => editing.onUpdateItem(p.ref.id, { text })}
           onToggleInitial={() => editing.onUpdateItem(p.ref.id, { isInitial: !p.ref.isInitial })}
@@ -242,10 +282,13 @@ export function StateDiagramView({ model, editing }: Props) {
 }
 
 function StateNodeView({
-  node, onDrag, onDelete, onUpdateText, onToggleInitial, onToggleFinal, onStartConnect,
+  node, onDrag, onDelete, onUpdateText, onToggleInitial, onToggleFinal, onStartConnect, canEdit,
 }: {
   node: Placed;
-  onDrag: (dx: number, dy: number) => void;
+  /** Called with `done` once more when the drag ends. */
+  onDrag: (dx: number, dy: number, done?: boolean) => void;
+  /** Asked before a drag starts (a viewer is told who is editing). */
+  canEdit: () => boolean;
   onDelete: () => void;
   onUpdateText: (t: string) => void;
   onToggleInitial: () => void;
@@ -256,7 +299,11 @@ function StateNodeView({
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    worldDrag(e, onDrag);
+    if (!canEdit()) return;
+    // A press that never moved is a click, not a move: nothing to save.
+    let last: { dx: number; dy: number } | null = null;
+    const finish = () => { if (last) onDrag(last.dx, last.dy, true); };
+    worldDrag(e, (dx, dy) => { last = { dx, dy }; onDrag(dx, dy); }, { up: finish, cancel: finish });
   };
 
   return (

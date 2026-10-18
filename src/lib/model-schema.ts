@@ -15,7 +15,10 @@ import { useSyncExternalStore } from "react";
 
 /** The model shape this build reads and writes in full. Raise it in the
  *  same change that adds a model key an older build would not keep. 1 is
- *  the shape from before the number existed. */
+ *  the shape from before the number existed; 2 will add `layouts` (hand-made
+ *  arrangements, src/lib/canvas/layout.ts): the code reads and carries them
+ *  already, and raising this to 2 is what starts saving them (SAVE_LAYOUTS).
+ *  Not before 22 Oct 2026, once this guard has been live a few days. */
 export const MODEL_SCHEMA = 1;
 
 /** A model's schema; models written before the number existed are 1. */

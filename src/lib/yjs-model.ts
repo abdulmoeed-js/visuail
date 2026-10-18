@@ -128,9 +128,9 @@ const PROCESS_ITEM_KEYS = ["actors", "steps", "decisions", "exceptions", "system
 // extend BaseItem the way these do (cast through `unknown` either way).
 const PROCESS_OPTIONAL_ARRAY_KEYS = [
   "nonFunctionalRequirements", "riskLog", "changeRequests", "communicationPlan", "testCases",
-  "dataStores", "externalEntities", "decisionTree", "states",
+  "dataStores", "externalEntities", "decisionTree", "states", "layouts",
 ] as const;
-const BMC_OPTIONAL_ARRAY_KEYS = ["riskLog", "changeRequests", "communicationPlan", "stakeholders"] as const;
+const BMC_OPTIONAL_ARRAY_KEYS = ["riskLog", "changeRequests", "communicationPlan", "stakeholders", "layouts"] as const;
 
 // Single-document fields (Business Case, Requirements Management Plan) --
 // present on both model kinds. Stored as one plain JSON value per field
@@ -209,6 +209,7 @@ export function yDocToModel(ydoc: Y.Doc): ArtifactModel {
       externalEntities: readItemArray(root, "externalEntities") as never,
       decisionTree: readItemArray(root, "decisionTree") as never,
       states: readItemArray(root, "states") as never,
+      layouts: readItemArray(root, "layouts") as never,
       businessCase,
       requirementsManagementPlan,
     };
@@ -230,6 +231,7 @@ export function yDocToModel(ydoc: Y.Doc): ArtifactModel {
     changeRequests: readItemArray(root, "changeRequests") as never,
     communicationPlan: readItemArray(root, "communicationPlan") as never,
     stakeholders: readItemArray(root, "stakeholders") as never,
+    layouts: readItemArray(root, "layouts") as never,
     businessCase,
     requirementsManagementPlan,
   };

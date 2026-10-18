@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ProcessModel, Connection } from "@/data/samples";
+import type { ProcessModel, Connection, NodeLayout } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
-import { Plus, X, GripVertical, Database, Square, CircleDot } from "lucide-react";
+import { Plus, X, GripVertical, Database, Square, CircleDot, Wand2 } from "lucide-react";
 import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { edgePoint, roundedPath } from "@/lib/canvas/geometry";
+import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
 import { IdChip } from "./atoms";
 import { useArtifactFullscreen } from "./artifact-fullscreen";
 
@@ -42,22 +43,44 @@ interface DFDNode {
 }
 
 type Pos = Record<string, { cx: number; cy: number }>;
+/** The saved arrangement, by item id (top-left corners). */
+type Saved = Record<string, NodeLayout>;
 
-function layoutRow(ids: { id: string; text: string }[], y: number, w: number, h: number, labelFor: (i: number) => string, kind: NodeKind, overrides: Pos): DFDNode[] {
+function layoutRow(ids: { id: string; text: string }[], y: number, w: number, h: number, labelFor: (i: number) => string, kind: NodeKind, overrides: Pos, saved: Saved | undefined, floating: Set<string>): DFDNode[] {
   const totalW = ids.length * w + Math.max(0, ids.length - 1) * COL_GAP;
   const startX = Math.max(40, 500 - totalW / 2);
   return ids.map((it, i) => {
     const naturalCx = startX + i * (w + COL_GAP) + w / 2;
-    const o = overrides[it.id];
-    return { kind, id: it.id, text: it.text, label: labelFor(i), cx: o?.cx ?? naturalCx, cy: o?.cy ?? y, w, h };
+    const o = overrides[it.id], sv = saved?.[it.id];
+    if (saved && !sv && !o) floating.add(it.id);
+    return {
+      kind, id: it.id, text: it.text, label: labelFor(i),
+      cx: o?.cx ?? (sv ? sv.x + w / 2 : naturalCx), cy: o?.cy ?? (sv ? sv.y + h / 2 : y), w, h,
+    };
   });
 }
 
-function layout(model: ProcessModel, overrides: Pos) {
-  const entities = layoutRow(model.externalEntities ?? [], TOP_PAD + ENTITY_H / 2, ENTITY_W, ENTITY_H, () => "", "entity", overrides);
-  const processes = layoutRow(model.steps, TOP_PAD + ENTITY_H + ROW_GAP + PROC_H / 2, PROC_W, PROC_H, (i) => `${i + 1}.0`, "process", overrides);
-  const stores = layoutRow(model.dataStores ?? [], TOP_PAD + ENTITY_H + ROW_GAP + PROC_H + ROW_GAP + STORE_H / 2, STORE_W, STORE_H, (i) => `D${i + 1}`, "store", overrides);
+/** Three rows (entities, processes, stores) until the person arranges the
+ *  diagram; then their saved places, with a drag in progress drawn on top.
+ *  In an arranged diagram a new node starts at its row place, moved down
+ *  until it is clear of the others. */
+function layout(model: ProcessModel, overrides: Pos, saved?: Saved) {
+  const floating = new Set<string>();
+  const entities = layoutRow(model.externalEntities ?? [], TOP_PAD + ENTITY_H / 2, ENTITY_W, ENTITY_H, () => "", "entity", overrides, saved, floating);
+  const processes = layoutRow(model.steps, TOP_PAD + ENTITY_H + ROW_GAP + PROC_H / 2, PROC_W, PROC_H, (i) => `${i + 1}.0`, "process", overrides, saved, floating);
+  const stores = layoutRow(model.dataStores ?? [], TOP_PAD + ENTITY_H + ROW_GAP + PROC_H + ROW_GAP + STORE_H / 2, STORE_W, STORE_H, (i) => `D${i + 1}`, "store", overrides, saved, floating);
   const all = [...entities, ...processes, ...stores];
+  if (floating.size > 0) {
+    const rectOf = (n: DFDNode) => ({ x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h });
+    const taken = all.filter((n) => !floating.has(n.id)).map(rectOf);
+    for (const n of all) {
+      if (!floating.has(n.id)) continue;
+      const r = placeClear(rectOf(n), taken, 24);
+      n.cx = r.x + n.w / 2;
+      n.cy = r.y + n.h / 2;
+      taken.push(r);
+    }
+  }
   const width = Math.max(1000, ...all.map((n) => n.cx + n.w / 2 + 60));
   const height = Math.max(600, ...all.map((n) => n.cy + n.h / 2 + 60));
   return { nodes: all, width, height };
@@ -74,7 +97,8 @@ export function DFDView({ model, editing }: Props) {
   // they survive a tab switch (see canvas-view-store.tsx).
   const [overrides, setOverrides] = useCanvasViewState<Pos>("dfd:overrides", {});
   const [pendingConn, setPendingConn] = useState<null | { fromId: string; fromX: number; fromY: number; toX: number; toY: number }>(null);
-  const { nodes, width, height } = useMemo(() => layout(model, overrides), [model, overrides]);
+  const saved = layoutOf(model, "dfd")?.nodes;
+  const { nodes, width, height } = useMemo(() => layout(model, overrides, saved), [model, overrides, saved]);
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const rectFor = (id: string) => {
     const n = byId.get(id);
@@ -84,13 +108,26 @@ export function DFDView({ model, editing }: Props) {
   const flows = model.connections ?? [];
 
   const noteMove = useNoteLayoutMove();
-  const patchPos = (id: string, cx: number, cy: number) => {
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  /** A move: drawn live while it lasts; saved, as one undo step, when it
+   *  ends (see SAVE_LAYOUTS). */
+  const patchPos = (id: string, cx: number, cy: number, done?: boolean) => {
     // Only a real move counts: pressing a node's grip without dragging runs
     // this too, with the position it already has.
     const at = byId.get(id);
-    if (!at || at.cx !== cx || at.cy !== cy) noteMove(model);
+    if (!SAVE_LAYOUTS && (!at || at.cx !== cx || at.cy !== cy)) noteMove(model);
     setOverrides((cur) => ({ ...cur, [id]: { cx, cy } }));
+    if (!done || !SAVE_LAYOUTS) return;
+    const now = nodesRef.current;
+    const n = now.find((x) => x.id === id);
+    if (!n) return;
+    editing.onPlaceShapes("dfd", { [id]: { x: cx - n.w / 2, y: cy - n.h / 2 } },
+      Object.fromEntries(now.map((x) => [x.id, { x: x.cx - x.w / 2, y: x.cy - x.h / 2 }])));
+    // The saved place draws it from now on.
+    setOverrides((cur) => { const next = { ...cur }; delete next[id]; return next; });
   };
+  const tidyUp = () => { if (editing.onTidyUp("dfd")) setOverrides({}); };
 
   const startConnDrag = (fromId: string, e: React.PointerEvent, contentEl: HTMLElement | null) => {
     const from = byId.get(fromId);
@@ -187,6 +224,13 @@ export function DFDView({ model, editing }: Props) {
           // the glyph it creates. The legend used to repeat the same three
           // labels a few pixels away, and the two rows ran into each other.
           <div className="flex flex-wrap items-center justify-end gap-1" data-no-pan>
+            {/* Only once the person has arranged the diagram by hand. */}
+            {saved && (
+              <button onClick={tidyUp} title="Put every shape back in the automatic layout (Undo brings your arrangement back)"
+                className="h-8 px-2.5 mr-1 rounded-md bg-card text-xs flex items-center gap-1.5 hover:bg-muted">
+                <Wand2 className="size-3.5" /> Tidy up
+              </button>
+            )}
             <span className="px-1 eyebrow text-muted-foreground">Add</span>
             <button ref={(el) => { openers.current.process = el; }} onClick={() => setAdding("process")} title="Add a process" className="h-8 px-2.5 rounded-md border border-separator-strong bg-card text-xs flex items-center gap-1.5 hover:border-primary/60">
               <CircleDot className="size-3.5 text-primary" /> Process
@@ -241,7 +285,8 @@ export function DFDView({ model, editing }: Props) {
         <DFDNodeView
           key={n.id}
           node={n}
-          onDrag={(dx, dy) => patchPos(n.id, n.cx + dx, n.cy + dy)}
+          onDrag={(dx, dy, done) => patchPos(n.id, n.cx + dx, n.cy + dy, done)}
+          canEdit={editing.canEdit}
           onDelete={() => editing.onDeleteAny(n.id)}
           onUpdate={(text) => editing.onUpdateItem(n.id, { text })}
           onStartConnect={(e, contentEl) => startConnDrag(n.id, e, contentEl)}
@@ -266,10 +311,13 @@ export function DFDView({ model, editing }: Props) {
 }
 
 function DFDNodeView({
-  node, onDrag, onDelete, onUpdate, onStartConnect,
+  node, onDrag, onDelete, onUpdate, onStartConnect, canEdit,
 }: {
   node: DFDNode;
-  onDrag: (dx: number, dy: number) => void;
+  /** Called with `done` once more when the drag ends. */
+  onDrag: (dx: number, dy: number, done?: boolean) => void;
+  /** Asked before a drag starts (a viewer is told who is editing). */
+  canEdit: () => boolean;
   onDelete: () => void;
   onUpdate: (text: string) => void;
   onStartConnect: (e: React.PointerEvent, contentEl: HTMLElement | null) => void;
@@ -285,7 +333,11 @@ function DFDNodeView({
     // codebase) does it. An incremental-since-last delta would silently
     // discard all but the last move event's worth of movement, since the
     // stale `node.cx` captured in this closure never updates mid-drag.
-    worldDrag(e, onDrag);
+    if (!canEdit()) return;
+    // A press that never moved is a click, not a move: nothing to save.
+    let last: { dx: number; dy: number } | null = null;
+    const finish = () => { if (last) onDrag(last.dx, last.dy, true); };
+    worldDrag(e, (dx, dy) => { last = { dx, dy }; onDrag(dx, dy); }, { up: finish, cancel: finish });
   };
 
   const style: React.CSSProperties = {

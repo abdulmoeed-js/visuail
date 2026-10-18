@@ -22,7 +22,7 @@ import {
   type TestCaseItem, type StakeholderItem,
   type BusinessCase, type RequirementsManagementPlan,
   type DataStoreItem, type ExternalEntityItem,
-  type RuleNode, type StateItem,
+  type RuleNode, type StateItem, type ViewId, type NodeLayout,
 } from "@/data/samples";
 import { applyProposal, type Proposal } from "@/lib/refine";
 import { diffModels } from "@/lib/diff";
@@ -32,6 +32,7 @@ import { connectArtifactChannel, editorOf, type ArtifactChannelHandle, type Here
 import { summariseEdit, type EditSummary } from "@/lib/describe-edit";
 import { MODEL_SCHEMA, isOutdated, noteSchema, schemaOf, useOutdated } from "@/lib/model-schema";
 import { removeById } from "@/lib/remove-item";
+import { clearLayout, placeShapes, setBlockHeight } from "@/lib/canvas/layout";
 
 let uid = 1000;
 
@@ -61,6 +62,9 @@ function bumpUidPast(model: ArtifactModel) {
   for (const c of model.changeRequests ?? []) ids.push(c.id);
   for (const c of model.communicationPlan ?? []) ids.push(c.id);
   for (const o of model.businessCase?.options ?? []) ids.push(o.id);
+  // Saved positions may name an item that is gone (removed by a re-check or
+  // a merge); a new item must never take that id and inherit its place.
+  for (const l of model.layouts ?? []) ids.push(...Object.keys(l.nodes));
   for (const id of ids) {
     const match = /-U(\d+)$/.exec(id);
     if (match) uid = Math.max(uid, parseInt(match[1], 10));
@@ -143,6 +147,19 @@ export interface ArtifactEditing {
   onAddState: (t: string) => string;
 
   onDeleteAny: (id: string) => void;
+  /** Hand-made arrangement (src/lib/canvas/layout.ts). Saves where shapes
+   *  were moved or resized to in one diagram, as one undo step; `current`
+   *  is where every shape is drawn now, kept the first time the diagram is
+   *  arranged so nothing else jumps. True when it was saved. */
+  onPlaceShapes: (view: ViewId, moved: Record<string, NodeLayout | null>, current: Record<string, NodeLayout>) => boolean;
+  /** Back to the automatic layout for one diagram ("Tidy up"). */
+  onTidyUp: (view: ViewId) => boolean;
+  /** Business model canvas: one block's height. */
+  onSetBlockHeight: (blockId: string, h: number) => boolean;
+  /** Before starting something that ends in an edit (a drag): true when
+   *  this tab may edit; otherwise says why, once, and returns false, so a
+   *  shape never moves under the pointer only to snap back. */
+  canEdit: () => boolean;
   onUpdateItem: (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => void;
   onApplyRefinement: (p: Proposal) => void;
   /** Recovery: remove the most recently user-added item (used by canvas
@@ -152,8 +169,8 @@ export interface ArtifactEditing {
   /** Step back / forward through edits to the MODEL: items added, removed,
    *  reworded or re-linked, in any tab of the artifact. One user gesture is
    *  one step, even when it takes several model changes to carry out.
-   *  Not covered: where nodes sit on a canvas, their size or stacking (view
-   *  state, not part of the model). History is dropped when the model is
+   *  Moves and resizes are covered once they are saved in the model
+   *  (SAVE_LAYOUTS, src/lib/canvas/layout.ts); stacking order never is. History is dropped when the model is
    *  replaced wholesale or a collaborator's change arrives, because a
    *  whole-model step taken after that would silently undo their work.
    *  Each returns what the step changed, for the caller to tell the person
@@ -550,6 +567,17 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
 
   const onDeleteAny = (id: string) => mutate((m) => removeById(m, id));
 
+  const onPlaceShapes = (view: ViewId, moved: Record<string, NodeLayout | null>, current: Record<string, NodeLayout>) =>
+    mutate((m) => placeShapes(m, view, moved, current), { label: "move" });
+  const onTidyUp = (view: ViewId) => mutate((m) => clearLayout(m, view), { label: "tidy-up" });
+  const onSetBlockHeight = (blockId: string, h: number) =>
+    mutate((m) => (m.kind === "bmc" ? setBlockHeight(m, blockId, h) : m), { label: "resize" });
+  const canEdit = () => {
+    if (collab && isOutdated()) { onBlockedRef.current?.("outdated"); return false; }
+    if (roleRef.current === "viewer") { onBlockedRef.current?.("editing"); return false; }
+    return true;
+  };
+
   const onUpdateItem = (id: string, patch: Partial<BaseItem> & Record<string, unknown>) => mutate(m => {
     const apply = <T extends BaseItem>(i: T): T => {
       if (i.id !== id) return i;
@@ -755,7 +783,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     onAddRisk, onAddChangeRequest, onAddCommunicationPlanItem, onAddTestCase, onAddStakeholder,
     onUpdateBusinessCase, onAddBusinessCaseOption, onUpdateRMP,
     onAddDataStore, onAddExternalEntity, onAddRuleNode, onAddState,
-    onDeleteAny, onUpdateItem, onApplyRefinement,
+    onDeleteAny, onPlaceShapes, onTidyUp, onSetBlockHeight, canEdit, onUpdateItem, onApplyRefinement,
     onRemoveLastAdded,
     onUndo, onRedo,
     canUndo: historySize.past > 0,

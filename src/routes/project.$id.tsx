@@ -14,6 +14,7 @@ import {
 import { ArtifactView, tabForViewKind, type ArtifactTab } from "@/components/Workbench";
 import { useArtifactEditing, type BlockReason } from "@/lib/artifact-editing";
 import { OUTDATED_DETAIL, OUTDATED_SAFE, OUTDATED_TITLE, assertCurrent, useOutdated } from "@/lib/model-schema";
+import { keepArrangements } from "@/lib/canvas/layout";
 import { allItems, type ArtifactModel } from "@/data/samples";
 import { exportSectionsToPdf, exportElementToPng, exportElementToSvg, type ExportSection } from "@/lib/export-pdf";
 import {
@@ -510,7 +511,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
                 ? <><Loader2 className="size-3.5 animate-spin" /> Re-checking…</>
                 : <><AlertTriangle className="size-3.5" /> Re-check for drift</>}
             </Button>
-            <AddSourceDialog project={project} onCanvasesRegenerated={onCanvasesRegenerated} blockedReason={blockedReason} />
+            <AddSourceDialog project={project} onCanvasesRegenerated={onCanvasesRegenerated} blockedReason={blockedReason} getCurrentCanvases={buildMergedCanvases} />
             <CommentsDialog projectId={project.id} />
             <VersionHistoryDialog project={project} blockedReason={blockedReason} getCurrentCanvases={buildMergedCanvases} onRestored={onCanvasesRegenerated} />
             <Button
@@ -998,11 +999,14 @@ function VersionHistoryDialog({ project, blockedReason, getCurrentCanvases, onRe
 }
 
 function AddSourceDialog({
-  project, onCanvasesRegenerated, blockedReason,
+  project, onCanvasesRegenerated, blockedReason, getCurrentCanvases,
 }: {
   project: StoredProject;
   onCanvasesRegenerated: (canvases: StoredProject["canvases"]) => void;
   blockedReason?: string | null;
+  /** What's on screen now, including a collaborator's changes received
+   *  since the page loaded: the arrangements to keep come from here. */
+  getCurrentCanvases: () => StoredCanvas[];
 }) {
   const [open, setOpen] = useState(false);
   const [sources, setSources] = useState<SourceDraft[]>([makeSource(0)]);
@@ -1046,6 +1050,7 @@ function AddSourceDialog({
     // instance of each kind, or a lone flavored one if that's the only
     // instance of its kind, skipping ambiguous cases. Same logic as
     // recheckDrift in the parent component.
+    const live = new Map(getCurrentCanvases().map((c) => [c.id, c.model]));
     const canvases: StoredCanvas[] = [];
     for (const kind of project.kinds) {
       const models: ArtifactModel[] = [];
@@ -1061,7 +1066,9 @@ function AddSourceDialog({
       const primary = pickPrimaryInstance(project.canvases, kind);
       if (primary.action === "skip") continue;
       canvases.push(primary.action === "update"
-        ? { ...primary.canvas, model: merged }
+        // The fresh extraction replaces the model; the arrangement on screen
+        // stays (the stored copy can be older than a collaborator's moves).
+        ? { ...primary.canvas, model: keepArrangements(live.get(primary.canvas.id) ?? primary.canvas.model, merged) }
         : { id: crypto.randomUUID(), name: defaultCanvasName(kind), kind, model: merged });
     }
     // Preserve every existing canvas the loop above didn't touch -- kinds

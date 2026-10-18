@@ -215,12 +215,33 @@ export interface Connection {
 }
 
 
+/** The diagrams drawn from one model, each with its own arrangement. */
+export type ViewId = "process" | "dfd" | "state" | "activity" | "usecases" | "decisiontree" | "bmc";
+
+/** Where one shape sits in one diagram: its top-left corner in canvas units
+ *  (whole numbers), and its size when the person set one (drawn as set). */
+export interface NodeLayout { x: number; y: number; w?: number; h?: number }
+
+/** One diagram's arrangement, made by hand. Its presence means the person
+ *  has arranged that diagram ("frozen"): every shape it lists stays where it
+ *  was put, and anything new is placed near its neighbours instead of the
+ *  automatic layout moving everything. No record = the automatic layout. */
+export interface ViewLayout {
+  id: ViewId;
+  /** Shape positions by item id. */
+  nodes: Record<string, NodeLayout>;
+  /** Business model canvas: block heights by block id. */
+  blocks?: Record<string, { h: number }>;
+}
+
 export interface ProcessModel {
   kind: "process";
   title: string;
   /** Which build's model shape this is (src/lib/model-schema.ts). Absent on
    *  every model written before the number existed, which counts as 1. */
   schema?: number;
+  /** Hand-made arrangements, one per diagram (see ViewLayout). */
+  layouts?: ViewLayout[];
   actors: Actor[];
   steps: Step[];
   decisions: Decision[];
@@ -255,6 +276,8 @@ export interface BMCModel {
   title: string;
   /** As on ProcessModel. */
   schema?: number;
+  /** As on ProcessModel; the canvas keeps its block heights here. */
+  layouts?: ViewLayout[];
   blocks: BMCBlock[];
   riskLog?: RiskItem[];
   changeRequests?: ChangeRequestItem[];
