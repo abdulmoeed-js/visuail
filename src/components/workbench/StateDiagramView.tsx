@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProcessModel, Connection, StateItem } from "@/data/samples";
 import { Plus, X, GripVertical, CircleDot, Wand2 } from "lucide-react";
-import { CanvasShell, useCanvas, boundsOf } from "./CanvasShell";
+import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
@@ -80,16 +80,14 @@ export function StateDiagramView({ model, editing }: Props) {
       setPendingConn((cur) => cur ? { ...cur, toX: (ev.clientX - rect.left) / scale, toY: (ev.clientY - rect.top) / scale } : cur);
     };
     const up = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
       const target = el?.closest("[data-state-node]") as HTMLElement | null;
       const toId = target?.dataset.stateNode;
       if (toId) editing.onAddConnection(fromId, toId);
       setPendingConn(null);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    // Cancelled (a pinch, the browser): no line is drawn.
+    followPointer(e, { move, up, cancel: () => setPendingConn(null) });
   };
 
   const [adding, setAdding] = useState(false);
@@ -128,7 +126,7 @@ export function StateDiagramView({ model, editing }: Props) {
       fullscreenLabel="State diagram"
       viewId="state"
       apiRef={shellApi}
-      drawnBounds={placed.length === 0 ? null : boundsOf(placed.map((p) => ({ x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H })))}
+      shapes={placed.map((p) => ({ x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H }))}
       // Empty: aim at the middle, where the "add a state" prompt is drawn.
       initialFocus={states.length === 0 ? { x: width / 2, y: 0, w: 0, h: 0 } : undefined}
       bottomLeft={adding && !presenting ? undefined : <Legend />}
@@ -170,7 +168,7 @@ export function StateDiagramView({ model, editing }: Props) {
         </div>
       )}
       <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
-      <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none" }}>
+      <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <marker id="sd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-primary)" />
@@ -254,16 +252,11 @@ function StateNodeView({
   onToggleFinal: () => void;
   onStartConnect: (e: React.PointerEvent, contentEl: HTMLElement | null) => void;
 }) {
-  const { zoom } = useCanvas();
+  const worldDrag = useWorldDrag();
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    const start = { x: e.clientX, y: e.clientY };
-    const move = (ev: PointerEvent) => onDrag((ev.clientX - start.x) / zoom, (ev.clientY - start.y) / zoom);
-    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    worldDrag(e, onDrag);
   };
 
   return (

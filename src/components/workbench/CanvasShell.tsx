@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCanvasViewStore } from "./canvas-view-store";
 import { isTypingTarget, useArtifactFullscreen } from "./artifact-fullscreen";
+import { gridSpacing, pinchView, visibleWorld, wheelPixels, worldOf, zoomAbout, type Point } from "@/lib/canvas/camera";
 
 interface CanvasState {
   zoom: number;
@@ -15,10 +16,69 @@ interface CanvasState {
 /** What a canvas's children can read. `gliding` is true while the camera is
  *  being animated to a new position; anything that counter-moves against the
  *  camera (a pinned lane header) must animate with the same timing or it
- *  visibly runs ahead of the diagram for the length of the glide. */
+ *  visibly runs ahead of the diagram for the length of the glide. Everything
+ *  that reads this re-renders on every frame of a pan or zoom, so only read
+ *  it for what is drawn; a drag on a shape uses useWorldDrag instead. */
 interface CanvasContext extends CanvasState { gliding: boolean }
 const CanvasCtx = createContext<CanvasContext>({ zoom: 1, pan: { x: 0, y: 0 }, gliding: false });
 export const useCanvas = () => useContext(CanvasCtx);
+/** The world point under a pointer, by the camera as it is at that moment.
+ *  Stable, so it can be kept in a drag's closure. */
+const ToWorldCtx = createContext<(clientX: number, clientY: number) => Point>((x, y) => ({ x, y }));
+
+/** Fired on the document when two fingers start pinching a canvas: any shape
+ *  drag, resize or connection the first finger started stops there. */
+export const CANVAS_PINCH_EVENT = "visu:canvas-pinch";
+
+/** Follows the pointer that pressed a shape's handle until it lets go. Only
+ *  that pointer counts (a second finger is a pinch, not part of the drag).
+ *  It ends with `up` on release, or with `cancel` when the browser cancels
+ *  the pointer or a pinch starts -- then nothing is completed: no
+ *  connection made, no drop. Returns a function that stops following. */
+export function followPointer(
+  press: { pointerId: number },
+  h: { move: (ev: PointerEvent) => void; up?: (ev: PointerEvent) => void; cancel?: () => void },
+): () => void {
+  const id = press.pointerId;
+  const move = (ev: PointerEvent) => { if (ev.pointerId === id) h.move(ev); };
+  const up = (ev: PointerEvent) => { if (ev.pointerId !== id) return; stop(); h.up?.(ev); };
+  const cancel = (ev: Event) => {
+    if (ev instanceof PointerEvent && ev.pointerId !== id) return;
+    stop();
+    h.cancel?.();
+  };
+  const stop = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", cancel);
+    document.removeEventListener(CANVAS_PINCH_EVENT, cancel);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", cancel);
+  document.addEventListener(CANVAS_PINCH_EVENT, cancel);
+  return stop;
+}
+
+/** A drag on a shape's handle, in diagram units: `onMove(dx, dy)` gets the
+ *  distance from where the press started, measured in the diagram, so the
+ *  shape stays under the pointer even if the view pans or zooms mid-drag. */
+export function useWorldDrag() {
+  const toWorld = useContext(ToWorldCtx);
+  return (
+    press: React.PointerEvent,
+    onMove: (dx: number, dy: number) => void,
+    end?: { up?: (ev: PointerEvent) => void; cancel?: () => void },
+  ) => {
+    try { (press.currentTarget as HTMLElement).setPointerCapture(press.pointerId); } catch { /* pointer already gone */ }
+    const start = toWorld(press.clientX, press.clientY);
+    return followPointer(press, {
+      move: (ev) => { const p = toWorld(ev.clientX, ev.clientY); onMove(p.x - start.x, p.y - start.y); },
+      up: end?.up,
+      cancel: end?.cancel,
+    });
+  };
+}
 /** The transition the canvas content uses while gliding. */
 export const CANVAS_GLIDE_CLASS = "motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out";
 
@@ -49,6 +109,11 @@ export interface CanvasApi {
    *  smaller than the opening zoom is left alone. */
   reveal: (target: RevealTarget) => void;
   fitView: () => void;
+  /** The world point under a pointer at (clientX, clientY). */
+  screenToWorld: (clientX: number, clientY: number) => Point;
+  /** The part of the world the camera shows now (for placing something new
+   *  where the person is looking). */
+  visibleWorld: () => CanvasRect;
 }
 
 interface Props {
@@ -87,8 +152,13 @@ interface Props {
    *  it; `null` when nothing is drawn yet. The content size above is a padded
    *  sheet with a minimum size, so "is part of the diagram out of view?"
    *  cannot be judged from it: a blank sheet would count as cut off. Left
-   *  out, the whole sheet is assumed to be the diagram. */
+   *  out, it is worked out from `shapes`, or else the whole sheet is assumed
+   *  to be the diagram. Shapes may lie outside the sheet, left of or above
+   *  it too: the canvas has no edges, and fit, the minimap and downloads
+   *  cover the sheet and every shape together. */
   drawnBounds?: CanvasRect | null;
+  /** Every shape's rectangle, drawn in the minimap. */
+  shapes?: CanvasRect[];
 }
 
 const EDGE = 16;                 // breathing room between content and the canvas edge
@@ -115,8 +185,14 @@ export function CanvasShell({
   gridClassName = "bp-grid",
   minZoom = 0.2, maxZoom = 3,
   fullscreenLabel = "Diagram canvas",
-  viewId, initialView = "readable", readableZoom = 0.8, initialFocus, leftInset = 0, apiRef, drawnBounds,
+  viewId, initialView = "readable", readableZoom = 0.8, initialFocus, leftInset = 0, apiRef, drawnBounds, shapes,
 }: Props) {
+  // What is drawn, and the world the camera has to cover: the sheet plus any
+  // shape outside it (see drawnBounds).
+  const drawn: CanvasRect | null = drawnBounds !== undefined ? drawnBounds
+    : shapes ? (shapes.length > 0 ? boundsOf(shapes) : null)
+    : { x: 0, y: 0, w: contentWidth, h: contentHeight };
+  const world = worldOf(contentWidth, contentHeight, drawn);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -177,8 +253,8 @@ export function CanvasShell({
 
   const fitAll = (w: number, h: number): CanvasState => {
     const s = safeArea(w, h);
-    const z = clampZoom(Math.min(1, s.w / contentWidth, s.h / contentHeight));
-    return { zoom: z, pan: { x: s.l + Math.max(0, (s.w - contentWidth * z) / 2), y: s.t } };
+    const z = clampZoom(Math.min(1, s.w / world.w, s.h / world.h));
+    return { zoom: z, pan: { x: s.l + Math.max(0, (s.w - world.w * z) / 2) - world.x * z, y: s.t - world.y * z } };
   };
 
   /** Opening view. If the whole diagram fits at a readable size, show all of
@@ -192,15 +268,17 @@ export function CanvasShell({
     if (initialView === "fit" || all.zoom >= readableZoom) return all;
     const s = safeArea(w, h);
     const z = clampZoom(Math.min(1, readableZoom));
-    const scaledW = contentWidth * z;
-    let x = s.l;
+    const scaledW = world.w * z;
+    // Where the world's left and top edges sit when aligned to the safe area.
+    const left = s.l - world.x * z, top = s.t - world.y * z;
+    let x = left;
     if (scaledW <= s.w) {
-      x = s.l + (s.w - scaledW) / 2;
+      x = left + (s.w - scaledW) / 2;
     } else if (initialFocus) {
       const centred = s.l + s.w / 2 - (initialFocus.x + initialFocus.w / 2) * z;
-      x = Math.min(s.l, Math.max(s.l + s.w - scaledW, centred));
+      x = Math.min(left, Math.max(left + s.w - scaledW, centred));
     }
-    const y = initialFocus ? Math.min(s.t, s.t + 8 - initialFocus.y * z) : s.t;
+    const y = initialFocus ? Math.min(top, s.t + 8 - initialFocus.y * z) : top;
     return { zoom: z, pan: { x, y } };
   };
 
@@ -275,8 +353,8 @@ export function CanvasShell({
     if (r.width < 80 || r.height < 80) return;
     life.restoreChecked = true;
     const s = safeArea(r.width, r.height);
-    const seenW = Math.min(pan.x + contentWidth * zoom, s.l + s.w) - Math.max(pan.x, s.l);
-    const seenH = Math.min(pan.y + contentHeight * zoom, s.t + s.h) - Math.max(pan.y, s.t);
+    const seenW = Math.min(pan.x + (world.x + world.w) * zoom, s.l + s.w) - Math.max(pan.x + world.x * zoom, s.l);
+    const seenH = Math.min(pan.y + (world.y + world.h) * zoom, s.t + s.h) - Math.max(pan.y + world.y * zoom, s.t);
     if (seenW < 80 || seenH < 80) {
       life.restored = false;
       life.touched = false;
@@ -391,17 +469,27 @@ export function CanvasShell({
   // zoomTo is declared further down; the layout effect fills it in before
   // any listener can fire.
   const latest = useRef({
-    measure, fitView, reveal, checkRestoredView, touch, followFocus,
+    measure, fitView, reveal, checkRestoredView, touch, followFocus, clampZoom,
     zoomBy: (_d: number) => {}, zoomTo: (_z: number) => {}, fullscreen: false,
   });
   useLayoutEffect(() => {
     latest.current = {
-      measure, fitView, reveal, checkRestoredView, touch, followFocus,
+      measure, fitView, reveal, checkRestoredView, touch, followFocus, clampZoom,
       zoomBy: (d: number) => zoomTo((z) => +(z + d).toFixed(2)),
       zoomTo: (z: number) => zoomTo(z),
       fullscreen: !!afs?.active,
     };
   });
+  // The camera as of the last render, for listeners that run between renders
+  // (gestures, the imperative handle).
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  // Stable: drags keep it in their closures and call it on every move.
+  const toWorld = useRef((clientX: number, clientY: number): Point => {
+    const r = viewportRef.current?.getBoundingClientRect();
+    const v = viewRef.current;
+    return { x: (clientX - (r?.left ?? 0) - v.pan.x) / v.zoom, y: (clientY - (r?.top ?? 0) - v.pan.y) / v.zoom };
+  }).current;
 
   // Was the last thing the person did a Tab press? Tracked on the window:
   // the Tab that brings focus INTO the canvas is pressed outside it.
@@ -447,7 +535,7 @@ export function CanvasShell({
     // leftInset is here because the person can open or close the shape
     // palette inside the settle window, which changes the room available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentWidth, contentHeight, leftInset]);
+  }, [world.x, world.y, world.w, world.h, leftInset]);
 
   useEffect(() => {
     if (storeKey && store && life.ready) store.set(storeKey, { ...view, moved, frame: lastSize.current ?? undefined });
@@ -458,9 +546,15 @@ export function CanvasShell({
     apiRef.current = {
       reveal: (target) => latest.current.reveal(target),
       fitView: () => latest.current.fitView(),
+      screenToWorld: (clientX, clientY) => toWorld(clientX, clientY),
+      visibleWorld: () => {
+        const r = viewportRef.current?.getBoundingClientRect();
+        return visibleWorld(viewRef.current, r?.width ?? 0, r?.height ?? 0);
+      },
     };
     return () => { apiRef.current = null; };
-  }, [apiRef]);
+    // toWorld never changes; listed so the rule can see it.
+  }, [apiRef, toWorld]);
 
   /** Zoom keeping a viewport point fixed -- the centre unless told otherwise,
    *  so the toolbar buttons no longer slide the diagram out from under you. */
@@ -484,14 +578,8 @@ export function CanvasShell({
   // the plain keys work when the canvas has focus or is full screen, so they
   // never fight the page or a text field.
   useEffect(() => {
-    const live = () => {
-      const root = rootRef.current;
-      if (!root || root.getClientRects().length === 0) return false;
-      const fsEl = document.fullscreenElement ?? document.querySelector("[data-canvas-fs]");
-      return !fsEl || fsEl.contains(root);
-    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || !live()) return;
+      if (e.defaultPrevented || !isLive(rootRef.current)) return;
       if ((e.metaKey || e.ctrlKey) && (e.key === "0" || e.code === "Digit0")) {
         e.preventDefault(); latest.current.fitView(); return;
       }
@@ -510,33 +598,204 @@ export function CanvasShell({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Non-passive wheel listener — needed so ctrl/pinch-zoom can call preventDefault
-  // (React's synthetic onWheel is passive by default and would let the browser
-  // page-zoom instead of zooming our canvas).
+  // One drag that is moving the camera, by the pointer that started it.
+  const dragRef = useRef<{ id: number; x: number; y: number; startX: number; startY: number } | null>(null);
+  // Fingers on the canvas, and the pinch or Safari trackpad gesture under way.
+  const gestureRef = useRef<{
+    touches: Map<number, Point>;
+    pinch: { start: CanvasState; mid: Point; dist: number } | null;
+    /** The view the pinch last set: viewRef lags a render behind. */
+    last: CanvasState | null;
+    safari: { start: CanvasState; at: Point } | null;
+  }>({ touches: new Map(), pinch: null, last: null, safari: null });
+  // Space held over the canvas: every drag pans, as in other whiteboards.
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const spaceRef = useRef(false);
+  const hoverRef = useRef(false);
+
+  // Wheel and trackpad. Non-passive, so a zoom can stop the browser zooming
+  // the page instead (React's onWheel is passive). Ctrl/Cmd+wheel zooms: that
+  // is also what Chrome, Edge and Firefox send for a trackpad pinch. A plain
+  // wheel pans, which is how a trackpad's two-finger scroll moves around.
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      // Safari's own pinch is under way (below); don't zoom twice.
+      if (gestureRef.current.safari) return;
       latest.current.touch();
+      const d = wheelPixels(e, el.clientHeight);
       if (e.ctrlKey || e.metaKey) {
         const box = el.getBoundingClientRect();
         const px = e.clientX - box.left, py = e.clientY - box.top;
-        const factor = Math.exp(-e.deltaY * 0.0018);
-        setView((v) => {
-          const nz = Math.min(maxZoom, Math.max(minZoom, v.zoom * factor));
-          const k = nz / v.zoom;
-          return { zoom: nz, pan: { x: px - (px - v.pan.x) * k, y: py - (py - v.pan.y) * k } };
-        });
+        const factor = Math.exp(-d.y * 0.0018);
+        setView((v) => zoomAbout(v, latest.current.clampZoom(v.zoom * factor), px, py));
       } else {
-        setView((v) => ({ zoom: v.zoom, pan: { x: v.pan.x - e.deltaX, y: v.pan.y - e.deltaY } }));
+        setView((v) => ({ zoom: v.zoom, pan: { x: v.pan.x - d.x, y: v.pan.y - d.y } }));
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [minZoom, maxZoom, life]);
+  }, []);
 
-  const dragRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
+  // Two fingers, the middle button, Space+drag and Safari's trackpad pinch.
+  // Listened for on the way DOWN to the shapes (capture), so they win over a
+  // shape's own handlers: a second finger, a middle-button press or a press
+  // with Space held never starts moving or editing a shape.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const g = gestureRef.current;
+    const local = (e: { clientX: number; clientY: number }): Point => {
+      const r = el.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+    const spread = () => {
+      const [a, b] = [...g.touches.values()];
+      return { mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, dist: Math.hypot(a.x - b.x, a.y - b.y) };
+    };
+    const startPan = (e: PointerEvent) => {
+      const v = viewRef.current;
+      dragRef.current = { id: e.pointerId, x: v.pan.x, y: v.pan.y, startX: e.clientX, startY: e.clientY };
+      try { el.setPointerCapture(e.pointerId); } catch { /* already released */ }
+    };
+    // From where the camera is now and where the fingers are now: whenever a
+    // finger joins or leaves, so the view never jumps to a new pair.
+    const rebase = () => { g.pinch = { start: g.last ?? viewRef.current, ...spread() }; };
+    const down = (e: PointerEvent) => {
+      if (e.pointerType === "touch") {
+        g.touches.set(e.pointerId, local(e));
+        if (g.touches.size < 2) return;
+        // A second finger: pinch from here. A one-finger pan stops, and so
+        // does anything the first finger started on a shape (a drag, a
+        // resize, a connection), which the shapes hear about through this.
+        e.stopPropagation();
+        try { el.setPointerCapture(e.pointerId); } catch { /* already released */ }
+        if (!g.pinch) {
+          dragRef.current = null;
+          g.last = viewRef.current;
+          latest.current.touch();
+          document.dispatchEvent(new Event(CANVAS_PINCH_EVENT));
+        }
+        rebase();
+        return;
+      }
+      if (e.button === 1 || (e.button === 0 && spaceRef.current)) {
+        e.preventDefault();
+        e.stopPropagation();
+        startPan(e);
+      }
+    };
+    const move = (e: PointerEvent) => {
+      if (e.pointerType !== "touch" || !g.touches.has(e.pointerId)) return;
+      g.touches.set(e.pointerId, local(e));
+      if (!g.pinch || g.touches.size < 2) return;
+      const { mid, dist } = spread();
+      const p = g.pinch;
+      g.last = pinchView(p.start, p.mid, p.dist, mid, dist, latest.current.clampZoom);
+      setView(g.last);
+    };
+    const up = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      g.touches.delete(e.pointerId);
+      if (!g.pinch) return;
+      if (g.touches.size >= 2) { rebase(); return; }
+      g.pinch = null;
+      g.last = null;
+      // One finger still down: carry on panning with it, from where it is.
+      const rest = [...g.touches.entries()][0];
+      if (rest) {
+        const r = el.getBoundingClientRect();
+        const v = viewRef.current;
+        dragRef.current = { id: rest[0], x: v.pan.x, y: v.pan.y, startX: rest[1].x + r.left, startY: rest[1].y + r.top };
+      }
+    };
+    // The middle button would otherwise start the browser's autoscroll.
+    const middle = (e: MouseEvent) => { if (e.button === 1) e.preventDefault(); };
+    // Safari (Mac trackpad) pinches with its own gesture events, not
+    // ctrl+wheel; on an iPhone or iPad they come alongside the two touches
+    // handled above, so there they only need stopping from zooming the page.
+    type GestureLike = Event & { scale: number; clientX: number; clientY: number };
+    const gStart = (ev: Event) => {
+      ev.preventDefault();
+      if (g.touches.size >= 2) return;
+      g.safari = { start: viewRef.current, at: local(ev as GestureLike) };
+      latest.current.touch();
+    };
+    const gChange = (ev: Event) => {
+      ev.preventDefault();
+      const s = g.safari;
+      if (!s || g.touches.size >= 2) return;
+      const scale = (ev as GestureLike).scale;
+      setView(zoomAbout(s.start, latest.current.clampZoom(s.start.zoom * scale), s.at.x, s.at.y));
+    };
+    const gEnd = (ev: Event) => { ev.preventDefault(); g.safari = null; };
+    el.addEventListener("pointerdown", down, true);
+    el.addEventListener("pointermove", move, true);
+    el.addEventListener("pointerup", up, true);
+    el.addEventListener("pointercancel", up, true);
+    el.addEventListener("mousedown", middle, true);
+    el.addEventListener("gesturestart", gStart);
+    el.addEventListener("gesturechange", gChange);
+    el.addEventListener("gestureend", gEnd);
+    return () => {
+      el.removeEventListener("pointerdown", down, true);
+      el.removeEventListener("pointermove", move, true);
+      el.removeEventListener("pointerup", up, true);
+      el.removeEventListener("pointercancel", up, true);
+      el.removeEventListener("mousedown", middle, true);
+      el.removeEventListener("gesturestart", gStart);
+      el.removeEventListener("gesturechange", gChange);
+      el.removeEventListener("gestureend", gEnd);
+    };
+  }, []);
+
+  // Space over the canvas turns every drag into a pan until it is let go.
+  // Only while the pointer is over this canvas and nobody is typing, so a
+  // space in a label, or Space on a button elsewhere, works as always.
+  useEffect(() => {
+    const release = () => {
+      if (!spaceRef.current) return;
+      spaceRef.current = false;
+      setSpaceHeld(false);
+    };
+    const onDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      if (spaceRef.current) { e.preventDefault(); return; }
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.isComposing || isTypingTarget(e.target)) return;
+      // Space on a focused button, tab, checkbox or menu presses it, as it
+      // always has, wherever the mouse happens to rest.
+      if (e.target instanceof Element && e.target.closest(SPACE_CONTROLS)) return;
+      if (!hoverRef.current || !isLive(rootRef.current)) return;
+      e.preventDefault();
+      spaceRef.current = true;
+      setSpaceHeld(true);
+    };
+    const onUp = (e: KeyboardEvent) => {
+      if (!spaceRef.current) return;
+      // A Mac sends no key-up for a key let go while Cmd is held: let go of
+      // Cmd, and Space counts as let go too, or panning would stick.
+      if (e.key === "Meta") { release(); return; }
+      if (e.code !== "Space") return;
+      e.preventDefault();
+      release();
+    };
+    const onHidden = () => { if (document.hidden) release(); };
+    window.addEventListener("keydown", onDown);
+    window.addEventListener("keyup", onUp);
+    window.addEventListener("blur", release);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("keydown", onDown);
+      window.removeEventListener("keyup", onUp);
+      window.removeEventListener("blur", release);
+      document.removeEventListener("visibilitychange", onHidden);
+    };
+  }, []);
+
+  // A left-button drag on empty canvas pans. (A second finger, the middle
+  // button and Space+drag are handled above, before the shapes see them.)
   const onPointerDown = (e: React.PointerEvent) => {
     const t = e.target as HTMLElement;
     if (
@@ -546,18 +805,20 @@ export function CanvasShell({
       t.closest("[data-no-pan]") ||
       t.closest("button, input, textarea, select, a, [role='tab']")
     ) return;
-    if (e.button !== 0) return;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = { x: pan.x, y: pan.y, startX: e.clientX, startY: e.clientY };
+    if (e.button !== 0 || gestureRef.current.pinch) return;
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+    dragRef.current = { id: e.pointerId, x: pan.x, y: pan.y, startX: e.clientX, startY: e.clientY };
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
-    if (!d) return;
+    if (!d || d.id !== e.pointerId || gestureRef.current.pinch) return;
     touch();
     const x = d.x + (e.clientX - d.startX), y = d.y + (e.clientY - d.startY);
     setView((v) => ({ zoom: v.zoom, pan: { x, y } }));
   };
-  const stopPan = () => { dragRef.current = null; };
+  const stopPan = (e: React.PointerEvent) => {
+    if (dragRef.current?.id === e.pointerId) dragRef.current = null;
+  };
 
   const ctx = useMemo<CanvasContext>(() => ({ zoom, pan, gliding }), [zoom, pan, gliding]);
   // Until the shell has a size, the camera is a placeholder. A pane that
@@ -572,13 +833,23 @@ export function CanvasShell({
   // shrinks, or the view comes back from another tab; and judged from what is
   // drawn against the frame, in state only, so opening an add form (a taller
   // bottom bar) or a blank sheet cannot set it off.
-  const drawn = drawnBounds === undefined ? { x: 0, y: 0, w: contentWidth, h: contentHeight } : drawnBounds;
   const cutOff = laidOut && !moved && initialView !== "fit" && !!drawn && drawn.w > 0 && drawn.h > 0 && (
     pan.x + drawn.x * zoom < -1 || pan.y + drawn.y * zoom < -1
     || pan.x + (drawn.x + drawn.w) * zoom > vp.w + 1 || pan.y + (drawn.y + drawn.h) * zoom > vp.h + 1
   );
   const showMinimap = !!minimap && vp.w >= MINIMAP_MIN_WIDTH;
   const hasBottomBar = !!bottomLeft || !!bottomRight || showMinimap;
+  // The grid belongs to the world: it moves and scales with the camera, with
+  // lines every GRID_STEP units (the step shapes snap to), spread out when
+  // zoomed far out. The fine grid (board, business model canvas) is half that.
+  // The grid is drawn from the camera's pan itself (tiles repeat, so no
+  // wrapping is needed), which lets it glide with the diagram on Fit or a
+  // reveal; until the first real camera, it is not drawn at all.
+  const fine = gridClassName === "bp-grid-fine";
+  const gridSize = gridSpacing(zoom, fine ? GRID_STEP / 2 : GRID_STEP, fine ? 7 : 12);
+  const gridStyle: React.CSSProperties = laidOut
+    ? { backgroundSize: `${gridSize}px ${gridSize}px`, backgroundPosition: `${pan.x}px ${pan.y}px` }
+    : { backgroundImage: "none" };
 
   const shell = (
     <div
@@ -586,7 +857,9 @@ export function CanvasShell({
       className={cn(
         "relative isolate h-full w-full overflow-hidden rounded-lg border",
         gridClassName,
+        gliding && "motion-safe:transition-[background-position] motion-safe:duration-300 motion-safe:ease-out",
       )}
+      style={gridStyle}
       aria-label={fullscreenLabel}
       // overflow-hidden still leaves this a scroll container: focusing a node
       // or field that sits outside the frame makes the browser scroll the
@@ -654,6 +927,8 @@ export function CanvasShell({
         onPointerMove={onPointerMove}
         onPointerUp={stopPan}
         onPointerCancel={stopPan}
+        onPointerEnter={() => { hoverRef.current = true; }}
+        onPointerLeave={() => { hoverRef.current = false; }}
         onFocus={(e) => { if (tabbing.current) latest.current.followFocus(e.target); }}
         onDragOver={onCanvasDrop ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } : undefined}
         onDrop={onCanvasDrop ? (e) => {
@@ -666,10 +941,14 @@ export function CanvasShell({
           onCanvasDrop(cx, cy, e);
         } : undefined}
       >
+        <ToWorldCtx.Provider value={toWorld}>
         <CanvasCtx.Provider value={ctx}>
           <div
             ref={contentRef}
             data-canvas-content
+            // Everything drawn, sheet and shapes, for downloads (export-pdf.ts):
+            // shapes can sit outside the sheet's box, even at negative positions.
+            data-world={`${world.x},${world.y},${world.w},${world.h}`}
             className={cn(
               "absolute origin-top-left",
               gliding && CANVAS_GLIDE_CLASS,
@@ -684,6 +963,10 @@ export function CanvasShell({
             {children}
           </div>
         </CanvasCtx.Provider>
+        </ToWorldCtx.Provider>
+        {/* Space held: a pane over the shapes, so the press reaches the
+         *  camera and the cursor says what a drag will do. */}
+        {spaceHeld && <div className="absolute inset-0 z-[5] cursor-grab active:cursor-grabbing" aria-hidden />}
       </div>
 
       {overlay}
@@ -712,7 +995,7 @@ export function CanvasShell({
             )}
           </div>
           {showMinimap && (
-            <Minimap boxRef={minimapRef} contentW={contentWidth} contentH={contentHeight}
+            <Minimap boxRef={minimapRef} world={world} shapes={shapes}
               pan={pan} zoom={zoom} vp={vp}
               onJump={(cx, cy) => {
                 touch();
@@ -728,32 +1011,65 @@ export function CanvasShell({
   return shell;
 }
 
+/** What Space presses when it has focus, instead of starting to pan. */
+const SPACE_CONTROLS = "button, a[href], summary, [role=button], [role=tab], [role=checkbox], [role=switch], [role=radio], [role=menuitem], [role=option], [role=slider], [role=dialog], [role=alertdialog], [data-radix-popper-content-wrapper]";
+
+/** Lines of the canvas grid are this many world units apart at 100%. Process
+ *  map shapes snap to the same step, so they sit on the lines. */
+const GRID_STEP = 20;
+
+/** Whether a canvas should answer the keyboard: it is on screen, and when
+ *  something is full screen, it is inside it. Several canvases can be mounted
+ *  at once (the project page keeps every artifact loaded, hidden). */
+function isLive(root: HTMLElement | null): boolean {
+  if (!root || root.getClientRects().length === 0) return false;
+  const fsEl = document.fullscreenElement ?? document.querySelector("[data-canvas-fs]");
+  return !fsEl || fsEl.contains(root);
+}
+
+/** The whole world in a small box: every shape, and the part the camera
+ *  shows. Press to jump there; drag to move the view around. */
 function Minimap({
-  boxRef, contentW, contentH, pan, zoom, vp, onJump,
+  boxRef, world, shapes, pan, zoom, vp, onJump,
 }: {
   boxRef: MutableRefObject<HTMLDivElement | null>;
-  contentW: number; contentH: number;
+  world: CanvasRect;
+  shapes?: CanvasRect[];
   pan: { x: number; y: number }; zoom: number;
   vp: { w: number; h: number };
   onJump: (cx: number, cy: number) => void;
 }) {
   const MAX = 150;
-  const scale = MAX / Math.max(contentW, contentH);
-  const mw = contentW * scale, mh = contentH * scale;
+  const scale = MAX / Math.max(world.w, world.h);
+  const mw = world.w * scale, mh = world.h * scale;
   const vw = Math.min(mw, (vp.w / zoom) * scale);
   const vh = Math.min(mh, (vp.h / zoom) * scale);
-  const vx = Math.max(0, Math.min(mw - vw, (-pan.x / zoom) * scale));
-  const vy = Math.max(0, Math.min(mh - vh, (-pan.y / zoom) * scale));
+  const vx = Math.max(0, Math.min(mw - vw, (-pan.x / zoom - world.x) * scale));
+  const vy = Math.max(0, Math.min(mh - vh, (-pan.y / zoom - world.y) * scale));
+  const jump = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    onJump(world.x + (e.clientX - r.left) / scale, world.y + (e.clientY - r.top) / scale);
+  };
   return (
     <div ref={boxRef} className="pointer-events-auto shrink-0 rounded-md border bg-card/95 backdrop-blur p-1.5 shadow-sm" data-no-pan>
       <div
-        className="relative bg-muted/50 rounded-sm cursor-pointer overflow-hidden"
+        className="relative bg-muted/50 rounded-sm cursor-pointer overflow-hidden touch-none"
         style={{ width: mw, height: mh }}
-        onPointerDown={(e) => {
-          const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-          onJump((e.clientX - r.left) / scale, (e.clientY - r.top) / scale);
-        }}
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); jump(e); }}
+        onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) jump(e); }}
       >
+        {shapes && shapes.length > 0 && (
+          <svg width={mw} height={mh} className="absolute inset-0 pointer-events-none" aria-hidden>
+            {shapes.map((s, i) => (
+              <rect
+                key={i} rx={1}
+                x={(s.x - world.x) * scale} y={(s.y - world.y) * scale}
+                width={Math.max(1.5, s.w * scale)} height={Math.max(1.5, s.h * scale)}
+                fill="var(--color-muted-foreground)" fillOpacity={0.45}
+              />
+            ))}
+          </svg>
+        )}
         <div
           className="absolute border-2 border-primary/70 bg-primary/10 rounded-sm pointer-events-none"
           style={{ left: vx, top: vy, width: vw, height: vh }}

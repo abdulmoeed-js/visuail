@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { ProcessModel, RuleNode, DecisionBranch } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { Plus, X, GripVertical, Wand2 } from "lucide-react";
-import { CanvasShell, boundsOf } from "./CanvasShell";
+import { CanvasShell } from "./CanvasShell";
 import { InlineEdit } from "./InlineEdit";
 import { isTypingTarget, useArtifactFullscreen } from "./artifact-fullscreen";
 import { IdChip } from "./atoms";
@@ -67,7 +67,7 @@ export function DecisionTreeView({ model, editing }: Props) {
       viewId="decisiontree"
       // What is drawn, not the padded sheet: an empty tree has nothing that
       // could be "off-screen".
-      drawnBounds={placed.length === 0 ? null : boundsOf(placed.map((p) => ({ x: p.cx - NODE_W / 2, y: p.cy - NODE_H / 2, w: NODE_W, h: NODE_H })))}
+      shapes={placed.map((p) => ({ x: p.cx - NODE_W / 2, y: p.cy - NODE_H / 2, w: NODE_W, h: NODE_H }))}
       // The root sits centred over its subtree, so a wide tree opened on its
       // left edge would start with the root question off-screen. With no
       // tree yet, aim at the middle, where the empty state is drawn.
@@ -93,7 +93,7 @@ export function DecisionTreeView({ model, editing }: Props) {
           </button>
         </div>
       )}
-      <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none" }}>
+      <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <marker id="dt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />

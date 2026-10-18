@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProcessModel, Connection } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { Plus, X, GripVertical, Database, Square, CircleDot } from "lucide-react";
-import { CanvasShell, useCanvas, boundsOf } from "./CanvasShell";
+import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
@@ -103,16 +103,14 @@ export function DFDView({ model, editing }: Props) {
       setPendingConn((cur) => cur ? { ...cur, toX: (ev.clientX - rect.left) / scale, toY: (ev.clientY - rect.top) / scale } : cur);
     };
     const up = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
       const target = el?.closest("[data-dfd-node]") as HTMLElement | null;
       const toId = target?.dataset.dfdNode;
       if (toId && toId !== fromId) editing.onAddConnection(fromId, toId);
       setPendingConn(null);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    // Cancelled (a pinch, the browser): no line is drawn.
+    followPointer(e, { move, up, cancel: () => setPendingConn(null) });
   };
 
   const [adding, setAdding] = useState<null | "process" | "store" | "entity">(null);
@@ -158,7 +156,7 @@ export function DFDView({ model, editing }: Props) {
       fullscreenLabel="Data flow diagram"
       viewId="dfd"
       apiRef={shellApi}
-      drawnBounds={nodes.length === 0 ? null : boundsOf(nodes.map((n) => ({ x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h })))}
+      shapes={nodes.map((n) => ({ x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h }))}
       // Empty: aim at the middle, where the prompt is drawn.
       initialFocus={isEmpty ? { x: width / 2, y: 0, w: 0, h: 0 } : undefined}
       bottomLeft={adding && !presenting ? undefined : <Legend />}
@@ -212,7 +210,7 @@ export function DFDView({ model, editing }: Props) {
         </div>
       )}
       <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
-      <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none" }}>
+      <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <marker id="dfd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-verified)" />
@@ -276,11 +274,10 @@ function DFDNodeView({
   onUpdate: (text: string) => void;
   onStartConnect: (e: React.PointerEvent, contentEl: HTMLElement | null) => void;
 }) {
-  const { zoom } = useCanvas();
+  const worldDrag = useWorldDrag();
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     // Delta from the drag's START position, not incremental since-last-move
     // -- onDrag adds this to the node's position from the render at drag
     // start, so it must be the *cumulative* offset, matching how
@@ -288,13 +285,7 @@ function DFDNodeView({
     // codebase) does it. An incremental-since-last delta would silently
     // discard all but the last move event's worth of movement, since the
     // stale `node.cx` captured in this closure never updates mid-drag.
-    const start = { x: e.clientX, y: e.clientY };
-    const move = (ev: PointerEvent) => {
-      onDrag((ev.clientX - start.x) / zoom, (ev.clientY - start.y) / zoom);
-    };
-    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    worldDrag(e, onDrag);
   };
 
   const style: React.CSSProperties = {

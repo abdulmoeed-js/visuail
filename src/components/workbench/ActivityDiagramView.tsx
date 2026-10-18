@@ -218,6 +218,7 @@ export function ActivityDiagramView({ model, editing }: Props) {
         x: LEFT_PAD, y: 0, w: Math.max(1, lanes.length) * LANE_W,
         h: placed.length ? TOP_PAD + (Math.max(...placed.map((p) => p.row)) + 1) * ROW_H : LANE_HEADER_H,
       }}
+      shapes={placed.map((p) => ({ x: p.cx - p.w / 2, y: p.cy - p.h / 2, w: p.w, h: p.h }))}
       bottomLeft={
         <span className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground">
           One lane per actor · sequence flows top-to-bottom, lane shows who
@@ -267,7 +268,7 @@ export function ActivityDiagramView({ model, editing }: Props) {
       {/* Nodes only: a lane's ring is drawn inside its pinned header. */}
       <FlashRing key={flashId ?? "idle"} rect={flashId && byId.has(flashId) ? rectFor(flashId) : null} />
 
-      <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none" }}>
+      <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <marker id="ad-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />

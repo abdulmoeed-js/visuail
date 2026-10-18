@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CanvasShell, useCanvas } from "./CanvasShell";
+import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { isUserCreatedId } from "@/lib/item-origin";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
@@ -486,17 +486,13 @@ export function ProcessCanvas({
   const flashGeom = flashId ? geomById.get(flashId) : undefined;
 
   // What is actually drawn, as opposed to the padded sheet it is drawn on
-  // (never smaller than 900x620). The canvas uses it to judge whether part of
-  // the diagram is out of view; null when there is nothing to be out of view.
-  const drawnBounds = useMemo(() => {
-    if (geomById.size === 0) return null;
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const g of geomById.values()) {
-      x0 = Math.min(x0, g.cx - g.w / 2); x1 = Math.max(x1, g.cx + g.w / 2);
-      y0 = Math.min(y0, g.cy - g.h / 2); y1 = Math.max(y1, g.cy + g.h / 2);
-    }
-    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
-  }, [geomById]);
+  // (never smaller than 900x620): the minimap draws it, and the canvas uses
+  // it to judge whether part of the diagram is out of view and how far the
+  // world reaches (shapes can be dragged anywhere, left of or above the start).
+  const shapeRects = useMemo(
+    () => [...geomById.values()].map((g) => ({ x: g.cx - g.w / 2, y: g.cy - g.h / 2, w: g.w, h: g.h })),
+    [geomById],
+  );
 
   // Adding from the bar asks who does the step instead of assuming. The
   // select opens on whoever did the previous step -- the likeliest answer --
@@ -693,16 +689,14 @@ export function ProcessCanvas({
       setPendingConn((cur) => cur ? { ...cur, toX: cx, toY: cy } : cur);
     };
     const up = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
       const node = el?.closest("[data-node-id]") as HTMLElement | null;
       const toId = node?.dataset.nodeId;
       if (toId && toId !== fromId) onAddConnection?.(fromId, toId);
       setPendingConn(null);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    // Cancelled (a pinch, the browser): no line is drawn.
+    followPointer(e, { move, up, cancel: () => setPendingConn(null) });
   };
 
   // Assemble a single render list sorted by z so overlap ordering is deterministic.
@@ -726,7 +720,7 @@ export function ProcessCanvas({
       fullscreenLabel="Process map"
       viewId="process"
       apiRef={shellApi}
-      drawnBounds={drawnBounds}
+      shapes={shapeRects}
       // The palette is hidden while presenting, so nothing needs the room.
       leftInset={paletteOpen && !presenting ? PALETTE_INSET : 0}
       initialFocus={spine[0] ? {
@@ -858,7 +852,9 @@ export function ProcessCanvas({
         width={Math.max(width, 900)}
         height={Math.max(height, 620)}
         className="absolute inset-0"
-        style={{ pointerEvents: "none" }}
+        // Lines to shapes outside the sheet (dragged left, up or far out)
+        // are drawn too, not cut at its edge.
+        style={{ pointerEvents: "none", overflow: "visible" }}
       >
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -1481,28 +1477,14 @@ function Legend() {
 // ---- Node primitives ----
 
 function useNodeDrag(onDrag: (d: { dx: number; dy: number }) => void, onSelect?: () => void) {
-  const { zoom } = useCanvas();
-  const startRef = { current: null as null | { x: number; y: number } };
+  const worldDrag = useWorldDrag();
   return {
     onPointerDown: (e: React.PointerEvent) => {
       if (e.button !== 0) return;
       e.stopPropagation();
       onSelect?.();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      startRef.current = { x: e.clientX, y: e.clientY };
-      const start = startRef.current;
-      const move = (ev: PointerEvent) => {
-        if (!start) return;
-        const dx = (ev.clientX - start.x) / zoom;
-        const dy = (ev.clientY - start.y) / zoom;
-        onDrag({ dx, dy });
-      };
-      const up = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
+      // Distance from the press, in the diagram (see useWorldDrag).
+      worldDrag(e, (dx, dy) => onDrag({ dx, dy }));
     },
   };
 }
@@ -1550,24 +1532,15 @@ function useMeasure(onMeasure: (w: number, h: number) => void) {
 }
 
 function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: number, h: number) => void }) {
-  const { zoom } = useCanvas();
+  const worldDrag = useWorldDrag();
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    const startX = e.clientX, startY = e.clientY;
     const startW = w, startH = h;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) => {
-      const nw = Math.min(MAX_W, Math.max(MIN_W, startW + (ev.clientX - startX) / zoom));
-      const nh = Math.min(MAX_H, Math.max(MIN_H, startH + (ev.clientY - startY) / zoom));
-      onResize(nw, nh);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    worldDrag(e, (dx, dy) => onResize(
+      Math.min(MAX_W, Math.max(MIN_W, startW + dx)),
+      Math.min(MAX_H, Math.max(MIN_H, startH + dy)),
+    ));
   };
   return (
     <div

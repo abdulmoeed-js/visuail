@@ -5,6 +5,9 @@
 //
 //   npm test              every test file
 //   npm test -- schema    only files whose path contains "schema"
+//
+// Import everything a test needs at the top of its file: the loader closes
+// once every file has loaded, so an import() inside a test fails.
 
 import { readdir } from "node:fs/promises";
 import path from "node:path";

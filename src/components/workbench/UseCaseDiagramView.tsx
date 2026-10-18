@@ -80,7 +80,7 @@ export function UseCaseDiagramView({
         width={Math.max(width, 700)}
         height={Math.max(height, 420)}
         className="absolute inset-0"
-        style={{ pointerEvents: "none" }}
+        style={{ pointerEvents: "none", overflow: "visible" }}
       >
         {placed.map(({ group, actorCy, ucY }) =>
           group.useCases.map((uc, i) => (

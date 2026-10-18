@@ -107,9 +107,14 @@ function drawLegend(pdf: Pdf, x: number, baseline: number) {
  *  the viewer's current pan/zoom position. Shared by every export format. */
 async function withNeutralizedTransform<T>(
   el: HTMLElement,
-  fn: (inner: HTMLElement, width: number, height: number) => Promise<T>,
+  fn: (inner: HTMLElement, width: number, height: number, shift: string) => Promise<T>,
 ): Promise<T> {
   const inner = el.querySelector<HTMLElement>("[data-canvas-content]") ?? el;
+  // Shapes can sit outside the sheet, left of or above where the diagram
+  // started; the canvas marks everything drawn (CanvasShell). The picture is
+  // that whole area, shifted so its top-left corner is the picture's.
+  const world = (inner.dataset.world ?? "").split(",").map(Number);
+  const hasWorld = world.length === 4 && world.every(Number.isFinite) && world[2] > 0 && world[3] > 0;
   const prevTransform = inner.style.transform;
   const prevTransition = inner.style.transition;
   const prevVisibility = inner.style.visibility;
@@ -125,10 +130,11 @@ async function withNeutralizedTransform<T>(
   const pinned = Array.from(inner.querySelectorAll<HTMLElement>("[data-canvas-pinned]"));
   const prevPinned = pinned.map((p) => p.style.transform);
   pinned.forEach((p) => { p.style.transform = "none"; });
-  const width = inner.offsetWidth;
-  const height = inner.offsetHeight;
+  const width = hasWorld ? Math.ceil(world[2]) : inner.offsetWidth;
+  const height = hasWorld ? Math.ceil(world[3]) : inner.offsetHeight;
+  const shift = hasWorld ? `translate(${-world[0]}px, ${-world[1]}px)` : "none";
   try {
-    return await fn(inner, width, height);
+    return await fn(inner, width, height, shift);
   } finally {
     // Put back only what is still ours. The capture is slow, and a pane shown
     // just for it gets laid out meanwhile: React then writes the real camera
@@ -156,14 +162,14 @@ function withoutEditControls(node: HTMLElement): boolean {
 
 async function snapshot(el: HTMLElement): Promise<{ dataUrl: string; w: number; h: number }> {
   const { toPng } = await loadHtmlToImage();
-  const dataUrl = await withNeutralizedTransform(el, (inner, width, height) =>
+  const dataUrl = await withNeutralizedTransform(el, (inner, width, height, shift) =>
     toPng(inner, {
       backgroundColor: "#ffffff",
       pixelRatio: 2,
       cacheBust: true,
       width,
       height,
-      style: { transform: "none", transformOrigin: "top left", left: "0", top: "0" },
+      style: { transform: shift, transformOrigin: "top left", left: "0", top: "0" },
       filter: withoutEditControls,
     }),
   );
@@ -193,13 +199,16 @@ export async function exportElementToPng(filename: string, el: HTMLElement): Pro
 /** Downloads a single canvas as an SVG (vector, not rasterized). */
 export async function exportElementToSvg(filename: string, el: HTMLElement): Promise<void> {
   const { toSvg } = await loadHtmlToImage();
-  const dataUrl = await withNeutralizedTransform(el, (inner, width, height) =>
+  const dataUrl = await withNeutralizedTransform(el, (inner, width, height, shift) =>
     toSvg(inner, {
       backgroundColor: "#ffffff",
       cacheBust: true,
       width,
       height,
-      style: { transform: "none", transformOrigin: "top left", left: "0", top: "0" },
+      // An SVG has no background of its own: without this, the part of the
+      // picture left of or above the sheet (shapes moved there) would be
+      // see-through. A shadow paints under the content, never over it.
+      style: { transform: shift, transformOrigin: "top left", left: "0", top: "0", boxShadow: "0 0 0 100000px #ffffff" },
       filter: withoutEditControls,
     }),
   );

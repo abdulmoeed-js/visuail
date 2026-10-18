@@ -2,7 +2,7 @@ import { useState } from "react";
 import { GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { StoredCanvas, ViewKind } from "@/lib/session";
-import { CanvasShell, useCanvas } from "@/components/workbench/CanvasShell";
+import { CanvasShell, useWorldDrag } from "@/components/workbench/CanvasShell";
 import { ArtifactCounts, NewInstanceButton } from "@/components/workbench/ArtifactSidebar";
 import { ALL_VIEW_KINDS, VIEW_KIND_META } from "@/lib/view-kind-meta";
 
@@ -25,22 +25,12 @@ function defaultFrame(index: number): Frame {
  *  computing from the last pointermove instead of the drag's start position is
  *  what caused DFDView's node-drag jitter bug earlier this project. */
 function useCardDrag(onDrag: (d: { dx: number; dy: number }) => void) {
-  const { zoom } = useCanvas();
+  const worldDrag = useWorldDrag();
   return {
     onPointerDown: (e: React.PointerEvent) => {
       if (e.button !== 0) return;
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      const start = { x: e.clientX, y: e.clientY };
-      const move = (ev: PointerEvent) => {
-        onDrag({ dx: (ev.clientX - start.x) / zoom, dy: (ev.clientY - start.y) / zoom });
-      };
-      const up = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
+      worldDrag(e, (dx, dy) => onDrag({ dx, dy }));
     },
   };
 }
@@ -76,7 +66,11 @@ export function ArtifactBoard({ canvases, onOpen, onCreate, onFrameChange }: Pro
         ))}
       </div>
       <div className="flex-1 min-h-0">
-        <CanvasShell contentWidth={contentW} contentHeight={contentH} gridClassName="bp-grid-fine" initialView="fit">
+        <CanvasShell
+          contentWidth={contentW} contentHeight={contentH} gridClassName="bp-grid-fine" initialView="fit"
+          // A card dragged left of or above the others stays in the picture.
+          shapes={framed.map(({ frame }) => ({ x: frame.x, y: frame.y, w: frame.w, h: frame.h }))}
+        >
           {framed.map(({ canvas, frame }) => (
             <BoardCard
               key={canvas.id} canvas={canvas} frame={frame}

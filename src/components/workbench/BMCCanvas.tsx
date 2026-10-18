@@ -3,7 +3,7 @@ import type { BMCModel, BMCBlock, BaseItem } from "@/data/samples";
 import { EditableList } from "./EditableList";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, X } from "lucide-react";
-import { CanvasShell, useCanvas } from "./CanvasShell";
+import { CanvasShell, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { InlineEdit } from "./InlineEdit";
 import { IdChip } from "./atoms";
@@ -177,23 +177,12 @@ function Block({
 }
 
 function BlockResizeHandle({ h, setH }: { h: number; setH: (h: number) => void }) {
-  const { zoom } = useCanvas();
+  const worldDrag = useWorldDrag();
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    const startY = e.clientY;
     const startH = h;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) => {
-      const nh = Math.max(120, Math.min(700, startH + (ev.clientY - startY) / zoom));
-      setH(nh);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    worldDrag(e, (_dx, dy) => setH(Math.max(120, Math.min(700, startH + dy))));
   };
   return (
     <div
