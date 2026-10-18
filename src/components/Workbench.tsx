@@ -43,6 +43,7 @@ import { type ProjectResult } from "./workbench/IntakeWizard";
 import { ProjectView } from "./workbench/ProjectView";
 import { SignupWallModal } from "./SignupWallModal";
 import { useArtifactEditing, type ArtifactEditing } from "@/lib/artifact-editing";
+import { OUTDATED_DETAIL, OUTDATED_SAFE, OUTDATED_TITLE } from "@/lib/model-schema";
 import { checkRefusal } from "@/lib/refusal";
 import { verifyGrounding } from "@/lib/grounding";
 import type { ViewKind } from "@/lib/session";
@@ -512,6 +513,10 @@ export function ArtifactView({
   useEffect(() => { viewingRef.current = viewing; });
   const runHistory = useCallback((direction: "undo" | "redo") => {
     if (!mounted.current) return;
+    if (editingRef.current.outdated) {
+      ownNotice.current = historyToast(OUTDATED_TITLE, { description: `${OUTDATED_DETAIL} ${OUTDATED_SAFE}` });
+      return;
+    }
     const v = viewingRef.current;
     if (v) {
       ownNotice.current = historyToast(`${v.editorLabel} is editing this artifact`, {
@@ -603,6 +608,14 @@ export function ArtifactView({
   return (
     <CanvasViewStoreProvider store={viewStore}>
     <div ref={rootRef} className="flex-1 flex flex-col" data-artifact-root>
+      {editing.outdated && (
+        <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b bg-unresolved/10 px-4 py-2 text-sm">
+          <span><strong>{OUTDATED_TITLE}.</strong> {OUTDATED_DETAIL}</span>
+          <Button size="sm" variant="outline" className="bg-card" onClick={() => window.location.reload()}>
+            Reload
+          </Button>
+        </div>
+      )}
       {viewing && (
         <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b bg-unresolved/10 px-4 py-2 text-sm">
           <span>
@@ -675,6 +688,7 @@ export function ArtifactView({
           title={model.title}
           summary={<GradeBar summary={grades} />}
           viewing={viewing}
+          outdated={editing.outdated}
         />
         <div className="relative z-40 flex items-center gap-2 border-b bg-card px-4" data-no-pan data-fs-chrome-end>
           {/* Scrolls instead of overflowing -- with 11 tabs (7 diagram types plus

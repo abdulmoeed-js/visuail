@@ -12,7 +12,8 @@ import {
   CheckCheck, Split, Plus, AlertTriangle, History, RotateCcw, Clock, ImageDown,
 } from "lucide-react";
 import { ArtifactView, tabForViewKind, type ArtifactTab } from "@/components/Workbench";
-import { useArtifactEditing } from "@/lib/artifact-editing";
+import { useArtifactEditing, type BlockReason } from "@/lib/artifact-editing";
+import { OUTDATED_DETAIL, OUTDATED_SAFE, OUTDATED_TITLE, assertCurrent, useOutdated } from "@/lib/model-schema";
 import { allItems, type ArtifactModel } from "@/data/samples";
 import { exportSectionsToPdf, exportElementToPng, exportElementToSvg, type ExportSection } from "@/lib/export-pdf";
 import {
@@ -249,6 +250,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
     setSavingVersion(true);
     const merged = buildMergedCanvases();
     try {
+      assertCurrent();
       await sessionStore.saveSnapshot(project.id, merged, "manual_save", session.userId);
     } catch (e) {
       setHeaderError(friendlyError(e, "save this version"));
@@ -266,6 +268,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
     setHeaderError(null);
     setCheckingDrift(true);
     try {
+      assertCurrent();
       // Re-extract from the same stored sources. Real LLM calls aren't
       // perfectly deterministic, so a re-check on genuinely unchanged text
       // can occasionally surface trivial rephrasing as "drift" -- that's an
@@ -316,6 +319,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
         if (!nextCanvases.find(c => c.id === existing.id)) nextCanvases.push(existing);
       }
 
+      assertCurrent();
       await sessionStore.updateProject(project.id, { canvases: nextCanvases });
       // The artifacts have changed from here on, so show them even if keeping
       // a version of them fails below.
@@ -357,6 +361,8 @@ function ProjectShell({ project }: { project: StoredProject }) {
     if (!project.kinds.includes(kind)) patch.kinds = [...project.kinds, kind];
     setHeaderError(null);
     try {
+      // It writes every artifact back as this page loaded them.
+      assertCurrent();
       await sessionStore.updateProject(project.id, patch);
       sessionStore.saveSnapshot(project.id, next, "manual_save", session.userId).catch(() => {});
       onCanvasesRegenerated(next);
@@ -445,16 +451,19 @@ function ProjectShell({ project }: { project: StoredProject }) {
   }, []);
 
   const presentUsers = useProjectPresence(project.id, session.userId, session.email);
+  const outdated = useOutdated();
   // Adding a source, re-checking drift and restoring a version rewrite every
   // artifact from the database. While another tab is editing one, it would
-  // keep working on its own copy and save that back over the result.
+  // keep working on its own copy and save that back over the result. A page
+  // older than the data would write back models missing what it can't read.
   const blockedReason = useMemo(() => {
+    if (outdated) return `${OUTDATED_TITLE}. ${OUTDATED_DETAIL}`;
     for (const p of panes) {
       const e = paneEditors[p.key];
       if (e && e.tabId !== tabId) return `${peerLabel(e, session.userId)} is editing \u201c${p.name}\u201d. Ask them to leave it first.`;
     }
     return null;
-  }, [panes, paneEditors, tabId, session.userId]);
+  }, [outdated, panes, paneEditors, tabId, session.userId]);
 
   return (
     <div className="min-h-screen text-foreground">
@@ -504,7 +513,11 @@ function ProjectShell({ project }: { project: StoredProject }) {
             <AddSourceDialog project={project} onCanvasesRegenerated={onCanvasesRegenerated} blockedReason={blockedReason} />
             <CommentsDialog projectId={project.id} />
             <VersionHistoryDialog project={project} blockedReason={blockedReason} getCurrentCanvases={buildMergedCanvases} onRestored={onCanvasesRegenerated} />
-            <Button size="sm" variant="outline" onClick={saveVersion} disabled={savingVersion || panes.length === 0}>
+            <Button
+              size="sm" variant="outline" onClick={saveVersion} disabled={savingVersion || panes.length === 0 || outdated}
+              // A version kept by an out-of-date page would be missing what it can't read.
+              title={outdated ? `${OUTDATED_TITLE}. ${OUTDATED_DETAIL}` : undefined}
+            >
               {savingVersion
                 ? <><Loader2 className="size-3.5 animate-spin" /> Saving…</>
                 : <><History className="size-3.5" /> Save version</>}
@@ -540,6 +553,13 @@ function ProjectShell({ project }: { project: StoredProject }) {
             </div>
           )}
         </div>
+
+        {outdated && (
+          <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-unresolved/10 px-4 py-2.5 text-sm">
+            <span><strong>{OUTDATED_TITLE}.</strong> {OUTDATED_DETAIL} {OUTDATED_SAFE}</span>
+            <Button size="sm" onClick={() => window.location.reload()}>Reload</Button>
+          </div>
+        )}
 
         <ScheduledDriftBanner
           project={project} onRecheck={recheckDrift} checking={checkingDrift} blockedReason={blockedReason}
@@ -661,7 +681,7 @@ function samePeer(a: Peer | null, b: Peer | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return a.tabId === b.tabId && a.userId === b.userId && a.email === b.email
-    && a.openedAt === b.openedAt && a.claimedAt === b.claimedAt;
+    && a.openedAt === b.openedAt && a.claimedAt === b.claimedAt && a.schema === b.schema;
 }
 
 /** "Another of your tabs" for the same person, else their email. */
@@ -691,10 +711,17 @@ function CanvasPaneMount({
   const session = useSession();
   const lastBlockedToast = useRef(0);
   const editorRef = useRef<Peer | null>(null);
-  const onBlocked = useCallback(() => {
+  const onBlocked = useCallback((reason: BlockReason) => {
     const now = Date.now();
     if (now - lastBlockedToast.current < 2500) return;
     lastBlockedToast.current = now;
+    if (reason === "outdated") {
+      toast(OUTDATED_TITLE, {
+        id: "visu-outdated", description: `${OUTDATED_DETAIL} ${OUTDATED_SAFE}`,
+        action: { label: "Reload", onClick: () => window.location.reload() },
+      });
+      return;
+    }
     const e = editorRef.current;
     toast(`${e ? peerLabel(e, session.userId) : "Someone else"} is editing this artifact`, {
       description: "Press \u201cTake over editing\u201d to make changes.",
@@ -707,7 +734,8 @@ function CanvasPaneMount({
   editorRef.current = editing.editor;
   const role = editing.role;
   useEffect(() => { onEditorChange(pane.key, editing.editor); }, [editing.editor, pane.key, onEditorChange]);
-  const viewing = open && role === "viewer" && editing.editor
+  // An out-of-date page can't take over; the artifact says to reload instead.
+  const viewing = open && role === "viewer" && editing.editor && !editing.outdated
     ? { editorLabel: peerLabel(editing.editor, session.userId), onTakeOver: editing.takeOver }
     : undefined;
   const changeRef = useRef(onModelChange);
@@ -861,10 +889,12 @@ function VersionHistoryDialog({ project, blockedReason, getCurrentCanvases, onRe
   // loses work done since the last checkpoint (the dialog promises this).
   const restore = async (snapshotId: string) => {
     if (!session.userId) throw { code: "PGRST301", message: "Not signed in." };
+    assertCurrent();
     const current = getCurrentCanvases();
     sessionStore.flushCanvasUpdates(project.id);
     await sessionStore.saveSnapshot(project.id, current, "manual_save", session.userId);
     const canvases = await sessionStore.getSnapshotCanvases(snapshotId);
+    assertCurrent();
     await sessionStore.updateProject(project.id, { canvases });
     onRestored(canvases);
     setOpen(false);
@@ -1001,6 +1031,8 @@ function AddSourceDialog({
     // overwrite manual canvas edits made after the last source-based generation.
     let perSource: { label: string; results: Awaited<ReturnType<typeof extractFromSource>> }[];
     try {
+      // Before reading every source again, not only before the save.
+      assertCurrent();
       // First source alone, then the rest -- see extractSources for why.
       perSource = await extractSources(allSources, project.kinds);
     } catch (err) {
@@ -1039,6 +1071,7 @@ function AddSourceDialog({
     }
 
     try {
+      assertCurrent();
       await sessionStore.updateProject(project.id, {
         sources: allSources,
         canvases,

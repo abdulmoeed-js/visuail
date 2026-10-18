@@ -139,12 +139,18 @@ const BMC_OPTIONAL_ARRAY_KEYS = ["riskLog", "changeRequests", "communicationPlan
 // replaces on conflict" granularity `sections`/`raci` already accept.
 const DOC_KEYS = ["businessCase", "requirementsManagementPlan"] as const;
 
+// Every top-level key has to be named in all three functions below:
+// yDocToModel rebuilds the model key by key, so a key known only to the
+// plain model is dropped here on the project page and then by its next save,
+// while the landing demo (no Y.Doc) keeps it and hides the loss.
+
 export function modelToYDoc(model: ArtifactModel): Y.Doc {
   const ydoc = new Y.Doc();
   const root = ydoc.getMap("root");
   ydoc.transact(() => {
     root.set("kind", model.kind);
     root.set("title", model.title);
+    if (model.schema !== undefined) root.set("schema", model.schema);
     if (model.kind === "process") {
       for (const key of PROCESS_ITEM_KEYS) {
         root.set(key, buildItemArray(model[key] as PlainItem[]));
@@ -180,11 +186,14 @@ export function yDocToModel(ydoc: Y.Doc): ArtifactModel {
   const title = root.get("title") as string;
   const businessCase = (root.get("businessCase") as BusinessCase | null) ?? undefined;
   const requirementsManagementPlan = (root.get("requirementsManagementPlan") as RequirementsManagementPlan | null) ?? undefined;
+  const rawSchema = root.get("schema");
+  const schema = typeof rawSchema === "number" ? { schema: rawSchema } : {};
 
   if (kind === "process") {
     return {
       kind: "process",
       title,
+      ...schema,
       actors: readItemArray(root, "actors") as never,
       steps: readItemArray(root, "steps") as never,
       decisions: readItemArray(root, "decisions") as never,
@@ -209,6 +218,7 @@ export function yDocToModel(ydoc: Y.Doc): ArtifactModel {
   return {
     kind: "bmc",
     title,
+    ...schema,
     blocks: blocksArr.map((bMap): BMCBlock => ({
       id: bMap.get("id") as BMCBlock["id"],
       title: bMap.get("title") as string,
@@ -234,6 +244,10 @@ export function applyModelDiffToYDoc(ydoc: Y.Doc, prev: ArtifactModel, next: Art
   const root = ydoc.getMap("root");
   ydoc.transact(() => {
     if (next.title !== prev.title) root.set("title", next.title);
+    if (next.schema !== prev.schema) {
+      if (next.schema === undefined) root.delete("schema");
+      else root.set("schema", next.schema);
+    }
 
     for (const key of DOC_KEYS) {
       if (next[key] !== prev[key]) root.set(key, next[key] ?? null);

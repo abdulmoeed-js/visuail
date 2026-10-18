@@ -7,6 +7,8 @@ import { InlineEdit } from "./InlineEdit";
 import { isTypingTarget, useArtifactFullscreen } from "./artifact-fullscreen";
 import { IdChip } from "./atoms";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { NODE_H, NODE_W, edges, layout, type TreeNode } from "@/lib/canvas/tree-layout";
+import { ruleSubtree } from "@/lib/remove-item";
 
 // Decision Tree -- a standalone recursive rule tree (eligibility rules,
 // triage/routing, approval hierarchies), from the corpus's Decision Tree
@@ -20,74 +22,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 // rectangular card with an edit-on-demand popover sidesteps that class of
 // bug entirely).
 
-const NODE_W = 180, NODE_H = 72;
-const LEVEL_GAP = 120;
-const SIB_GAP = 30;
-const TOP_PAD = 50;
-
-interface TreeNode { id: string; ref: RuleNode; cx: number; cy: number; }
-
-function layout(nodes: RuleNode[]) {
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const targeted = new Set<string>();
-  for (const n of nodes) for (const b of n.branches ?? []) targeted.add(b.targetId);
-  const root = nodes.find((n) => !targeted.has(n.id)) ?? nodes[0];
-
-  const placed: TreeNode[] = [];
-  const widthCache = new Map<string, number>();
-
-  function children(n: RuleNode, visited: Set<string>): RuleNode[] {
-    return (n.branches ?? [])
-      .map((b) => byId.get(b.targetId))
-      .filter((c): c is RuleNode => !!c && !visited.has(c.id));
-  }
-
-  function subtreeWidth(n: RuleNode, visited: Set<string>): number {
-    if (widthCache.has(n.id)) return widthCache.get(n.id)!;
-    const kids = children(n, new Set(visited).add(n.id));
-    const w = kids.length === 0
-      ? NODE_W
-      : kids.reduce((sum, c) => sum + subtreeWidth(c, new Set(visited).add(n.id)), 0) + (kids.length - 1) * SIB_GAP;
-    const width = Math.max(NODE_W, w);
-    widthCache.set(n.id, width);
-    return width;
-  }
-
-  function assign(n: RuleNode, left: number, depth: number, visited: Set<string>) {
-    const w = subtreeWidth(n, visited);
-    placed.push({ id: n.id, ref: n, cx: left + w / 2, cy: TOP_PAD + depth * LEVEL_GAP + NODE_H / 2 });
-    const kids = children(n, new Set(visited).add(n.id));
-    let cursor = left;
-    for (const c of kids) {
-      const cw = subtreeWidth(c, new Set(visited).add(n.id));
-      assign(c, cursor, depth + 1, new Set(visited).add(n.id));
-      cursor += cw + SIB_GAP;
-    }
-  }
-
-  if (root) {
-    const totalW = subtreeWidth(root, new Set());
-    assign(root, 40, 0, new Set());
-    const width = Math.max(900, totalW + 80);
-    const maxDepth = Math.max(...placed.map((p) => Math.round((p.cy - TOP_PAD - NODE_H / 2) / LEVEL_GAP)));
-    const height = Math.max(500, TOP_PAD + (maxDepth + 1) * LEVEL_GAP + 60);
-    return { placed, byId, width, height, root };
-  }
-  return { placed, byId, width: 900, height: 500, root: undefined };
-}
-
-function edges(placed: TreeNode[]) {
-  const posById = new Map(placed.map((p) => [p.id, p]));
-  const out: { id: string; from: TreeNode; to: TreeNode; label: string }[] = [];
-  for (const p of placed) {
-    for (const b of p.ref.branches ?? []) {
-      const to = posById.get(b.targetId);
-      if (to) out.push({ id: `${p.id}-${b.id}`, from: p, to, label: b.label });
-    }
-  }
-  return out;
-}
-
 interface Props {
   model: ProcessModel;
   editing: ArtifactEditing;
@@ -99,16 +33,25 @@ export function DecisionTreeView({ model, editing }: Props) {
 
   const addBranch = (node: RuleNode) => {
     const newId = editing.onAddRuleNode("Outcome");
+    // Refused (someone else is editing): already announced, nothing to link.
+    if (!newId) return;
     const branchId = `${node.id}-b${(node.branches ?? []).length}-${Math.random().toString(36).slice(2, 6)}`;
     editing.onUpdateItem(node.id, {
       branches: [...(node.branches ?? []), { id: branchId, label: `Option ${(node.branches ?? []).length + 1}`, targetId: newId } as DecisionBranch],
     });
   };
+  // Removing an answer removes what it led to, with everything under it --
+  // unless another question also leads there. One undo step either way.
   const removeBranch = (node: RuleNode, branchId: string) => {
     const branch = (node.branches ?? []).find((b) => b.id === branchId);
     editing.onUpdateItem(node.id, { branches: (node.branches ?? []).filter((b) => b.id !== branchId) });
-    if (branch) editing.onDeleteAny(branch.targetId);
+    if (!branch) return;
+    const sharedTarget = (model.decisionTree ?? []).some((n) =>
+      n.id !== node.id && (n.branches ?? []).some((b) => b.targetId === branch.targetId));
+    if (!sharedTarget) editing.onDeleteAny(branch.targetId);
   };
+  // How many answers a delete takes with it, for the button's label.
+  const underCount = (id: string) => ruleSubtree(model.decisionTree ?? [], id).size - 1;
   const updateBranch = (node: RuleNode, branchId: string, label: string) => {
     editing.onUpdateItem(node.id, { branches: (node.branches ?? []).map((b) => (b.id === branchId ? { ...b, label } : b)) });
   };
@@ -177,6 +120,7 @@ export function DecisionTreeView({ model, editing }: Props) {
           key={p.id}
           node={p}
           isRoot={p.id === root?.id}
+          under={underCount(p.id)}
           onDelete={() => editing.onDeleteAny(p.id)}
           onUpdateText={(text) => editing.onUpdateItem(p.id, { text })}
           onAddBranch={() => addBranch(p.ref)}
@@ -189,10 +133,12 @@ export function DecisionTreeView({ model, editing }: Props) {
 }
 
 function RuleNodeView({
-  node, isRoot, onDelete, onUpdateText, onAddBranch, onRemoveBranch, onUpdateBranch,
+  node, isRoot, under, onDelete, onUpdateText, onAddBranch, onRemoveBranch, onUpdateBranch,
 }: {
   node: TreeNode;
   isRoot: boolean;
+  /** How many answers below this node go with it when it is deleted. */
+  under: number;
   onDelete: () => void;
   onUpdateText: (t: string) => void;
   onAddBranch: () => void;
@@ -227,12 +173,24 @@ function RuleNodeView({
       }
       style={{ left: node.cx - NODE_W / 2, top: node.cy - NODE_H / 2, width: NODE_W, height: NODE_H, zIndex: isRoot ? 11 : 10 }}
     >
+      {node.detached && (
+        // Above the node, so it doesn't crowd the text. Kept in Present mode:
+        // it says something true about the tree.
+        <span className="absolute -top-5 left-0 rounded bg-unresolved/15 px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+          Not connected to the main tree
+        </span>
+      )}
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1 min-w-0">
           <GripVertical data-edit-control className="size-3.5 text-muted-foreground/70 shrink-0" />
           <IdChip id={node.id} tone={isRoot ? "primary" : "muted"} />
         </div>
-        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${isLeaf ? "outcome" : "question"} ${node.ref.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+        <button
+          onClick={onDelete} data-no-pan data-edit-control
+          aria-label={`Delete ${isLeaf ? "outcome" : "question"} ${node.ref.text}${under > 0 ? ` and the ${under === 1 ? "answer" : `${under} answers`} under it` : ""}`}
+          title={under > 0 ? `Delete this and the ${under === 1 ? "answer" : `${under} answers`} under it` : "Delete"}
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0"
+        >
           <X className="size-3" />
         </button>
       </div>

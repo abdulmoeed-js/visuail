@@ -6,6 +6,7 @@ import { CanvasShell, useCanvas, boundsOf } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
+import { edgePoint, roundedPath } from "@/lib/canvas/geometry";
 import { IdChip } from "./atoms";
 import { useArtifactFullscreen } from "./artifact-fullscreen";
 
@@ -62,33 +63,6 @@ function layout(model: ProcessModel, overrides: Pos) {
   return { nodes: all, width, height };
 }
 
-function roundedPath(points: { x: number; y: number }[], r = 12): string {
-  if (points.length < 2) return "";
-  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length - 1; i++) {
-    const prev = points[i - 1], cur = points[i], next = points[i + 1];
-    const inLen = Math.hypot(cur.x - prev.x, cur.y - prev.y);
-    const outLen = Math.hypot(next.x - cur.x, next.y - cur.y);
-    const rr = Math.min(r, inLen / 2, outLen / 2);
-    const inRatio = inLen === 0 ? 0 : rr / inLen;
-    const outRatio = outLen === 0 ? 0 : rr / outLen;
-    const p1 = { x: cur.x - (cur.x - prev.x) * inRatio, y: cur.y - (cur.y - prev.y) * inRatio };
-    const p2 = { x: cur.x + (next.x - cur.x) * outRatio, y: cur.y + (next.y - cur.y) * outRatio };
-    d += ` L ${p1.x} ${p1.y} Q ${cur.x} ${cur.y} ${p2.x} ${p2.y}`;
-  }
-  const last = points[points.length - 1];
-  d += ` L ${last.x} ${last.y}`;
-  return d;
-}
-
-function edgePoint(a: DFDNode, b: DFDNode) {
-  const dx = b.cx - a.cx, dy = b.cy - a.cy;
-  if (Math.abs(dx) > Math.abs(dy)) {
-    return { x: a.cx + Math.sign(dx) * a.w / 2, y: a.cy };
-  }
-  return { x: a.cx, y: a.cy + Math.sign(dy) * a.h / 2 };
-}
 
 interface Props {
   model: ProcessModel;

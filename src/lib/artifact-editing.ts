@@ -30,6 +30,8 @@ import { perturb } from "@/lib/extract";
 import { modelToYDoc, yDocToModel, applyModelDiffToYDoc } from "@/lib/yjs-model";
 import { connectArtifactChannel, editorOf, type ArtifactChannelHandle, type Here, type Peer } from "@/lib/artifact-channel";
 import { summariseEdit, type EditSummary } from "@/lib/describe-edit";
+import { MODEL_SCHEMA, isOutdated, noteSchema, schemaOf, useOutdated } from "@/lib/model-schema";
+import { removeById } from "@/lib/remove-item";
 
 let uid = 1000;
 
@@ -80,39 +82,6 @@ interface HistoryEntry {
 }
 const HISTORY_CAP = 60;
 const MERGE_WINDOW_MS = 1000;
-
-/** The model without the item `id`, wherever it lives, and without any
- *  connection that touched it. Pure; shared by delete and crash recovery. */
-function removeById(m: ArtifactModel, id: string): ArtifactModel {
-  const shared = {
-    riskLog: (m.riskLog ?? []).filter(x => x.id !== id),
-    changeRequests: (m.changeRequests ?? []).filter(x => x.id !== id),
-    communicationPlan: (m.communicationPlan ?? []).filter(x => x.id !== id),
-    businessCase: m.businessCase && { ...m.businessCase, options: (m.businessCase.options ?? []).filter(x => x.id !== id) },
-  };
-  if (m.kind === "process") {
-    return {
-      ...m, ...shared,
-      actors: m.actors.filter(x => x.id !== id),
-      steps: m.steps.filter(x => x.id !== id),
-      decisions: m.decisions.filter(x => x.id !== id),
-      exceptions: m.exceptions.filter(x => x.id !== id),
-      systems: m.systems.filter(x => x.id !== id),
-      connections: (m.connections ?? []).filter(c => c.fromId !== id && c.toId !== id),
-      nonFunctionalRequirements: (m.nonFunctionalRequirements ?? []).filter(x => x.id !== id),
-      testCases: (m.testCases ?? []).filter(x => x.id !== id),
-      dataStores: (m.dataStores ?? []).filter(x => x.id !== id),
-      externalEntities: (m.externalEntities ?? []).filter(x => x.id !== id),
-      decisionTree: (m.decisionTree ?? []).filter(x => x.id !== id),
-      states: (m.states ?? []).filter(x => x.id !== id),
-    };
-  }
-  return {
-    ...m, ...shared,
-    blocks: m.blocks.map(b => ({ ...b, items: b.items.filter(i => i.id !== id) })),
-    stakeholders: (m.stakeholders ?? []).filter(x => x.id !== id),
-  };
-}
 
 /** Undo-merge key for an edit that may be arriving once per keystroke.
  *  Only text does that. A patch carrying anything else -- a list of branches,
@@ -208,7 +177,15 @@ export interface ArtifactEditing {
   editor: Peer | null;
   /** Claim the artifact for this tab. The previous editor becomes a viewer. */
   takeOver: () => void;
+  /** On a saved project: this page runs an older build than the data or
+   *  another tab on it, so it only views until it is reloaded (see
+   *  src/lib/model-schema.ts). Always false without `collab`. */
+  outdated: boolean;
 }
+
+/** Why an edit was refused: another tab is the editor, or this page is
+ *  older than the data and has to be reloaded first. */
+export type BlockReason = "editing" | "outdated";
 
 export interface CollabOptions {
   /** Unique per artifact -- `project:{projectId}:{paneId}`. Every browser
@@ -220,8 +197,8 @@ export interface CollabOptions {
    *  take part in "who edits"; a pane kept mounted but hidden only listens. */
   open: boolean;
   me: { userId: string; email: string };
-  /** Called each time an edit is refused because another tab is editing. */
-  onBlocked?: () => void;
+  /** Called each time an edit is refused, with the reason. */
+  onBlocked?: (reason: BlockReason) => void;
 }
 
 export type EditingRole = "editor" | "viewer";
@@ -317,19 +294,36 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   const meEmail = collab?.me.email;
   const me: Peer | null = useMemo(
     () => (meTabId !== undefined && open
-      ? { tabId: meTabId, userId: meUserId ?? "", email: meEmail ?? "", openedAt, claimedAt, lastSeen: Infinity }
+      ? { tabId: meTabId, userId: meUserId ?? "", email: meEmail ?? "", openedAt, claimedAt, schema: MODEL_SCHEMA, lastSeen: Infinity }
       : null),
     [meTabId, meUserId, meEmail, open, openedAt, claimedAt],
   );
+  // A page older than the data never edits it, whoever else is here.
+  const outdated = useOutdated() && !!collab;
   const editor = collab ? editorOf(me ? [...Object.values(peers), me] : Object.values(peers)) : null;
-  const role: EditingRole = !collab || (open && editor !== null && editor.tabId === collab.tabId) ? "editor" : "viewer";
+  const role: EditingRole = !collab
+    || (!outdated && open && editor !== null && editor.tabId === collab.tabId) ? "editor" : "viewer";
   // The channel and observer are set up once; anything that changes per
   // render is read through refs.
   const roleRef = useRef(role);
   const openRef = useRef(open);
   const onBlockedRef = useRef(collab?.onBlocked);
   const hereRef = useRef<Here | null>(null);
-  hereRef.current = me ? { tabId: me.tabId, userId: me.userId, email: me.email, openedAt, claimedAt } : null;
+  // An out-of-date page stops putting itself forward (no "here", no replies):
+  // tabs on its own build that haven't met the newer data would otherwise
+  // wait on an editor that refuses every edit.
+  hereRef.current = me && !outdated
+    ? { tabId: me.tabId, userId: me.userId, email: me.email, openedAt, claimedAt, schema: MODEL_SCHEMA }
+    : null;
+  /** This tab has changed the artifact since it loaded it. */
+  const editedRef = useRef(false);
+  // The model this page opened with may come from a newer build. Noted after
+  // render, not during it: the flag re-renders every artifact on the page.
+  useEffect(() => {
+    if (collab) noteSchema(schemaOf(initial));
+    // The model the hook was created with; `reset` notes any later one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => { roleRef.current = role; openRef.current = open; onBlockedRef.current = collab?.onBlocked; });
   const lastReplyRef = useRef(0);
   const sayHere = (force = false) => {
@@ -364,15 +358,27 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     };
     ydoc.getMap("root").observeDeep(applyFromDoc);
     providerRef.current = connectArtifactChannel(collab.channelName, collab.tabId, {
-      onModel: (m) => {
-        if (roleRef.current !== "viewer") return;
+      onModel: (m, _from, senderSchema) => {
+        noteSchema(schemaOf(m));
+        noteSchema(senderSchema);
+        // A tab on an older build never edits next to this one, so this tab
+        // can find itself editor the moment it arrives, while the older tab
+        // was still editing. Until this tab has changed anything, the older
+        // tab's latest is the artifact: take it in, or this tab's first save
+        // would put back the copy it loaded and drop their last edits.
+        const fromOlderEditor = senderSchema < MODEL_SCHEMA && !editedRef.current;
+        if (roleRef.current !== "viewer" && !fromOlderEditor) return;
         bumpUidPast(m);
-        ydoc.transact(() => applyModelDiffToYDoc(ydoc, yDocToModel(ydoc), m), PEER_ORIGIN);
+        const current = yDocToModel(ydoc);
+        // An older build's model lacks the keys only this build knows; keep them.
+        const next = senderSchema < MODEL_SCHEMA ? ({ ...current, ...m } as ArtifactModel) : m;
+        ydoc.transact(() => applyModelDiffToYDoc(ydoc, current, next), PEER_ORIGIN);
       },
       onSyncRequest: () => {
         if (roleRef.current === "editor") providerRef.current?.send(modelRef.current);
       },
       onHere: (peer) => {
+        noteSchema(peer.schema);
         setPeers((cur) => ({ ...cur, [peer.tabId]: { ...peer, lastSeen: Date.now() } }));
         // Answer a newcomer at once, so it learns who is here without
         // waiting for the next heartbeat.
@@ -399,6 +405,12 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     // update, which would tear down and recreate the whole session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collab?.channelName]);
+
+  // Out of date: leave at once rather than when the others stop hearing us.
+  useEffect(() => {
+    if (collab && outdated) providerRef.current?.bye(collab.tabId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outdated]);
 
   // Opening the artifact on screen starts a fresh turn (no earlier claim);
   // leaving it tells the others.
@@ -465,8 +477,11 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     opts?: { mergeKey?: string; record?: boolean; label?: string },
   ): boolean => {
     // A viewer's edit is refused here, at the one door every edit goes
-    // through, and the caller is told so it can say who is editing.
-    if (roleRef.current === "viewer") { onBlockedRef.current?.(); return false; }
+    // through, and the caller is told why so it can say so. The page-wide
+    // flag is read directly: it can be set between renders, before roleRef
+    // catches up.
+    if (collab && isOutdated()) { onBlockedRef.current?.("outdated"); return false; }
+    if (roleRef.current === "viewer") { onBlockedRef.current?.("editing"); return false; }
     const current = modelRef.current;
     const next = fn(current);
     if (next === current) return false;
@@ -477,12 +492,14 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     // the same text); only a real difference earns an entry, or Undo would
     // sometimes visibly do nothing.
     if (opts?.record !== false && !sameModel(current, next)) recordHistory(current, opts?.mergeKey, opts?.label);
+    editedRef.current = true;
     applyModel(current, next);
     return true;
   };
 
   const stepHistory = (from: "past" | "future"): EditSummary | null => {
-    if (roleRef.current === "viewer") { onBlockedRef.current?.(); return null; }
+    if (collab && isOutdated()) { onBlockedRef.current?.("outdated"); return null; }
+    if (roleRef.current === "viewer") { onBlockedRef.current?.("editing"); return null; }
     const h = historyRef.current;
     const entry = h[from].pop();
     if (!entry) return null;
@@ -492,6 +509,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     lastMergeRef.current = { key: null, at: 0 };
     // Through the same door as any other edit, so state, autosave and (on a
     // project) the shared document all see an ordinary local change.
+    editedRef.current = true;
     applyModel(current, entry.model);
     driftedRef.current = entry.drifted;
     setDrifted(entry.drifted);
@@ -506,6 +524,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   const onRedo = () => stepHistory("future");
 
   const reset = useCallback((m: ArtifactModel) => {
+    if (collab) noteSchema(schemaOf(m));
     bumpUidPast(m);
     modelRef.current = m;
     clearHistory();
@@ -711,12 +730,13 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
       ? { ...m, states: [...(m.states ?? []), item] } : m };
   });
 
+  // Refused, or nothing to add it to: "" like the add* actions above, so a
+  // caller never goes on to treat a line that was not drawn as drawn.
   const onAddConnection = (fromId: string, toId: string, label?: string) => {
     const id = nextId("CN");
     const conn: Connection = { id, fromId, toId, label, userAdded: true };
-    mutate(m => m.kind === "process"
-      ? { ...m, connections: [...(m.connections ?? []), conn] } : m);
-    return id;
+    return mutate(m => m.kind === "process"
+      ? { ...m, connections: [...(m.connections ?? []), conn] } : m) ? id : "";
   };
   const onDeleteConnection = (id: string) => mutate(m => m.kind === "process"
     ? { ...m, connections: (m.connections ?? []).filter(c => c.id !== id) } : m);
@@ -741,6 +761,6 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     canUndo: historySize.past > 0,
     canRedo: historySize.future > 0,
     undoClearedByPeer,
-    role, editor, takeOver,
+    role, editor, takeOver, outdated,
   };
 }

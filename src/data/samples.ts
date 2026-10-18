@@ -218,6 +218,9 @@ export interface Connection {
 export interface ProcessModel {
   kind: "process";
   title: string;
+  /** Which build's model shape this is (src/lib/model-schema.ts). Absent on
+   *  every model written before the number existed, which counts as 1. */
+  schema?: number;
   actors: Actor[];
   steps: Step[];
   decisions: Decision[];
@@ -250,6 +253,8 @@ export interface BMCBlock {
 export interface BMCModel {
   kind: "bmc";
   title: string;
+  /** As on ProcessModel. */
+  schema?: number;
   blocks: BMCBlock[];
   riskLog?: RiskItem[];
   changeRequests?: ChangeRequestItem[];

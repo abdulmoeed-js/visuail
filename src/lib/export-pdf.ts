@@ -146,6 +146,14 @@ async function withNeutralizedTransform<T>(
   }
 }
 
+/** Leaves out of every picture what Present mode hides: grips, add and
+ *  delete buttons, connect handles, editor triggers (styles.css). Most are
+ *  invisible until hovered, but some always show, and a printed diagram has
+ *  no use for any of them. */
+function withoutEditControls(node: HTMLElement): boolean {
+  return !(node instanceof Element) || !node.hasAttribute("data-edit-control");
+}
+
 async function snapshot(el: HTMLElement): Promise<{ dataUrl: string; w: number; h: number }> {
   const { toPng } = await loadHtmlToImage();
   const dataUrl = await withNeutralizedTransform(el, (inner, width, height) =>
@@ -156,6 +164,7 @@ async function snapshot(el: HTMLElement): Promise<{ dataUrl: string; w: number; 
       width,
       height,
       style: { transform: "none", transformOrigin: "top left", left: "0", top: "0" },
+      filter: withoutEditControls,
     }),
   );
 
@@ -191,6 +200,7 @@ export async function exportElementToSvg(filename: string, el: HTMLElement): Pro
       width,
       height,
       style: { transform: "none", transformOrigin: "top left", left: "0", top: "0" },
+      filter: withoutEditControls,
     }),
   );
   downloadDataUrl(filename, dataUrl);

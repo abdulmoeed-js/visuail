@@ -8,10 +8,11 @@
 // never shown.
 
 import { EdgeError } from "@/lib/edge";
+import { OUTDATED_DETAIL, OUTDATED_TITLE } from "@/lib/model-schema";
 
 export type ErrorKind =
   | "offline" | "signed-out" | "rate-limit" | "not-allowed" | "plan-limit"
-  | "gone" | "file-locked" | "file-unreadable" | "invalid-email" | "unknown";
+  | "gone" | "file-locked" | "file-unreadable" | "invalid-email" | "outdated" | "unknown";
 
 export interface FriendlyError {
   kind: ErrorKind;
@@ -46,6 +47,7 @@ export function classifyError(err: unknown): { kind: ErrorKind; message?: string
   if (name === "AuthRetryableFetchError" || name === "FunctionsFetchError" || /failed to fetch|load failed|networkerror|network request failed/i.test(message)) {
     return { kind: "offline" };
   }
+  if (name === "OutdatedError") return { kind: "outdated" };
   if (name === "PasswordException") return { kind: "file-locked" };
   if (name === "InvalidPDFException" || name === "MissingPDFException" || name === "UnknownErrorException") {
     return { kind: "file-unreadable" };
@@ -90,6 +92,8 @@ export function friendlyError(err: unknown, doing: string): FriendlyError {
       return { kind, title, detail: "This file couldn't be read. Check it opens on your computer, or paste its text instead." };
     case "invalid-email":
       return { kind, title, detail: "That email address doesn't look right. Check it and try again." };
+    case "outdated":
+      return { kind, title, detail: `${OUTDATED_TITLE}. ${OUTDATED_DETAIL}` };
     default:
       return { kind, title, detail: "Try again in a moment." };
   }

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { CanvasShell, useCanvas, CANVAS_TOP_INSET, CANVAS_GLIDE_CLASS, type RevealTarget } from "./CanvasShell";
 import { useRevealNew, FlashRing, FlashOutline } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
+import { roundedPath } from "@/lib/canvas/geometry";
 import { isTypingTarget, useArtifactFullscreen } from "./artifact-fullscreen";
 import { IdChip, ConfidenceBadge } from "./atoms";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -71,26 +72,6 @@ function layout(model: ProcessModel) {
   const width = Math.max(900, LEFT_PAD + Math.max(1, lanes.length) * LANE_W + 40);
   const height = Math.max(560, TOP_PAD + seq.length * ROW_H + 60);
   return { placed, lanes, laneX, width, height };
-}
-
-function roundedPath(points: { x: number; y: number }[], r = 12): string {
-  if (points.length < 2) return "";
-  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length - 1; i++) {
-    const prev = points[i - 1], cur = points[i], next = points[i + 1];
-    const inLen = Math.hypot(cur.x - prev.x, cur.y - prev.y);
-    const outLen = Math.hypot(next.x - cur.x, next.y - cur.y);
-    const rr = Math.min(r, inLen / 2, outLen / 2);
-    const inRatio = inLen === 0 ? 0 : rr / inLen;
-    const outRatio = outLen === 0 ? 0 : rr / outLen;
-    const p1 = { x: cur.x - (cur.x - prev.x) * inRatio, y: cur.y - (cur.y - prev.y) * inRatio };
-    const p2 = { x: cur.x + (next.x - cur.x) * outRatio, y: cur.y + (next.y - cur.y) * outRatio };
-    d += ` L ${p1.x} ${p1.y} Q ${cur.x} ${cur.y} ${p2.x} ${p2.y}`;
-  }
-  const last = points[points.length - 1];
-  d += ` L ${last.x} ${last.y}`;
-  return d;
 }
 
 // Bottom-center to top-center, whether the two nodes share a lane (a

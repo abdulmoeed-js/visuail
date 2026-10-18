@@ -18,6 +18,7 @@ import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { isUserCreatedId } from "@/lib/item-origin";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
+import { roundedPath, type Point } from "@/lib/canvas/geometry";
 import { RefineControl } from "./RefineControl";
 import { useArtifactFullscreen, isTypingTarget } from "./artifact-fullscreen";
 import { applyProposal, type Proposal } from "@/lib/refine";
@@ -63,26 +64,7 @@ const snap = (v: number) => Math.round(v / GRID) * GRID;
 // diagram. Clamped per-corner to half the shorter adjacent segment so it
 // never overshoots on a tight turn.
 const CONNECTOR_RADIUS = 14;
-
-function roundedPath(points: { x: number; y: number }[], radius: number = CONNECTOR_RADIUS): string {
-  if (points.length < 2) return "";
-  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length - 1; i++) {
-    const prev = points[i - 1], cur = points[i], next = points[i + 1];
-    const inLen = Math.hypot(cur.x - prev.x, cur.y - prev.y);
-    const outLen = Math.hypot(next.x - cur.x, next.y - cur.y);
-    const r = Math.min(radius, inLen / 2, outLen / 2);
-    const inRatio = inLen === 0 ? 0 : r / inLen;
-    const outRatio = outLen === 0 ? 0 : r / outLen;
-    const p1 = { x: cur.x - (cur.x - prev.x) * inRatio, y: cur.y - (cur.y - prev.y) * inRatio };
-    const p2 = { x: cur.x + (next.x - cur.x) * outRatio, y: cur.y + (next.y - cur.y) * outRatio };
-    d += ` L ${p1.x} ${p1.y} Q ${cur.x} ${cur.y} ${p2.x} ${p2.y}`;
-  }
-  const last = points[points.length - 1];
-  d += ` L ${last.x} ${last.y}`;
-  return d;
-}
+const connectorPath = (points: Point[]) => roundedPath(points, CONNECTOR_RADIUS);
 
 export type NodeOverride = { cx?: number; cy?: number; w?: number; h?: number; z?: number };
 export type Overrides = Record<string, NodeOverride>;
@@ -226,7 +208,10 @@ function layout(model: ProcessModel, overrides: Overrides, measured: Measured): 
   right.forEach((ex) => {
     const rel = ex.ref.relatedStepId;
     const relIdx = rel ? spineIndexById.get(rel) : undefined;
-    const src = relIdx !== undefined ? spine[relIdx] : spine[0];
+    // Only an exception tied to a step on the map gets a line. One with no
+    // step (extraction often leaves it out) used to be drawn coming off the
+    // first step, which claimed a link the source never made.
+    const src = relIdx !== undefined ? spine[relIdx] : undefined;
     if (!src) return;
     routes.push({
       id: `route-ex-${ex.ref.id}`, kind: "exception", laneX: nextLaneX(),
@@ -634,7 +619,8 @@ export function ProcessCanvas({
     } else if (payload.kind === "exception") {
       newId = onAddException?.("New exception");
     }
-    if (typeof newId === "string") {
+    // "" is a refused add (someone else is editing): nothing to place.
+    if (newId) {
       patchOverride(newId, { cx: sx, cy: sy });
       bringToFront(newId);
       flash(newId);
@@ -663,13 +649,15 @@ export function ProcessCanvas({
     const y0 = snap(100);
     const gap = 160;
     const a = onAddStep("Request", "terminator");
+    // Refused (someone else is editing): the rest would be refused too.
+    if (!a) return;
     const b = onAddStep("Review", "step");
     const c = onAddDecision?.("Approve?", "decision");
-    if (typeof a === "string") patchOverride(a, { cx: centerX, cy: y0 });
-    if (typeof b === "string") patchOverride(b, { cx: centerX, cy: y0 + gap });
-    if (typeof c === "string") patchOverride(c, { cx: centerX, cy: y0 + gap * 2 });
-    if (typeof a === "string" && typeof b === "string") onAddConnection?.(a, b);
-    if (typeof b === "string" && typeof c === "string") onAddConnection?.(b, c);
+    patchOverride(a, { cx: centerX, cy: y0 });
+    if (b) patchOverride(b, { cx: centerX, cy: y0 + gap });
+    if (c) patchOverride(c, { cx: centerX, cy: y0 + gap * 2 });
+    if (b) onAddConnection?.(a, b);
+    if (b && c) onAddConnection?.(b, c);
   };
 
   const routeBetween = (fromId: string, toId: string) => {
@@ -686,7 +674,7 @@ export function ProcessCanvas({
     const fromRight = { x: a.cx + a.w / 2, y: a.cy };
     const toLeft = { x: b.cx - b.w / 2, y: b.cy };
     const laneX = Math.max(fromRight.x, toLeft.x) + 40;
-    return roundedPath([fromRight, { x: laneX, y: fromRight.y }, { x: laneX, y: toLeft.y }, toLeft]);
+    return connectorPath([fromRight, { x: laneX, y: fromRight.y }, { x: laneX, y: toLeft.y }, toLeft]);
   };
 
   const startConnDrag = (fromId: string, e: React.PointerEvent) => {
@@ -932,7 +920,7 @@ export function ProcessCanvas({
           const midY = (from.y + to.y) / 2;
           const path = Math.abs(from.x - to.x) < 4
             ? `M ${from.x} ${from.y} L ${to.x} ${to.y}`
-            : roundedPath([from, { x: from.x, y: midY }, { x: to.x, y: midY }, to]);
+            : connectorPath([from, { x: from.x, y: midY }, { x: to.x, y: midY }, to]);
           return (
             <g key={`spine-${i}`}>
               <path
@@ -955,7 +943,7 @@ export function ProcessCanvas({
           const labelFill = isException ? "var(--color-unresolved-ink)" : "var(--color-drift-ink)";
           const dash = isException ? "4 3" : undefined;
           const marker = isException ? "url(#arrow-dashed)" : "url(#arrow)";
-          const path = roundedPath([r.from, { x: r.laneX, y: r.from.y }, { x: r.laneX, y: r.to.y }, r.to]);
+          const path = connectorPath([r.from, { x: r.laneX, y: r.from.y }, { x: r.laneX, y: r.to.y }, r.to]);
           const labelY = (r.from.y + r.to.y) / 2;
           return (
             <g key={r.id}>

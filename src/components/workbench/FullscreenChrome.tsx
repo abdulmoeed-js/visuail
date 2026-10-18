@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { useArtifactFullscreen } from "./artifact-fullscreen";
 
 export function FullscreenHeader({
-  kindLabel, title, summary, viewing,
+  kindLabel, title, summary, viewing, outdated,
 }: {
   kindLabel: string;
   title: string;
@@ -17,6 +17,8 @@ export function FullscreenHeader({
   summary?: ReactNode;
   /** Someone else is editing: say so here, where it can be seen. */
   viewing?: { editorLabel: string; onTakeOver: () => void };
+  /** This page is older than the data and only views until reloaded. */
+  outdated?: boolean;
 }) {
   const fs = useArtifactFullscreen();
   if (!fs?.active) return null;
@@ -29,6 +31,12 @@ export function FullscreenHeader({
       </div>
       {/* Certainty stays in Present mode: it is what stakeholders validate. */}
       {summary && <div className="hidden md:block min-w-[160px] max-w-[300px]">{summary}</div>}
+      {outdated && !fs.presenting && (
+        <div className="flex items-center gap-2 rounded-lg bg-unresolved/10 px-2.5 py-1 text-xs">
+          <span>Visu was updated</span>
+          <Button size="sm" variant="outline" className="h-7 bg-card" onClick={() => window.location.reload()}>Reload</Button>
+        </div>
+      )}
       {viewing && !fs.presenting && (
         <div className="flex items-center gap-2 rounded-lg bg-unresolved/10 px-2.5 py-1 text-xs">
           <span><strong>{viewing.editorLabel}</strong> is editing</span>
