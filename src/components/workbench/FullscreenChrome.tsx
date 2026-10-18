@@ -92,7 +92,7 @@ const SHORTCUTS: [string, string, "editing"?][] = [
   ["Shift 0", "Zoom to 100%"],
   ["Drag on empty space", "Select with a box (Shift adds to the selection)", "editing"],
   ["Shift click", "Add a shape to the selection, or take it out", "editing"],
-  ["Double-click / Enter", "Type on a shape", "editing"],
+  ["Double-click / Enter", "Type on a shape, or on a line's label", "editing"],
   ["Delete", "Delete the selection", "editing"],
   ["Arrows", "Nudge the selection (Shift: further)", "editing"],
   ["Ctrl/⌘ A", "Select everything", "editing"],

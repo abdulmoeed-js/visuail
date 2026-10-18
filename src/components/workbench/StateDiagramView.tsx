@@ -6,6 +6,8 @@ import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { SelectionBar, SelectionOutlines, useShapeSelection } from "./canvas-selection";
 import { InlineEdit } from "./InlineEdit";
+import { LineLabel } from "./LineLabel";
+import { useGrownHeights } from "./use-grown-heights";
 import { edgePoint, roundedPath } from "@/lib/canvas/geometry";
 import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
 import { IdChip } from "./atoms";
@@ -25,42 +27,44 @@ const COL_GAP = 70, ROW_GAP = 90;
 const TOP_PAD = 60, LEFT_PAD = 90;
 const COLS = 4;
 
-interface Placed { ref: StateItem; cx: number; cy: number; }
+/** A state where it is drawn; `h` is STATE_H, or more when its text needs it. */
+interface Placed { ref: StateItem; cx: number; cy: number; h: number; }
 type Pos = Record<string, { cx: number; cy: number }>;
 
 /** A four-column grid until the person arranges the diagram; then their
  *  saved places (top-left corners), with a drag in progress drawn on top. In
  *  an arranged diagram a new state starts at its grid place, moved down until
  *  it is clear of the others. */
-function layout(states: StateItem[], overrides: Pos, saved?: Record<string, NodeLayout>) {
+function layout(states: StateItem[], overrides: Pos, saved: Record<string, NodeLayout> | undefined, grown: Record<string, number>) {
   const floating = new Set<string>();
   const placed: Placed[] = states.map((s, i) => {
     const col = i % COLS, row = Math.floor(i / COLS);
     const naturalCx = LEFT_PAD + col * (STATE_W + COL_GAP) + STATE_W / 2;
     const naturalCy = TOP_PAD + row * (STATE_H + ROW_GAP) + STATE_H / 2;
     const o = overrides[s.id], sv = saved?.[s.id];
+    const h = Math.max(STATE_H, grown[s.id] ?? 0);
     if (saved && !sv && !o) floating.add(s.id);
-    return { ref: s, cx: o?.cx ?? (sv ? sv.x + STATE_W / 2 : naturalCx), cy: o?.cy ?? (sv ? sv.y + STATE_H / 2 : naturalCy) };
+    return { ref: s, h, cx: o?.cx ?? (sv ? sv.x + STATE_W / 2 : naturalCx), cy: o?.cy ?? (sv ? sv.y + h / 2 : naturalCy) };
   });
   if (floating.size > 0) {
-    const rectOf = (p: Placed) => ({ x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H });
+    const rectOf = (p: Placed) => ({ x: p.cx - STATE_W / 2, y: p.cy - p.h / 2, w: STATE_W, h: p.h });
     const taken = placed.filter((p) => !floating.has(p.ref.id)).map(rectOf);
     for (const p of placed) {
       if (!floating.has(p.ref.id)) continue;
       // Room for the start dot to the left and a loop above.
       const r = placeClear(rectOf(p), taken, 44);
       p.cx = r.x + STATE_W / 2;
-      p.cy = r.y + STATE_H / 2;
+      p.cy = r.y + p.h / 2;
       taken.push(r);
     }
   }
   const width = Math.max(900, ...placed.map((p) => p.cx + STATE_W / 2 + 60));
-  const height = Math.max(560, ...placed.map((p) => p.cy + STATE_H / 2 + 60));
+  const height = Math.max(560, ...placed.map((p) => p.cy + p.h / 2 + 60));
   return { placed, width, height };
 }
 
 /** Where a transition leaves state `a` towards `b`. */
-const stateEdgePoint = (a: Placed, b: Placed) => edgePoint({ cx: a.cx, cy: a.cy, w: STATE_W, h: STATE_H }, b);
+const stateEdgePoint = (a: Placed, b: Placed) => edgePoint({ cx: a.cx, cy: a.cy, w: STATE_W, h: a.h }, b);
 
 interface Props {
   model: ProcessModel;
@@ -72,11 +76,13 @@ export function StateDiagramView({ model, editing }: Props) {
   const [pendingConn, setPendingConn] = useState<null | { fromId: string; fromX: number; fromY: number; toX: number; toY: number }>(null);
   const states = useMemo(() => model.states ?? [], [model.states]);
   const saved = layoutOf(model, "state")?.nodes;
-  const { placed, width, height } = useMemo(() => layout(states, overrides, saved), [states, overrides, saved]);
+  // States grow with their text; lines and outlines follow (use-grown-heights).
+  const grown = useGrownHeights();
+  const { placed, width, height } = useMemo(() => layout(states, overrides, saved, grown.heights), [states, overrides, saved, grown.heights]);
   const byId = useMemo(() => new Map(placed.map((p) => [p.ref.id, p])), [placed]);
   const rectFor = (id: string) => {
     const p = byId.get(id);
-    return p ? { x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H } : null;
+    return p ? { x: p.cx - STATE_W / 2, y: p.cy - p.h / 2, w: STATE_W, h: p.h } : null;
   };
   const { apiRef: shellApi, revealNew, flashId } = useRevealNew(rectFor);
   const transitions = model.connections ?? [];
@@ -84,6 +90,9 @@ export function StateDiagramView({ model, editing }: Props) {
   const noteMove = useNoteLayoutMove();
   const placedRef = useRef(placed);
   placedRef.current = placed;
+  /** How tall a state is drawn now (a new one: STATE_H). */
+  const hOf = (id: string) => placedRef.current.find((p) => p.ref.id === id)?.h ?? STATE_H;
+  const currentPlaces = () => Object.fromEntries(placedRef.current.map((p) => [p.ref.id, { x: p.cx - STATE_W / 2, y: p.cy - p.h / 2 }]));
   /** A move: drawn live while it lasts; saved, as one undo step, when it
    *  ends (see SAVE_LAYOUTS). */
   const patchPos = (id: string, cx: number, cy: number, done?: boolean) => {
@@ -93,8 +102,7 @@ export function StateDiagramView({ model, editing }: Props) {
     if (!SAVE_LAYOUTS && (!at || at.cx !== cx || at.cy !== cy)) noteMove(model);
     setOverrides((cur) => ({ ...cur, [id]: { cx, cy } }));
     if (!done || !SAVE_LAYOUTS) return;
-    editing.onPlaceShapes("state", { [id]: { x: cx - STATE_W / 2, y: cy - STATE_H / 2 } },
-      Object.fromEntries(placedRef.current.map((p) => [p.ref.id, { x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2 }])));
+    editing.onPlaceShapes("state", { [id]: { x: cx - STATE_W / 2, y: cy - hOf(id) / 2 } }, currentPlaces());
     // The saved place draws it from now on.
     setOverrides((cur) => { const next = { ...cur }; delete next[id]; return next; });
   };
@@ -103,8 +111,7 @@ export function StateDiagramView({ model, editing }: Props) {
 
   // Selecting states (click, Shift-click, a box), moving them together, the
   // keys, copy and paste (canvas-selection.tsx).
-  const rectsById = useMemo(() => new Map(placed.map((p) => [p.ref.id, { x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H }])), [placed]);
-  const currentPlaces = () => Object.fromEntries(placedRef.current.map((p) => [p.ref.id, { x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2 }]));
+  const rectsById = useMemo(() => new Map(placed.map((p) => [p.ref.id, { x: p.cx - STATE_W / 2, y: p.cy - p.h / 2, w: STATE_W, h: p.h }])), [placed]);
   const sel = useShapeSelection({
     view: "state", model, rects: rectsById, shellApi, presenting,
     canEdit: editing.canEdit,
@@ -112,7 +119,7 @@ export function StateDiagramView({ model, editing }: Props) {
       if (!SAVE_LAYOUTS) noteMove(model);
       setOverrides((cur) => {
         const next = { ...cur };
-        for (const [id, p] of Object.entries(places)) next[id] = { cx: p.x + STATE_W / 2, cy: p.y + STATE_H / 2 };
+        for (const [id, p] of Object.entries(places)) next[id] = { cx: p.x + STATE_W / 2, cy: p.y + hOf(id) / 2 };
         return next;
       });
     },
@@ -127,7 +134,7 @@ export function StateDiagramView({ model, editing }: Props) {
       if (made && !SAVE_LAYOUTS) {
         setOverrides((cur) => {
           const next = { ...cur };
-          for (const id of made.ids) { const p = made.places[id]; if (p) next[id] = { cx: p.x + STATE_W / 2, cy: p.y + STATE_H / 2 }; }
+          for (const id of made.ids) { const p = made.places[id]; if (p) next[id] = { cx: p.x + STATE_W / 2, cy: p.y + hOf(id) / 2 }; }
           return next;
         });
       }
@@ -185,7 +192,7 @@ export function StateDiagramView({ model, editing }: Props) {
 
   return (
     // The frame the selection keys answer for (canvas-selection.tsx).
-    <div ref={sel.frameRef} className="h-full w-full">
+    <div ref={(el) => { sel.frameRef.current = el; grown.rootRef.current = el; }} className="h-full w-full">
     <CanvasShell
       contentWidth={width}
       contentHeight={height}
@@ -193,7 +200,7 @@ export function StateDiagramView({ model, editing }: Props) {
       fullscreenLabel="State diagram"
       viewId="state"
       apiRef={shellApi}
-      shapes={placed.map((p) => ({ x: p.cx - STATE_W / 2, y: p.cy - STATE_H / 2, w: STATE_W, h: STATE_H }))}
+      shapes={placed.map((p) => ({ x: p.cx - STATE_W / 2, y: p.cy - p.h / 2, w: STATE_W, h: p.h }))}
       onSelectBox={sel.onSelectBox}
       onBackgroundPress={sel.onBackgroundPress}
       // Empty: aim at the middle, where the "add a state" prompt is drawn.
@@ -268,22 +275,20 @@ export function StateDiagramView({ model, editing }: Props) {
           if (!a || !b) return null;
           if (a === b || c.fromId === c.toId) {
             // Self-transition: small loop above the state.
-            const x = a.cx, y = a.cy - STATE_H / 2;
+            const x = a.cx, y = a.cy - a.h / 2;
             const path = `M ${x - 18} ${y} C ${x - 18} ${y - 34}, ${x + 18} ${y - 34}, ${x + 18} ${y}`;
             return (
               <g key={c.id}>
                 <path d={path} fill="none" stroke="var(--color-primary)" strokeWidth={1.75} markerEnd="url(#sd-arrow)" />
-                {c.label && <text x={x} y={y - 38} textAnchor="middle" fill="var(--color-primary)" fontSize="10" fontFamily="var(--font-mono)">{c.label}</text>}
               </g>
             );
           }
           const from = stateEdgePoint(a, b), to = stateEdgePoint(b, a);
-          const midX = (from.x + to.x) / 2, midY = (from.y + to.y) / 2;
+          const midX = (from.x + to.x) / 2;
           const path = roundedPath([from, { x: midX, y: from.y }, { x: midX, y: to.y }, to]);
           return (
             <g key={c.id}>
               <path d={path} fill="none" stroke="var(--color-primary)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#sd-arrow)" />
-              {c.label && <text x={midX + 6} y={midY - 6} fill="var(--color-primary)" fontSize="10" fontFamily="var(--font-mono)">{c.label}</text>}
             </g>
           );
         })}
@@ -318,12 +323,20 @@ export function StateDiagramView({ model, editing }: Props) {
       {transitions.map((c) => {
         const a = byId.get(c.fromId), b = byId.get(c.toId);
         if (!a || !b) return null;
-        const x = a === b ? a.cx : (a.cx + b.cx) / 2;
-        const y = a === b ? a.cy - STATE_H / 2 - 44 : (a.cy + b.cy) / 2;
+        // Above a loop; otherwise the middle of the line as drawn above.
+        const self = a === b || c.fromId === c.toId;
+        const from = self ? null : stateEdgePoint(a, b), to = self ? null : stateEdgePoint(b, a);
+        const x = from && to ? (from.x + to.x) / 2 : a.cx;
+        const y = from && to ? (from.y + to.y) / 2 : a.cy - a.h / 2 - 44;
         return (
-          <TransitionLabel key={`lbl-${c.id}`} x={x} y={y} conn={c}
-            onUpdate={(patch) => editing.onUpdateConnection(c.id, patch)}
-            onDelete={() => editing.onDeleteConnection(c.id)} />
+          <LineLabel
+            key={`lbl-${c.id}`} x={x} y={y}
+            value={c.label ?? ""} placeholder="event" tone="primary"
+            fieldLabel="Transition: event [guard] / action"
+            onChange={(label) => editing.onUpdateConnection(c.id, { label })}
+            onDelete={() => editing.onDeleteConnection(c.id)}
+            deleteLabel={`Delete transition${c.label ? ` ${c.label}` : ""}`}
+          />
         );
       })}
     </CanvasShell>
@@ -371,7 +384,8 @@ function StateNodeView({
       onPointerDown={onPress}
       className="group absolute rounded-xl border-2 border-primary/60 bg-card shadow-sm flex flex-col gap-1 px-2.5 py-2"
       style={{
-        left: node.cx - STATE_W / 2, top: node.cy - STATE_H / 2, width: STATE_W, height: STATE_H, zIndex: 10,
+        // Its own height at least, taller when the text needs it.
+        left: node.cx - STATE_W / 2, top: node.cy - node.h / 2, width: STATE_W, minHeight: STATE_H, zIndex: 10,
         ...(node.ref.isFinal ? { boxShadow: "0 0 0 2px var(--color-card), 0 0 0 4px var(--color-primary)" } : {}),
       }}
     >
@@ -409,80 +423,6 @@ function StateNodeView({
         className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-primary bg-card opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-primary transition cursor-crosshair before:absolute before:-inset-2 before:content-['']"
         title="Drag to another state to connect (drag to itself for a self-transition)"
       />
-    </div>
-  );
-}
-
-function TransitionLabel({
-  x, y, conn, onUpdate, onDelete,
-}: {
-  x: number; y: number; conn: Connection;
-  onUpdate: (patch: Partial<Connection>) => void;
-  onDelete: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const presenting = !!useArtifactFullscreen()?.presenting;
-  const chipRef = useRef<HTMLButtonElement | null>(null);
-  const fieldRef = useRef<HTMLInputElement | null>(null);
-  // Present mode shows the event without its editor; close the editor too,
-  // so leaving Present does not reopen it with its field grabbing focus.
-  useEffect(() => { if (presenting) setOpen(false); }, [presenting]);
-  // Esc while the editor is open (in its field, on Delete, or on the event
-  // chip itself) closes it without saving what was typed, and is marked
-  // handled so it does not also take the artifact out of full screen. Focus
-  // goes back to the chip first, so the field's blur sees the old text and
-  // saves nothing.
-  const onEditorKeyDown = (e: React.KeyboardEvent) => {
-    if (!open || e.key !== "Escape" || e.defaultPrevented) return;
-    e.preventDefault();
-    if (fieldRef.current) fieldRef.current.value = conn.label ?? "";
-    chipRef.current?.focus({ preventScroll: true });
-    setOpen(false);
-  };
-  const chip = "rounded border border-primary/60 bg-card px-1.5 py-0.5 text-[10px] font-mono-tight text-primary";
-  // Presenting: the transition's event stays, as plain words that do not
-  // open the edit/delete editor (and a drag over them pans). An unnamed
-  // transition's "event" placeholder is only an invitation to edit, so it
-  // goes.
-  if (presenting) {
-    if (!conn.label) return null;
-    return (
-      <div className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
-        <span className={`block ${chip}`}>{conn.label}</span>
-      </div>
-    );
-  }
-  return (
-    <div data-no-pan onKeyDown={onEditorKeyDown} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
-      <button
-        ref={chipRef}
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className={`${chip} hover:bg-primary/10 transition`}
-      >
-        {conn.label || "event"}
-      </button>
-      {open && (
-        <div className="absolute left-1/2 top-6 -translate-x-1/2 w-52 rounded-lg border bg-card shadow-lg p-2 flex flex-col gap-2">
-          <input
-            ref={fieldRef}
-            autoFocus
-            defaultValue={conn.label ?? ""}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter") return;
-              const v = (e.target as HTMLInputElement).value;
-              if (v !== (conn.label ?? "")) onUpdate({ label: v });
-              setOpen(false);
-            }}
-            onBlur={(e) => { if (e.target.value !== (conn.label ?? "")) onUpdate({ label: e.target.value }); }}
-            placeholder="event [guard] / action"
-            aria-label="Transition: event [guard] / action"
-            className="w-full text-[11px] px-2 py-1 rounded border bg-background"
-          />
-          <button onClick={() => { onDelete(); setOpen(false); }} className="w-full text-[11px] px-2 py-1 rounded border border-destructive/40 text-destructive hover:bg-destructive/10">
-            Delete transition
-          </button>
-        </div>
-      )}
     </div>
   );
 }

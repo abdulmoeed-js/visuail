@@ -66,8 +66,9 @@ const OVERLAY = "[role='dialog'], [role='alertdialog'], [role='menu'], [role='li
 const OPEN_OVERLAY = "[role='dialog'][data-state='open'], [role='alertdialog'][data-state='open'], [role='menu'], [data-radix-popper-content-wrapper]";
 
 /** A control with keys of its own: Enter, Space, Esc or the arrows belong
- *  to it while it has focus. A shape's own text (data-edit-text) is not one. */
-const CONTROL = "button, a[href], select, summary, [role='button']:not([data-edit-text]), [role='tab'], [role='checkbox'], [role='switch'], [role='menuitem'], [role='option'], [role='slider']";
+ *  to it while it has focus. A shape's own text (data-edit-text) is not
+ *  one; a line's label is (Delete there must not delete the selected shapes). */
+const CONTROL = "button, a[href], select, summary, [data-line-label], [role='button']:not([data-edit-text]), [role='tab'], [role='checkbox'], [role='switch'], [role='menuitem'], [role='option'], [role='slider']";
 
 /** The diagram the person last pressed in (a mouse or finger down inside
  *  its frame); a press anywhere else lets go of it. Keys pressed with focus

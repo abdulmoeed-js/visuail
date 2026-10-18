@@ -7,6 +7,8 @@ import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { SelectionBar, SelectionOutlines, useShapeSelection } from "./canvas-selection";
 import { InlineEdit } from "./InlineEdit";
+import { LineLabel } from "./LineLabel";
+import { useGrownHeights } from "./use-grown-heights";
 import { edgePoint, roundedPath } from "@/lib/canvas/geometry";
 import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
 import { IdChip } from "./atoms";
@@ -41,22 +43,27 @@ interface DFDNode {
   text: string;
   label: string; // "1.0" / "D1" / entity has none
   cx: number; cy: number; w: number; h: number;
+  /** The kind's own height; `h` is taller when the text needs it. */
+  baseH: number;
 }
 
 type Pos = Record<string, { cx: number; cy: number }>;
 /** The saved arrangement, by item id (top-left corners). */
 type Saved = Record<string, NodeLayout>;
+/** How tall shapes grew with their text, by id (see useGrownHeights). */
+type Grown = Record<string, number>;
 
-function layoutRow(ids: { id: string; text: string }[], y: number, w: number, h: number, labelFor: (i: number) => string, kind: NodeKind, overrides: Pos, saved: Saved | undefined, floating: Set<string>): DFDNode[] {
+function layoutRow(ids: { id: string; text: string }[], y: number, w: number, baseH: number, labelFor: (i: number) => string, kind: NodeKind, overrides: Pos, saved: Saved | undefined, floating: Set<string>, grown: Grown): DFDNode[] {
   const totalW = ids.length * w + Math.max(0, ids.length - 1) * COL_GAP;
   const startX = Math.max(40, 500 - totalW / 2);
   return ids.map((it, i) => {
     const naturalCx = startX + i * (w + COL_GAP) + w / 2;
+    const h = Math.max(baseH, grown[it.id] ?? 0);
     const o = overrides[it.id], sv = saved?.[it.id];
     if (saved && !sv && !o) floating.add(it.id);
     return {
       kind, id: it.id, text: it.text, label: labelFor(i),
-      cx: o?.cx ?? (sv ? sv.x + w / 2 : naturalCx), cy: o?.cy ?? (sv ? sv.y + h / 2 : y), w, h,
+      cx: o?.cx ?? (sv ? sv.x + w / 2 : naturalCx), cy: o?.cy ?? (sv ? sv.y + h / 2 : y), w, h, baseH,
     };
   });
 }
@@ -65,11 +72,11 @@ function layoutRow(ids: { id: string; text: string }[], y: number, w: number, h:
  *  diagram; then their saved places, with a drag in progress drawn on top.
  *  In an arranged diagram a new node starts at its row place, moved down
  *  until it is clear of the others. */
-function layout(model: ProcessModel, overrides: Pos, saved?: Saved) {
+function layout(model: ProcessModel, overrides: Pos, saved: Saved | undefined, grown: Grown) {
   const floating = new Set<string>();
-  const entities = layoutRow(model.externalEntities ?? [], TOP_PAD + ENTITY_H / 2, ENTITY_W, ENTITY_H, () => "", "entity", overrides, saved, floating);
-  const processes = layoutRow(model.steps, TOP_PAD + ENTITY_H + ROW_GAP + PROC_H / 2, PROC_W, PROC_H, (i) => `${i + 1}.0`, "process", overrides, saved, floating);
-  const stores = layoutRow(model.dataStores ?? [], TOP_PAD + ENTITY_H + ROW_GAP + PROC_H + ROW_GAP + STORE_H / 2, STORE_W, STORE_H, (i) => `D${i + 1}`, "store", overrides, saved, floating);
+  const entities = layoutRow(model.externalEntities ?? [], TOP_PAD + ENTITY_H / 2, ENTITY_W, ENTITY_H, () => "", "entity", overrides, saved, floating, grown);
+  const processes = layoutRow(model.steps, TOP_PAD + ENTITY_H + ROW_GAP + PROC_H / 2, PROC_W, PROC_H, (i) => `${i + 1}.0`, "process", overrides, saved, floating, grown);
+  const stores = layoutRow(model.dataStores ?? [], TOP_PAD + ENTITY_H + ROW_GAP + PROC_H + ROW_GAP + STORE_H / 2, STORE_W, STORE_H, (i) => `D${i + 1}`, "store", overrides, saved, floating, grown);
   const all = [...entities, ...processes, ...stores];
   if (floating.size > 0) {
     const rectOf = (n: DFDNode) => ({ x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h });
@@ -99,7 +106,9 @@ export function DFDView({ model, editing }: Props) {
   const [overrides, setOverrides] = useCanvasViewState<Pos>("dfd:overrides", {});
   const [pendingConn, setPendingConn] = useState<null | { fromId: string; fromX: number; fromY: number; toX: number; toY: number }>(null);
   const saved = layoutOf(model, "dfd")?.nodes;
-  const { nodes, width, height } = useMemo(() => layout(model, overrides, saved), [model, overrides, saved]);
+  // Shapes grow with their text; lines and outlines follow (use-grown-heights).
+  const grown = useGrownHeights();
+  const { nodes, width, height } = useMemo(() => layout(model, overrides, saved, grown.heights), [model, overrides, saved, grown.heights]);
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
   const rectFor = (id: string) => {
     const n = byId.get(id);
@@ -228,7 +237,7 @@ export function DFDView({ model, editing }: Props) {
 
   return (
     // The frame the selection keys answer for (canvas-selection.tsx).
-    <div ref={sel.frameRef} className="h-full w-full">
+    <div ref={(el) => { sel.frameRef.current = el; grown.rootRef.current = el; }} className="h-full w-full">
     <CanvasShell
       contentWidth={width}
       contentHeight={height}
@@ -311,14 +320,11 @@ export function DFDView({ model, editing }: Props) {
           const a = byId.get(c.fromId), b = byId.get(c.toId);
           if (!a || !b) return null;
           const from = edgePoint(a, b), to = edgePoint(b, a);
-          const midX = (from.x + to.x) / 2, midY = (from.y + to.y) / 2;
+          const midX = (from.x + to.x) / 2;
           const path = roundedPath([from, { x: midX, y: from.y }, { x: midX, y: to.y }, to]);
           return (
             <g key={c.id}>
               <path d={path} fill="none" stroke="var(--color-verified)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#dfd-arrow)" />
-              {c.label && (
-                <text x={midX + 6} y={midY - 6} fill="var(--color-verified-ink)" fontSize="10" fontFamily="var(--font-mono)">{c.label}</text>
-              )}
             </g>
           );
         })}
@@ -351,13 +357,17 @@ export function DFDView({ model, editing }: Props) {
       {flows.map((c) => {
         const a = byId.get(c.fromId), b = byId.get(c.toId);
         if (!a || !b) return null;
+        // The middle of the line as drawn above (its vertical run).
+        const from = edgePoint(a, b), to = edgePoint(b, a);
         return (
-          <FlowLabel
+          <LineLabel
             key={`lbl-${c.id}`}
-            x={(a.cx + b.cx) / 2} y={(a.cy + b.cy) / 2}
-            conn={c}
-            onUpdate={(patch) => editing.onUpdateConnection(c.id, patch)}
+            x={(from.x + to.x) / 2} y={(from.y + to.y) / 2}
+            value={c.label ?? ""} placeholder="label" tone="verified"
+            fieldLabel="Data flow label"
+            onChange={(label) => editing.onUpdateConnection(c.id, { label })}
             onDelete={() => editing.onDeleteConnection(c.id)}
+            deleteLabel={`Delete flow${c.label ? ` ${c.label}` : ""}`}
           />
         );
       })}
@@ -403,8 +413,9 @@ function DFDNodeView({
     worldDrag(e, (dx, dy) => { last = { dx, dy }; onDrag(dx, dy); }, { up: finish, cancel: finish });
   };
 
+  // Its own height at least, taller when the text needs it.
   const style: React.CSSProperties = {
-    left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: 10,
+    left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, minHeight: node.baseH, zIndex: 10,
   };
 
   // The grip, the delete X and the connect handle only edit: Present mode
@@ -434,7 +445,7 @@ function DFDNodeView({
 
   if (node.kind === "process") {
     return (
-      <div data-node data-dfd-node={node.id} data-shape-id={node.id} onPointerDown={onPress} className="group absolute rounded-full border-2 border-primary/60 bg-card shadow-sm flex flex-col items-center justify-center gap-0.5 text-center px-3" style={style}>
+      <div data-node data-dfd-node={node.id} data-shape-id={node.id} onPointerDown={onPress} className="group absolute rounded-full border-2 border-primary/60 bg-card shadow-sm flex flex-col items-center justify-center gap-0.5 text-center px-5 py-1" style={style}>
         {header}
         <div className="text-xs font-medium leading-snug break-words px-1">
           <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" />
@@ -461,79 +472,6 @@ function DFDNodeView({
         <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" />
       </div>
       {connectHandle}
-    </div>
-  );
-}
-
-function FlowLabel({
-  x, y, conn, onUpdate, onDelete,
-}: {
-  x: number; y: number; conn: Connection;
-  onUpdate: (patch: Partial<Connection>) => void;
-  onDelete: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const presenting = !!useArtifactFullscreen()?.presenting;
-  const chipRef = useRef<HTMLButtonElement | null>(null);
-  const fieldRef = useRef<HTMLInputElement | null>(null);
-  // Present mode shows the label without its editor; close the editor too,
-  // so leaving Present does not reopen it with its field grabbing focus.
-  useEffect(() => { if (presenting) setOpen(false); }, [presenting]);
-  // Esc while the editor is open (in its field, on Delete, or on the label
-  // itself) closes it without saving what was typed, and is marked handled
-  // so it does not also take the artifact out of full screen. Focus goes
-  // back to the label first, so the field's blur sees the old text and
-  // saves nothing.
-  const onEditorKeyDown = (e: React.KeyboardEvent) => {
-    if (!open || e.key !== "Escape" || e.defaultPrevented) return;
-    e.preventDefault();
-    if (fieldRef.current) fieldRef.current.value = conn.label ?? "";
-    chipRef.current?.focus({ preventScroll: true });
-    setOpen(false);
-  };
-  const chip = "rounded border border-verified/60 bg-card px-1.5 py-0.5 text-[10px] font-mono-tight text-verified-ink";
-  // Presenting: the flow's name stays, as plain words that do not open the
-  // rename/delete editor (and a drag over them pans). An unnamed flow's
-  // "label" placeholder is only an invitation to edit, so it goes.
-  if (presenting) {
-    if (!conn.label) return null;
-    return (
-      <div className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
-        <span className={`block ${chip}`}>{conn.label}</span>
-      </div>
-    );
-  }
-  return (
-    <div data-no-pan onKeyDown={onEditorKeyDown} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: x, top: y, zIndex: 20 }}>
-      <button
-        ref={chipRef}
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className={`${chip} hover:bg-verified/10 transition`}
-      >
-        {conn.label || "label"}
-      </button>
-      {open && (
-        <div className="absolute left-1/2 top-6 -translate-x-1/2 w-52 rounded-lg border bg-card shadow-lg p-2 flex flex-col gap-2">
-          <input
-            ref={fieldRef}
-            autoFocus
-            defaultValue={conn.label ?? ""}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter") return;
-              const v = (e.target as HTMLInputElement).value;
-              if (v !== (conn.label ?? "")) onUpdate({ label: v });
-              setOpen(false);
-            }}
-            onBlur={(e) => { if (e.target.value !== (conn.label ?? "")) onUpdate({ label: e.target.value }); }}
-            placeholder="Data flow label"
-            aria-label="Data flow label"
-            className="w-full text-[11px] px-2 py-1 rounded border bg-background"
-          />
-          <button onClick={() => { onDelete(); setOpen(false); }} className="w-full text-[11px] px-2 py-1 rounded border border-destructive/40 text-destructive hover:bg-destructive/10">
-            Delete flow
-          </button>
-        </div>
-      )}
     </div>
   );
 }

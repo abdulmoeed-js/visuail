@@ -17,6 +17,9 @@ interface Props {
    *  starts moving it -- and a double-click, Enter (when focused) or Enter/F2
    *  on the selected shape starts typing (EDIT_TEXT_EVENT). */
   activate?: "click" | "double";
+  /** Clearing the text saves it empty (a line's label), instead of keeping
+   *  what was there (an item's name, which can't be blank). */
+  allowEmpty?: boolean;
 }
 
 /** Sent to a shape's text (marked `data-edit-text`) to start typing on it,
@@ -30,7 +33,7 @@ export const EDIT_TEXT_EVENT = "visu:edit-text";
  * ("double"); see `activate`.
  */
 export function InlineEdit({
-  value, onChange, className, multiline, placeholder, as = "inline", label, activate = "click",
+  value, onChange, className, multiline, placeholder, as = "inline", label, activate = "click", allowEmpty,
 }: Props) {
   const onShape = activate === "double";
   const [editing, setEditing] = useState(false);
@@ -65,9 +68,18 @@ export function InlineEdit({
     }
   }, [editing]);
 
+  // A text box grows with what is typed, so long text never hides behind a
+  // scroll bar (and the shape around it grows too: see ProcessCanvas).
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!editing || !multiline || !(el instanceof HTMLTextAreaElement)) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [editing, multiline, draft]);
+
   const commit = () => {
     const v = draft.trim();
-    if (v && v !== value) onChange(v);
+    if ((v || allowEmpty) && v !== value) onChange(v);
     setEditing(false);
   };
   const cancel = () => { setDraft(value); setEditing(false); };
@@ -90,12 +102,12 @@ export function InlineEdit({
       placeholder,
       className: cn(
         "w-full bg-background/90 outline-none ring-2 ring-verified rounded px-1 py-0.5",
-        multiline ? "resize-none" : "",
+        multiline ? "resize-none overflow-hidden block" : "",
         className,
       ),
     };
     return multiline
-      ? <textarea ref={ref as React.RefObject<HTMLTextAreaElement>} rows={2} {...common} />
+      ? <textarea ref={ref as React.RefObject<HTMLTextAreaElement>} rows={1} {...common} />
       : <input  ref={ref as React.RefObject<HTMLInputElement>}  {...common} />;
   }
 

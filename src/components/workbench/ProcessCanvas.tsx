@@ -20,6 +20,7 @@ import type { ShapeClip } from "@/lib/canvas/clipboard";
 import { isUserCreatedId } from "@/lib/item-origin";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
+import { LineLabel } from "./LineLabel";
 import { edgePoint, roundedPath, type Point } from "@/lib/canvas/geometry";
 import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
 import { RefineControl } from "./RefineControl";
@@ -144,7 +145,12 @@ function effSize(id: string, defW: number, defH: number, overrides: Overrides, m
   // Belt and braces: `??` alone would accept it and draw the node zero wide.
   const mw = m && m.w > 0 ? m.w : undefined;
   const mh = m && m.h > 0 ? m.h : undefined;
-  return { w: o?.w ?? sv?.w ?? mw ?? defW, h: o?.h ?? sv?.h ?? mh ?? defH };
+  // A height set by hand is the least the shape takes: its text can make it
+  // taller (the node is drawn with that height as its min-height, and what
+  // it measures is what it needs).
+  const set = o?.h ?? sv?.h;
+  const h = set !== undefined && mh !== undefined ? Math.max(set, mh) : set ?? mh ?? defH;
+  return { w: o?.w ?? sv?.w ?? mw ?? defW, h };
 }
 
 function zOf(id: string, overrides: Overrides) {
@@ -563,7 +569,9 @@ export function ProcessCanvas({
     const g = geomRef.current.get(id);
     if (!g) return;
     const w = o.w ?? g.w, h = o.h ?? g.h;
-    const at: NodeLayout = { x: (o.cx ?? g.cx) - w / 2, y: (o.cy ?? g.cy) - h / 2 };
+    // The top as drawn: the text can make a shape taller than the height
+    // set by hand (g.h), and that height is only its least.
+    const at: NodeLayout = { x: (o.cx ?? g.cx) - w / 2, y: (o.cy ?? g.cy) - Math.max(h, g.h) / 2 };
     if (o.w !== undefined) at.w = w;
     if (o.h !== undefined) at.h = h;
     onPlaceShapes("process", { [id]: at }, currentPlaces());
@@ -855,6 +863,20 @@ export function ProcessCanvas({
     const toLeft = { x: b.cx - b.w / 2, y: b.cy };
     const laneX = Math.max(fromRight.x, toLeft.x) + 40;
     return connectorPath([fromRight, { x: laneX, y: fromRight.y }, { x: laneX, y: toLeft.y }, toLeft]);
+  };
+
+  /** The middle of a connector as routeBetween draws it, for its label. */
+  const routeMid = (fromId: string, toId: string) => {
+    const a = geomById.get(fromId);
+    const b = geomById.get(toId);
+    if (!a || !b) return null;
+    const dy = b.cy - a.cy;
+    const dx = b.cx - a.cx;
+    if (Math.abs(dx) < 10 && Math.abs(dy) > 20) {
+      const fromY = a.cy + Math.sign(dy) * (a.h / 2), toY = b.cy - Math.sign(dy) * (b.h / 2);
+      return { x: a.cx, y: (fromY + toY) / 2 };
+    }
+    return { x: Math.max(a.cx + a.w / 2, b.cx - b.w / 2) + 40, y: (a.cy + b.cy) / 2 };
   };
 
   const startConnDrag = (fromId: string, e: React.PointerEvent) => {
@@ -1211,18 +1233,18 @@ export function ProcessCanvas({
         if (it.kind === "step") {
           const n = it.node;
           const s = n.ref as Step;
-          // A height set by hand, live or saved, is drawn as set.
-          const hasHeightOverride = overrides[s.id]?.h !== undefined || saved?.[s.id]?.h !== undefined;
+          // A height set by hand, live or saved, is the least it takes.
+          const setH = overrides[s.id]?.h ?? saved?.[s.id]?.h;
           return (
             <StepNode
               key={s.id} node={n} step={s} model={model}
               actors={model.actors} systems={model.systems}
-              autoHeight={!hasHeightOverride}
+              setH={setH}
               onMeasure={(w, h) => reportMeasure(s.id, w, h)}
               onDelete={() => onDeleteAny(s.id)}
               onUpdate={(patch) => onUpdateItem(s.id, patch as Record<string, unknown>)}
               onDrag={(delta, done) => gripDrag(s.id, n.cx, n.cy, delta, done)}
-              onResize={(w, h, done) => place(s.id, { w: snap(w), h: snap(h) }, done)}
+              onResize={(w, h, done) => place(s.id, { w: snap(w), ...(h !== undefined ? { h: snap(h) } : {}) }, done)}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(s.id, e) : undefined}
               onSelect={(ev) => { selectNode(s.id); if (ev) sel.pressShape(s.id, ev); }}
@@ -1236,17 +1258,17 @@ export function ProcessCanvas({
         if (it.kind === "decision") {
           const n = it.node;
           const d = n.ref as Decision;
-          // A height set by hand, live or saved, is drawn as set.
-          const hasHeightOverride = overrides[d.id]?.h !== undefined || saved?.[d.id]?.h !== undefined;
+          // A height set by hand, live or saved, is the least it takes.
+          const setH = overrides[d.id]?.h ?? saved?.[d.id]?.h;
           return (
             <DecisionNode
               key={d.id} node={n} d={d} model={model}
-              autoHeight={!hasHeightOverride}
+              setH={setH}
               onMeasure={(w, h) => reportMeasure(d.id, w, h)}
               onDelete={() => onDeleteAny(d.id)}
               onUpdate={(patch) => onUpdateItem(d.id, patch as Record<string, unknown>)}
               onDrag={(delta, done) => gripDrag(d.id, n.cx, n.cy, delta, done)}
-              onResize={(w, h, done) => place(d.id, { w: snap(w), h: snap(h) }, done)}
+              onResize={(w, h, done) => place(d.id, { w: snap(w), ...(h !== undefined ? { h: snap(h) } : {}) }, done)}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(d.id, e) : undefined}
               onSelect={(ev) => { selectNode(d.id); if (ev) sel.pressShape(d.id, ev); }}
@@ -1258,17 +1280,17 @@ export function ProcessCanvas({
         }
         const n = it.node;
         const e = n.ref;
-        // A height set by hand, live or saved, is drawn as set.
-          const hasHeightOverride = overrides[e.id]?.h !== undefined || saved?.[e.id]?.h !== undefined;
+        // A height set by hand, live or saved, is the least it takes.
+        const setH = overrides[e.id]?.h ?? saved?.[e.id]?.h;
         return (
           <ExceptionNode
             key={e.id} node={n} e={e} model={model}
-            autoHeight={!hasHeightOverride}
+            setH={setH}
             onMeasure={(w, h) => reportMeasure(e.id, w, h)}
             onDelete={() => onDeleteAny(e.id)}
             onUpdate={(patch) => onUpdateItem(e.id, patch as Record<string, unknown>)}
             onDrag={(delta, done) => gripDrag(e.id, n.cx, n.cy, delta, done)}
-            onResize={(w, h, done) => place(e.id, { w: snap(w), h: snap(h) }, done)}
+            onResize={(w, h, done) => place(e.id, { w: snap(w), ...(h !== undefined ? { h: snap(h) } : {}) }, done)}
             onRefine={handleRefine}
             onStartConnect={onAddConnection ? (ev) => startConnDrag(e.id, ev) : undefined}
             onSelect={(ev) => { selectNode(e.id); if (ev) sel.pressShape(e.id, ev); }}
@@ -1287,20 +1309,22 @@ export function ProcessCanvas({
       } : null} />
 
       {manualConnections.map((c) => {
-        const a = geomById.get(c.fromId);
-        const b = geomById.get(c.toId);
-        if (!a || !b) return null;
-        const mx = (a.cx + b.cx) / 2;
-        const my = (a.cy + b.cy) / 2;
+        const m = routeMid(c.fromId, c.toId);
+        if (!m) return null;
+        // The label is typed on the line; the ends and Delete are under "...".
         return (
-          <ConnectorControl
-            key={`ctl-${c.id}`}
-            conn={c}
-            x={mx}
-            y={my}
-            onDelete={() => onDeleteConnection?.(c.id)}
-            onUpdate={onUpdateConnection ? (patch) => onUpdateConnection(c.id, patch) : undefined}
-          />
+          <LineLabel
+            key={`ctl-${c.id}`} x={m.x} y={m.y} zIndex={40}
+            value={c.label ?? ""} placeholder="label" tone="verified" quiet
+            fieldLabel="Connector label"
+            onChange={onUpdateConnection ? (label) => onUpdateConnection(c.id, { label }) : undefined}
+          >
+            <ConnectorControl
+              conn={c}
+              onDelete={() => onDeleteConnection?.(c.id)}
+              onUpdate={onUpdateConnection ? (patch) => onUpdateConnection(c.id, patch) : undefined}
+            />
+          </LineLabel>
         );
       })}
     </CanvasShell>
@@ -1332,11 +1356,9 @@ const CROW_OPTIONS: { id: CrowMarker; label: string; glyph: string }[] = [
 ];
 
 function ConnectorControl({
-  conn, x, y, onDelete, onUpdate,
+  conn, onDelete, onUpdate,
 }: {
   conn: Connection;
-  x: number;
-  y: number;
   onDelete: () => void;
   onUpdate?: (patch: Partial<Connection>) => void;
 }) {
@@ -1352,8 +1374,7 @@ function ConnectorControl({
     <div
       data-no-pan
       data-edit-control
-      className="absolute -translate-x-1/2 -translate-y-1/2"
-      style={{ left: x, top: y, zIndex: 40 }}
+      className="relative"
       // Esc in the open settings (label field and buttons included) closes
       // them, focus back on the button that opened them, and is marked
       // handled so full screen stays on.
@@ -1416,13 +1437,6 @@ function ConnectorControl({
                   ))}
                 </div>
               </div>
-              <input
-                value={conn.label ?? ""}
-                onChange={(e) => onUpdate({ label: e.target.value })}
-                placeholder="Label (optional)"
-                aria-label="Connector label"
-                className="w-full text-[11px] px-2 py-1 rounded border bg-background"
-              />
             </>
           )}
           <button
@@ -1774,7 +1788,10 @@ function useMeasure(onMeasure: (w: number, h: number) => void) {
   return ref;
 }
 
-function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: number, h: number, done?: boolean) => void }) {
+/** Drags a shape's size. The height is only set by a drag that moved up or
+ *  down (`h` is undefined otherwise): widening a shape must not freeze the
+ *  height its text gave it as its least. */
+function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: number, h: number | undefined, done?: boolean) => void }) {
   const worldDrag = useWorldDrag();
   const mayEdit = useContext(EditGuardCtx);
   const onPointerDown = (e: React.PointerEvent) => {
@@ -1783,12 +1800,14 @@ function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: 
     if (!mayEdit()) return;
     const startW = w, startH = h;
     // A press that never moved is a click, not a resize: nothing to save.
-    let last: { w: number; h: number } | null = null;
+    let last: { w: number; h: number | undefined } | null = null;
+    let movedY = false;
     const finish = () => { if (last) onResize(last.w, last.h, true); };
     worldDrag(e, (dx, dy) => {
+      if (Math.abs(dy) >= 1) movedY = true;
       last = {
         w: Math.min(MAX_W, Math.max(MIN_W, startW + dx)),
-        h: Math.min(MAX_H, Math.max(MIN_H, startH + dy)),
+        h: movedY ? Math.min(MAX_H, Math.max(MIN_H, startH + dy)) : undefined,
       };
       onResize(last.w, last.h);
     }, { up: finish, cancel: finish });
@@ -1980,18 +1999,19 @@ function ShapeFrame({
 // ---- Step ----
 
 function StepNode({
-  node, step, actors, systems, model, autoHeight, onMeasure,
+  node, step, actors, systems, model, setH, onMeasure,
   onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
   onSelect, onBringToFront, onSendToBack, onOpenUseCase, z,
 }: {
   node: SpineNode; step: Step; model: ProcessModel;
   actors: { id: string; text: string }[]; systems: { id: string; text: string }[];
-  autoHeight: boolean;
+  /** The height set by hand, if any: the least the shape takes. */
+  setH?: number;
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Step>) => void;
   onDrag: (d: { dx: number; dy: number }, done?: boolean) => void;
-  onResize: (w: number, h: number, done?: boolean) => void;
+  onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
   /** A press on the body (with the event) or the grip (without). */
@@ -2018,7 +2038,7 @@ function StepNode({
         node={node}
         step={step}
         model={model}
-        autoHeight={autoHeight}
+        setH={setH}
         onMeasure={onMeasure}
         onDelete={onDelete}
         onUpdate={onUpdate}
@@ -2051,9 +2071,8 @@ function StepNode({
           left: node.cx - node.w / 2,
           top: node.cy - node.h / 2,
           width: node.w,
-          minHeight: 200,
+          minHeight: Math.max(200, setH ?? 0),
           zIndex: 10 + z,
-          ...(autoHeight ? {} : { height: node.h }),
         }}
       >
         <div className={cn(
@@ -2192,14 +2211,13 @@ function StepNode({
         left: node.cx - node.w / 2,
         top: node.cy - node.h / 2,
         width: node.w,
-        minHeight: minH,
+        minHeight: Math.max(minH, setH ?? 0),
         zIndex: 10 + z,
-        ...(autoHeight ? {} : { height: node.h }),
       }}
     >
       {isShaped ? (
         <ShapeFrame shape={shape} frame={frame}>
-          <div className={cn("relative flex flex-col gap-1 w-full h-full min-h-0", innerPadClass)}>{contentInner}</div>
+          <div className={cn("relative flex flex-1 flex-col gap-1 w-full min-h-0", innerPadClass)}>{contentInner}</div>
         </ShapeFrame>
       ) : (
         contentInner
@@ -2211,17 +2229,18 @@ function StepNode({
 }
 
 function SectionedNode({
-  node, step, model, autoHeight, onMeasure,
+  node, step, model, setH, onMeasure,
   onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
   onSelect, onBringToFront, onSendToBack, z, variant, refEl, dragHandlers,
 }: {
   node: SpineNode; step: Step; model: ProcessModel;
-  autoHeight: boolean;
+  /** The height set by hand, if any: the least the shape takes. */
+  setH?: number;
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Step>) => void;
   onDrag: (d: { dx: number; dy: number }, done?: boolean) => void;
-  onResize: (w: number, h: number, done?: boolean) => void;
+  onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
   /** A press on the body (with the event) or the grip (without). */
@@ -2276,9 +2295,8 @@ function SectionedNode({
         left: node.cx - node.w / 2,
         top: node.cy - node.h / 2,
         width: node.w,
-        minHeight: 120,
+        minHeight: Math.max(120, setH ?? 0),
         zIndex: 10 + z,
-        ...(autoHeight ? {} : { height: node.h }),
       }}
     >
       {/* header */}
@@ -2419,17 +2437,18 @@ function MetaSelect({
 // ---- Decision (diamond / gateway) ----
 
 function DecisionNode({
-  node, d, model, autoHeight, onMeasure,
+  node, d, model, setH, onMeasure,
   onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
   onSelect, onBringToFront, onSendToBack, z,
 }: {
   node: SpineNode; d: Decision; model: ProcessModel;
-  autoHeight: boolean;
+  /** The height set by hand, if any: the least the shape takes. */
+  setH?: number;
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Decision>) => void;
   onDrag: (delta: { dx: number; dy: number }, done?: boolean) => void;
-  onResize: (w: number, h: number, done?: boolean) => void;
+  onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
   /** A press on the body (with the event) or the grip (without). */
@@ -2481,14 +2500,13 @@ function DecisionNode({
       data-node
       data-node-id={d.id}
       onPointerDown={(e) => onSelect(e)}
-      className={cn("group absolute animate-item-in", d.drift && "animate-drift")}
+      className={cn("group absolute animate-item-in flex flex-col", d.drift && "animate-drift")}
       style={{
         left: node.cx - node.w / 2,
         top: node.cy - node.h / 2,
         width: node.w,
-        minHeight: DEC_H,
+        minHeight: Math.max(DEC_H, setH ?? 0),
         zIndex: 10 + z,
-        ...(autoHeight ? {} : { height: node.h }),
       }}
     >
       <svg
@@ -2512,7 +2530,7 @@ function DecisionNode({
         )}
       </svg>
       <div
-        className="relative flex flex-col items-center justify-center text-center gap-1"
+        className="relative flex flex-1 flex-col items-center justify-center text-center gap-1"
         style={{ padding: "14% 18%" }}
       >
         <div className="flex items-center gap-1 flex-wrap justify-center">
@@ -2593,17 +2611,18 @@ function DecisionNode({
 // ---- Exception ----
 
 function ExceptionNode({
-  node, e, model, autoHeight, onMeasure,
+  node, e, model, setH, onMeasure,
   onDelete, onUpdate, onDrag, onResize, onRefine, onStartConnect,
   onSelect, onBringToFront, onSendToBack, z,
 }: {
   node: RightNode; e: Exception; model: ProcessModel;
-  autoHeight: boolean;
+  /** The height set by hand, if any: the least the shape takes. */
+  setH?: number;
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Exception>) => void;
   onDrag: (d: { dx: number; dy: number }, done?: boolean) => void;
-  onResize: (w: number, h: number, done?: boolean) => void;
+  onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (ev: React.PointerEvent) => void;
   /** A press on the body (with the event) or the grip (without). */
@@ -2638,9 +2657,8 @@ function ExceptionNode({
         left: node.cx - node.w / 2,
         top: node.cy - node.h / 2,
         width: node.w,
-        minHeight: EX_H,
+        minHeight: Math.max(EX_H, setH ?? 0),
         zIndex: 10 + z,
-        ...(autoHeight ? {} : { height: node.h }),
       }}
     >
       <div className="flex items-center justify-between gap-1">
