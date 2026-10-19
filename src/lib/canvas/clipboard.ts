@@ -8,11 +8,11 @@
 // shapes that were copied together come along; links to shapes that were
 // not copied are left behind; who does a step (its actor, its system) stays.
 
-import type { BaseItem, Connection, Decision, NodeLayout, ProcessModel, ViewId } from "@/data/samples";
+import type { BaseItem, Connection, Decision, NodeLayout, ProcessModel, RuleNode, ViewId } from "@/data/samples";
 import type { Rect } from "./layout";
 
 /** The lists of a process model that hold shapes a diagram draws. */
-export const SHAPE_LISTS = ["steps", "decisions", "exceptions", "dataStores", "externalEntities", "states"] as const;
+export const SHAPE_LISTS = ["steps", "decisions", "exceptions", "dataStores", "externalEntities", "states", "decisionTree"] as const;
 export type ShapeList = (typeof SHAPE_LISTS)[number];
 
 /** What each diagram draws. A paste keeps only what the diagram it lands in
@@ -22,6 +22,7 @@ export const VIEW_LISTS: Partial<Record<ViewId, readonly ShapeList[]>> = {
   dfd: ["steps", "dataStores", "externalEntities"],
   state: ["states"],
   activity: ["steps", "decisions"],
+  decisiontree: ["decisionTree"],
 };
 
 /** The part of a clip a diagram can show, lines between those included;
@@ -41,7 +42,7 @@ export function clipForView(clip: ShapeClip, view: ViewId): ShapeClip | null {
 
 /** Id prefix of a new item in each list (as the add actions use). */
 const PREFIX: Record<ShapeList, string> = {
-  steps: "ST", decisions: "DC", exceptions: "EX", dataStores: "DS", externalEntities: "EE", states: "SD",
+  steps: "ST", decisions: "DC", exceptions: "EX", dataStores: "DS", externalEntities: "EE", states: "SD", decisionTree: "RN",
 };
 
 type AnyItem = BaseItem & Record<string, unknown>;
@@ -99,7 +100,7 @@ export function pasteShapes(
   for (const { list, item } of clip.items) map.set(item.id, newId(PREFIX[list]));
   const remap = (id: string | undefined, otherwise: string | undefined) => (id !== undefined && map.has(id) ? map.get(id) : otherwise);
 
-  const added: Record<ShapeList, AnyItem[]> = { steps: [], decisions: [], exceptions: [], dataStores: [], externalEntities: [], states: [] };
+  const added: Record<ShapeList, AnyItem[]> = { steps: [], decisions: [], exceptions: [], dataStores: [], externalEntities: [], states: [], decisionTree: [] };
   // The copy may come from another artifact, or its actor may have been
   // deleted since: who does a step stays only if they exist here.
   const actors = new Set(model.actors.map((a) => a.id));
@@ -123,6 +124,15 @@ export function pasteShapes(
       if (typeof d.no === "string") d.no = remap(d.no, undefined);
       if (d.yes === undefined) delete d.yes;
       if (d.no === undefined) delete d.no;
+    }
+    if (list === "decisionTree") {
+      // A copied question keeps the answers that lead to copied nodes (to
+      // the copies); answers to nodes left behind go with them.
+      const n = copy as unknown as RuleNode;
+      if (Array.isArray(n.branches)) {
+        n.branches = n.branches.filter((b) => map.has(b.targetId))
+          .map((b) => ({ ...b, id: newId("BR"), targetId: map.get(b.targetId)! }));
+      }
     }
     if ("relatedStepId" in copy) {
       const rel = remap(copy.relatedStepId as string | undefined, undefined);

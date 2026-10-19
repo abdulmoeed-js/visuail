@@ -101,3 +101,18 @@ test("a pasted step keeps its people and systems only if this artifact has them"
   assert.equal(kept[0].actorId, "AC1");
   assert.deepEqual(kept[0].raci, { AC1: "R" });
 });
+
+test("a copied question keeps only the answers to what was copied with it", () => {
+  n = 400;
+  const m: ProcessModel = { ...model(), decisionTree: [
+    { id: "RN1", text: "Over 18?", confidence: 1, branches: [{ id: "B1", label: "Yes", targetId: "RN2" }, { id: "B2", label: "No", targetId: "RN3" }] },
+    { id: "RN2", text: "Approve", confidence: 1 },
+    { id: "RN3", text: "Refuse", confidence: 1 },
+  ] };
+  const clip = copyShapes(m, "decisiontree", ["RN1", "RN2"], {})!;
+  const out = pasteShapes(m, clip, newId, 0, 0);
+  const [q, a] = out.model.decisionTree!.slice(3);
+  assert.deepEqual(q.branches!.map((b) => [b.label, b.targetId]), [["Yes", a.id]]);
+  assert.ok(q.branches!.every((b) => !["B1", "B2"].includes(b.id)));
+  assert.equal(clipForView(clip, "process"), null, "the Process map doesn't draw rule nodes");
+});

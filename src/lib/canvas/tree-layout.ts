@@ -97,3 +97,20 @@ export function edges(placed: TreeNode[]) {
   }
   return out;
 }
+
+/** Whether answers lead from `from` to `to` (or it is `to`). A new answer
+ *  from A to B is refused when B already leads to A: a tree has no loops,
+ *  and deleting part of a loop would take the rest of the tree with it. */
+export function leadsTo(tree: RuleNode[], from: string, to: string): boolean {
+  const byId = new Map(tree.map((n) => [n.id, n]));
+  const seen = new Set<string>();
+  const todo = [from];
+  while (todo.length) {
+    const id = todo.pop()!;
+    if (id === to) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const b of byId.get(id)?.branches ?? []) todo.push(b.targetId);
+  }
+  return false;
+}

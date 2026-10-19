@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RuleNode } from "@/data/samples";
-import { edges, layout } from "./tree-layout";
+import { edges, layout, leadsTo } from "./tree-layout";
 
 const node = (id: string, ...targets: string[]): RuleNode => ({
   id, text: id, confidence: 1,
@@ -91,4 +91,15 @@ test("an empty tree has no root and the default sheet", () => {
   const out = layout([]);
   assert.equal(out.root, undefined);
   assert.deepEqual([out.width, out.height, out.placed.length], [900, 500, 0]);
+});
+
+test("leadsTo follows answers down, never round a loop forever", () => {
+  const n = (id: string, ...to: string[]) => ({ id, text: id, confidence: 1, branches: to.map((t, i) => ({ id: `${id}b${i}`, label: "x", targetId: t })) });
+  const tree = [n("R", "Q", "L"), n("Q", "A"), n("A"), n("L")];
+  assert.equal(leadsTo(tree, "R", "A"), true);
+  assert.equal(leadsTo(tree, "A", "R"), false, "an answer from A to R would be a loop");
+  assert.equal(leadsTo(tree, "L", "Q"), false);
+  const loop = [n("X", "Y"), n("Y", "X")];
+  assert.equal(leadsTo(loop, "X", "Z"), false);
+  assert.equal(leadsTo(loop, "Y", "X"), true);
 });
