@@ -664,7 +664,7 @@ function KindChips({ project }: { project: StoredProject }) {
   const have = new Set<ViewKind>(project.canvases.length > 0
     ? project.canvases.map((c) => c.viewKind ?? c.kind)
     : project.kinds);
-  const chip = "inline-flex items-center gap-1 rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight";
+  const chip = "inline-flex items-center gap-1 rounded-md border bg-muted/60 px-1.5 py-0.5 text-2xs font-mono-tight";
   return (
     <>
       {KIND_CHIPS.filter(([k]) => have.has(k)).map(([k, label]) => (
@@ -673,7 +673,7 @@ function KindChips({ project }: { project: StoredProject }) {
         </span>
       ))}
       {project.fromScratch && (
-        <span className="inline-flex items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-[10px] font-mono-tight text-muted-foreground">
+        <span className="inline-flex items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-2xs font-mono-tight text-muted-foreground">
           empty
         </span>
       )}
@@ -785,7 +785,7 @@ function InboxCard({ projects }: { projects: StoredProject[] }) {
                 <p className="text-xs text-foreground/90 line-clamp-2 mt-0.5 group-hover:text-primary transition">
                   {c.body}
                 </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                <p className="text-2xs text-muted-foreground mt-0.5 truncate">
                   on {itemText ? `"${itemText}"` : "the project thread"} · {project?.name ?? "Project"}
                 </p>
               </button>

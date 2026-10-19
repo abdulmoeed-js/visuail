@@ -125,7 +125,7 @@ function RefinePopover({ node, model, onApply, className }: Props) {
 
             <ProposalDiff proposal={proposal} />
 
-            <div className="text-[10px] text-muted-foreground leading-snug border-t pt-2">
+            <div className="text-2xs text-muted-foreground leading-snug border-t pt-2">
               {proposal.note}
             </div>
 
@@ -216,7 +216,7 @@ function ProposalDiff({ proposal }: { proposal: Proposal }) {
           </div>
           <Added label="new decision">
             <div>{proposal.newDecisionText}</div>
-            <div className="mt-1 flex gap-2 text-[10px] font-mono-tight">
+            <div className="mt-1 flex gap-2 text-2xs font-mono-tight">
               <span className="text-confident-ink">yes → continue</span>
               <span className="text-drift-ink">no → rework</span>
             </div>

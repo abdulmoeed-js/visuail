@@ -8,6 +8,7 @@ import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
 import { LAYER } from "./canvas-layers";
+import { DeleteX } from "./canvas-controls";
 import { ConnectHandles, ConnectorEnds, ConnectorPreview, LineBar, useConnectorDrag } from "./canvas-connectors";
 import { connectorRoute, type Point } from "@/lib/canvas/connector";
 import { useGrownHeights } from "./use-grown-heights";
@@ -460,9 +461,7 @@ function StateNodeView({
           <GripVertical data-no-pan data-edit-control onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
           <IdChip id={node.ref.id} tone="primary" />
         </div>
-        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete state ${node.ref.text}`} className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
-          <X className="size-3" />
-        </button>
+        <DeleteX label={`Delete state “${node.ref.text}”`} onClick={onDelete} />
       </div>
       <div className="text-xs font-medium leading-snug break-words">
         <InlineEdit value={node.ref.text} onChange={onUpdateText} multiline activate="double" label="State" />
@@ -489,7 +488,7 @@ function StateNodeView({
 function Legend() {
   // `look` carries no display class, so the hint below can be `hidden` on a
   // narrow canvas without a bare `flex` beside it at the same weight.
-  const look = "items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
+  const look = "items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-2xs font-mono-tight text-muted-foreground";
   const chip = `flex ${look}`;
   return (
     <>

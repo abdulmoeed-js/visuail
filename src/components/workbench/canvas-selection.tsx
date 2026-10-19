@@ -21,6 +21,7 @@ import { boxBetween, clipForView, copyShapes, shapeClipboard, shapesInBox, type 
 import type { Rect } from "@/lib/canvas/layout";
 import { alignTo, type Guide } from "@/lib/canvas/guides";
 import { LAYER } from "./canvas-layers";
+import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useCanvasViewState } from "./canvas-view-store";
 import { isTypingTarget } from "./artifact-fullscreen";
@@ -580,7 +581,12 @@ export function SnapGuides({ guides }: { guides: Guide[] }) {
   );
 }
 
-export function SelectionOutlines({ ids, rects }: { ids: string[]; rects: Map<string, Rect> }) {
+export function SelectionOutlines({ ids, rects, round }: {
+  ids: string[];
+  rects: Map<string, Rect>;
+  /** Shapes drawn as pills or circles: their outline follows the curve. */
+  round?: Set<string>;
+}) {
   return (
     <>
       {ids.map((id) => {
@@ -589,7 +595,7 @@ export function SelectionOutlines({ ids, rects }: { ids: string[]; rects: Map<st
         return (
           <div
             key={id} data-edit-control aria-hidden
-            className="pointer-events-none absolute rounded-xl ring-2 ring-primary ring-offset-2 ring-offset-background"
+            className={cn("pointer-events-none absolute ring-2 ring-primary ring-offset-2 ring-offset-background", round?.has(id) ? "rounded-full" : "rounded-xl")}
             style={{ left: r.x - 3, top: r.y - 3, width: r.w + 6, height: r.h + 6, zIndex: LAYER.outline }}
           />
         );

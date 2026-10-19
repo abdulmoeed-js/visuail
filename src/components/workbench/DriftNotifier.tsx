@@ -64,7 +64,7 @@ export function DriftNotifier({
           <Bell className="size-4" />
           {count > 0 && (
             <span
-              className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-drift text-drift-foreground text-[10px] font-mono-tight leading-4 text-center"
+              className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-drift text-drift-foreground text-2xs font-mono-tight leading-4 text-center"
               aria-hidden
             >
               {count}
@@ -150,7 +150,7 @@ export function DriftNotifier({
             <Button size="sm" className="w-full h-8" onClick={send}>
               Send notification
             </Button>
-            <div className="text-[10px] font-mono-tight text-muted-foreground text-center">
+            <div className="text-2xs font-mono-tight text-muted-foreground text-center">
               Preview only — nothing sent.
             </div>
           </div>
@@ -181,7 +181,7 @@ function ChannelBtn({
       <span className="flex items-center gap-1.5 text-xs font-medium">
         {icon} {label}
       </span>
-      <span className="text-[10px] font-mono-tight text-muted-foreground truncate max-w-full">
+      <span className="text-2xs font-mono-tight text-muted-foreground truncate max-w-full">
         {hint}
       </span>
     </button>

@@ -69,7 +69,7 @@ export function StakeholderAnalysisView({
                 <div key={q.title} className="rounded-lg border bg-card p-3 min-h-[110px]">
                   <div className="flex items-baseline justify-between">
                     <h4 className="text-sm font-semibold">{q.title}</h4>
-                    <span className="text-[10px] font-mono-tight text-muted-foreground">{q.hint}</span>
+                    <span className="text-2xs font-mono-tight text-muted-foreground">{q.hint}</span>
                   </div>
                   {inQuadrant.length === 0 ? (
                     <div className="text-xs text-muted-foreground mt-2 italic">None yet</div>

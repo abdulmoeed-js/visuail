@@ -220,7 +220,7 @@ export function ActivityDiagramView({ model, editing }: Props) {
       }}
       shapes={placed.map((p) => ({ x: p.cx - p.w / 2, y: p.cy - p.h / 2, w: p.w, h: p.h }))}
       bottomLeft={
-        <span className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground">
+        <span className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-2xs font-mono-tight text-muted-foreground">
           One lane per actor · sequence flows top-to-bottom, lane shows who
         </span>
       }

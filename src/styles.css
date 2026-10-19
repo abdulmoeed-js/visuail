@@ -3,6 +3,8 @@
 @import "tw-animate-css";
 
 @theme inline {
+  /* The smallest text step: chips, keys, labels on lines (10px). */
+  --text-2xs: 0.625rem;
   /* Corner scale (DESIGN.md 5): tiny tags 6, small buttons and chips 8,
      buttons and fields 10, rows and toolbar groups 14, cards 20, panels 28. */
   --radius-sm: 6px;

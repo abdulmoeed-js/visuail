@@ -57,7 +57,7 @@ export function SignupWallModal({ open, onOpenChange, action }: Props) {
           <>
             <DialogHeader>
               {action !== "Sign in" && (
-                <div className="inline-flex items-center gap-1.5 rounded-md border bg-muted px-2 py-0.5 text-[10px] font-mono-tight text-muted-foreground w-fit">
+                <div className="inline-flex items-center gap-1.5 rounded-md border bg-muted px-2 py-0.5 text-2xs font-mono-tight text-muted-foreground w-fit">
                   <LogIn className="size-3" aria-hidden /> One step to {lowerFirst(action)}
                 </div>
               )}

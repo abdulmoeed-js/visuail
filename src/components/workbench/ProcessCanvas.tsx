@@ -22,6 +22,7 @@ import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
 import { LAYER, restack } from "./canvas-layers";
+import { DeleteX } from "./canvas-controls";
 import { ConnectHandles, ConnectorEnds, ConnectorPreview, LineBar, useConnectorDrag } from "./canvas-connectors";
 import { connectorRoute } from "@/lib/canvas/connector";
 import { edgePoint, roundedPath, type Point } from "@/lib/canvas/geometry";
@@ -1463,7 +1464,7 @@ function ConnectorControl({
                       aria-label={`Start: ${o.label}`}
                       aria-pressed={(conn.startMarker ?? "none") === o.id}
                       className={cn(
-                        "px-1.5 py-0.5 rounded border text-[10px] font-mono-tight",
+                        "px-1.5 py-0.5 rounded border text-2xs font-mono-tight",
                         (conn.startMarker ?? "none") === o.id
                           ? "border-primary bg-primary/10 text-foreground"
                           : "border-border text-muted-foreground hover:text-foreground",
@@ -1483,7 +1484,7 @@ function ConnectorControl({
                       aria-label={`End: ${o.label}`}
                       aria-pressed={(conn.endMarker ?? "none") === o.id}
                       className={cn(
-                        "px-1.5 py-0.5 rounded border text-[10px] font-mono-tight",
+                        "px-1.5 py-0.5 rounded border text-2xs font-mono-tight",
                         (conn.endMarker ?? "none") === o.id
                           ? "border-primary bg-primary/10 text-foreground"
                           : "border-border text-muted-foreground hover:text-foreground",
@@ -1598,7 +1599,7 @@ function ShapePalette({
                 </Button>
               </>
             )}
-            <div className="mt-2 text-[10px] text-muted-foreground leading-snug px-1">
+            <div className="mt-2 text-2xs text-muted-foreground leading-snug px-1">
               Drag a shape to move it, or its corner to resize. Drag a dot on its side to draw a line. Shapes line up with each other as you drag.
             </div>
           </div>
@@ -1756,7 +1757,7 @@ function ShapeGlyph({ kind, shape }: { kind: PaletteItem["kind"]; shape?: string
 
 
 function Legend() {
-  const chip = "flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
+  const chip = "flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-2xs font-mono-tight text-muted-foreground";
   return (
     <>
       <span className={chip}><span className="h-2 w-3 border-2 border-primary rounded-[2px]" /> Step</span>
@@ -2125,10 +2126,7 @@ function StepNode({
           <div className="text-xs font-medium flex-1 text-center break-words">
             <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} activate="double" label="Step" />
           </div>
-          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete step “${step.text}”`}
-            className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
-            <X className="size-3" />
-          </button>
+          <DeleteX label={`Delete step “${step.text}”`} onClick={onDelete} />
         </div>
         <div className="flex-1 w-px border-l-2 border-dashed border-primary/50" style={{ minHeight: 120 }} />
         <div className="text-[9px] font-mono-tight text-muted-foreground pt-1">Lifeline</div>
@@ -2183,7 +2181,7 @@ function StepNode({
   const baseClass = isShaped
     ? "bg-transparent"
     : cn(
-        "rounded-xl border bg-card shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.06)]",
+        "rounded-xl border bg-card shadow-sm",
         frame === "drift" && "border-drift bg-drift/5",
         step.drift && "animate-drift",
         frame === "unclear" && "border-dashed border-unresolved bg-unresolved/5",
@@ -2207,17 +2205,14 @@ function StepNode({
               <BookOpen className="size-3" />
             </button>
           )}
-          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete step “${step.text}”`}
-            className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
-            <X className="size-3" />
-          </button>
+          <DeleteX label={`Delete step “${step.text}”`} onClick={onDelete} />
         </div>
       </div>
       <div className="text-xs leading-snug font-medium break-words">
         <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" label="Step" />
       </div>
       {shape !== "swimlane" && shape !== "event" && (
-        <div className="flex flex-wrap gap-1 text-[10px] font-mono-tight text-muted-foreground mt-auto">
+        <div className="flex flex-wrap gap-1 text-2xs font-mono-tight text-muted-foreground mt-auto">
           <MetaSelect
             label={`Actor for ${step.id}`}
             value={step.actorId} options={actors} onChange={(v) => onUpdate({ actorId: v })}
@@ -2347,10 +2342,7 @@ function SectionedNode({
           </div>
         </div>
         <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
-        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete step “${step.text}”`}
-          className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
-          <X className="size-3" />
-        </button>
+        <DeleteX label={`Delete step “${step.text}”`} onClick={onDelete} />
       </div>
       {/* attributes */}
       <SectionList
@@ -2401,7 +2393,7 @@ function SectionList({
         </button>
       </div>
       {items.length === 0 && (
-        <div className="text-[10px] italic text-muted-foreground/70">empty</div>
+        <div className="text-2xs italic text-muted-foreground/70">empty</div>
       )}
       {items.map((v, i) => (
         <div key={i} className="flex items-center gap-1 group/row">
@@ -2572,10 +2564,7 @@ function DecisionNode({
           <IdChip id={d.id} tone="primary" />
           <ConfidenceBadge item={d} compact />
           <RefineControl node={{ id: d.id, kind: "decision", text: d.text }} model={model} onApply={onRefine} />
-          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete decision “${d.text}”`}
-            className="relative before:absolute before:-inset-1 before:content-[''] text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition">
-            <X className="size-3" />
-          </button>
+          <DeleteX label={`Delete decision “${d.text}”`} onClick={onDelete} />
         </div>
 
         <div className="text-[11px] font-medium leading-tight break-words w-full">
@@ -2678,7 +2667,7 @@ function ExceptionNode({
       onPointerDown={(e) => onSelect(e)}
       className={cn(
         "group absolute rounded-xl border bg-card px-2.5 py-2",
-        "shadow-[0_1px_3px_rgba(0,0,0,0.08)]",
+        "shadow-sm",
         "flex flex-col gap-1 animate-item-in",
         frame === "drift" && "border-drift bg-drift/5",
         e.drift && "animate-drift",
@@ -2702,10 +2691,7 @@ function ExceptionNode({
         <div className="flex items-center gap-1">
           <ConfidenceBadge item={e} compact />
           <RefineControl node={{ id: e.id, kind: "exception", text: e.text }} model={model} onApply={onRefine} />
-          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete exception “${e.text}”`}
-            className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
-            <X className="size-3" />
-          </button>
+          <DeleteX label={`Delete exception “${e.text}”`} onClick={onDelete} />
         </div>
       </div>
       {/* On its own line: in the header it ran under the certainty word. */}

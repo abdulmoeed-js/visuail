@@ -95,7 +95,7 @@ export function BRDTab({
                 </div>
                 {flagged && (
                   <div
-                    className="mt-1.5 inline-flex items-center gap-1 rounded border border-unresolved/50 bg-unresolved/10 px-1.5 py-0.5 text-[10px] font-mono-tight text-unresolved-ink"
+                    className="mt-1.5 inline-flex items-center gap-1 rounded border border-unresolved/50 bg-unresolved/10 px-1.5 py-0.5 text-2xs font-mono-tight text-unresolved-ink"
                     title="Vague wording -- consider a more specific, testable phrasing"
                   >
                     vague: {quality.vagueTerms.map((v) => v.word).join(", ")}
@@ -200,7 +200,7 @@ export function BacklogTab({
                   <li key={s.id}
                     className={cn("rounded-md border p-2 text-sm", gradeFrame(g))}
                   >
-                    <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono-tight text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-2 text-2xs font-mono-tight text-muted-foreground">
                       <span className="text-foreground">US-{i + 1}.{j + 1}</span>
                       <span>→</span>
                       <IdChip id={s.id} tone="primary" />
@@ -310,7 +310,7 @@ export function QuestionsTab({ m }: { m: BMCModel }) {
           const quote = verifiedQuote(l);
           return (
             <li key={l.id} className="rounded-md border bg-card p-3">
-              <div className="flex items-center gap-2 text-[10px] font-mono-tight text-muted-foreground">
+              <div className="flex items-center gap-2 text-2xs font-mono-tight text-muted-foreground">
                 <span className="text-foreground">Q-{String(i + 1).padStart(2, "0")}</span>
                 <span>→</span>
                 <IdChip id={l.id} />

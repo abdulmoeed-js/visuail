@@ -4,10 +4,10 @@
 // cancels, and clearing the words leaves the line unnamed.
 
 import type { ReactNode } from "react";
-import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useArtifactFullscreen } from "./artifact-fullscreen";
 import { InlineEdit } from "./InlineEdit";
+import { DeleteX } from "./canvas-controls";
 import { LAYER } from "./canvas-layers";
 import { focusCameFromTab } from "./canvas-selection";
 
@@ -44,7 +44,7 @@ export function LineLabel({
 }) {
   const presenting = !!useArtifactFullscreen()?.presenting;
   // Neutral, like the line it names: the trust colours mean trust only.
-  const chip = "rounded border border-border bg-card px-1.5 py-0.5 text-[10px] font-mono-tight whitespace-nowrap text-foreground";
+  const chip = "rounded border border-border bg-card px-1.5 py-0.5 text-2xs font-mono-tight whitespace-nowrap text-foreground";
   const at = { left: x, top: y, zIndex };
   // Presenting: the words stay, as plain text; an unnamed line's
   // placeholder is only an invitation to type, so it goes.
@@ -90,15 +90,7 @@ export function LineLabel({
       {(onDelete || children) && (
         <div className="absolute left-full top-1/2 -translate-y-1/2 ml-1 flex items-center gap-1" data-edit-control>
           {onDelete && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              aria-label={deleteLabel}
-              title={deleteLabel}
-              className="relative grid size-4 place-items-center rounded-full border bg-card text-muted-foreground opacity-0 group-hover/line:opacity-100 focus-visible:opacity-100 hover:text-destructive transition before:absolute before:-inset-1 before:content-['']"
-            >
-              <X className="size-2.5" />
-            </button>
+            <DeleteX label={deleteLabel ?? "Delete this line"} onClick={onDelete} floating hoverGroup="group/line" />
           )}
           {children}
         </div>

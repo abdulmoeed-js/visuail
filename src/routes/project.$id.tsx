@@ -9,7 +9,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft, FileDown, Loader2, Users2,
-  CheckCheck, Split, Plus, AlertTriangle, History, RotateCcw, Clock, ImageDown,
+  CheckCheck, Split, Plus, AlertTriangle, History, RotateCcw, Clock, ImageDown, MoreHorizontal,
 } from "lucide-react";
 import { ArtifactView, tabForViewKind, type ArtifactTab } from "@/components/Workbench";
 import { useArtifactEditing, type BlockReason } from "@/lib/artifact-editing";
@@ -26,7 +26,7 @@ import { ArtifactSidebar } from "@/components/workbench/ArtifactSidebar";
 import { ArtifactBoard } from "@/components/workbench/ArtifactBoard";
 import { underlyingKind } from "@/lib/view-kind-meta";
 import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { CommentsDialog } from "@/components/CommentsDialog";
 import { ShareLinkDialog } from "@/components/ShareLinkDialog";
@@ -504,7 +504,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
                   </div>
                 ))}
                 {presentUsers.length > 4 && (
-                  <div className="h-7 w-7 rounded-full border-2 border-background bg-muted text-muted-foreground text-[10px] font-medium grid place-items-center">
+                  <div className="h-7 w-7 rounded-full border-2 border-background bg-muted text-muted-foreground text-2xs font-medium grid place-items-center">
                     +{presentUsers.length - 4}
                   </div>
                 )}
@@ -526,33 +526,36 @@ function ProjectShell({ project }: { project: StoredProject }) {
             <AddSourceDialog project={project} onCanvasesRegenerated={onCanvasesRegenerated} blockedReason={blockedReason} getCurrentCanvases={buildMergedCanvases} />
             <CommentsDialog projectId={project.id} />
             <VersionHistoryDialog project={project} blockedReason={blockedReason} getCurrentCanvases={buildMergedCanvases} onRestored={onCanvasesRegenerated} />
-            <Button
-              size="sm" variant="outline" onClick={saveVersion} disabled={savingVersion || panes.length === 0 || outdated}
-              // A version kept by an out-of-date page would be missing what it can't read.
-              title={outdated ? `${OUTDATED_TITLE}. ${OUTDATED_DETAIL}` : undefined}
-            >
-              {savingVersion
-                ? <><Loader2 className="size-3.5 animate-spin" /> Saving…</>
-                : <><History className="size-3.5" /> Save version</>}
-            </Button>
+            {/* Saving a version and the downloads: under one More menu, so
+             *  the everyday actions stand out. Each says when it is busy. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" disabled={exportingImage || !active} title={!active ? "Open an artifact first" : undefined}>
-                  {exportingImage
-                    ? <><Loader2 className="size-3.5 animate-spin" /> Downloading…</>
-                    : <><ImageDown className="size-3.5" /> Download this artifact</>}
+                <Button size="sm" variant="outline" aria-busy={savingVersion || exportingImage || exporting} title="Save a version, downloads">
+                  {savingVersion || exportingImage || exporting
+                    ? <><Loader2 className="size-3.5 animate-spin" /> {savingVersion ? "Saving…" : exporting ? "Building PDF…" : "Downloading…"}</>
+                    : <><MoreHorizontal className="size-3.5" /> More</>}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => exportActiveImage("png")}>As an image (PNG)</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => exportActiveImage("svg")}>As a vector file (SVG)</DropdownMenuItem>
+                <DropdownMenuItem onClick={saveVersion} disabled={savingVersion || panes.length === 0 || outdated}>
+                  <History className="size-3.5" /> Save version
+                </DropdownMenuItem>
+                {/* A version kept by an out-of-date page would be missing what
+                 *  it can't read: said here, where a greyed item can't. */}
+                {outdated && <div className="px-2 pb-1.5 text-[11px] text-muted-foreground">{OUTDATED_TITLE}. {OUTDATED_DETAIL}</div>}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => exportActiveImage("png")} disabled={exportingImage || !active}>
+                  <ImageDown className="size-3.5" /> Download this artifact as an image (PNG)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportActiveImage("svg")} disabled={exportingImage || !active}>
+                  <ImageDown className="size-3.5" /> Download this artifact as a vector file (SVG)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportAll} disabled={exporting || panes.length === 0}>
+                  <FileDown className="size-3.5" /> Download all as PDF
+                </DropdownMenuItem>
+                {!active && <div className="px-2 pb-1.5 pt-1 text-[11px] text-muted-foreground">Open an artifact to download it on its own.</div>}
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button size="sm" variant="outline" onClick={exportAll} disabled={exporting || panes.length === 0}>
-              {exporting
-                ? <><Loader2 className="size-3.5 animate-spin" /> Building PDF…</>
-                : <><FileDown className="size-3.5" /> Download all as PDF</>}
-            </Button>
           </div>
         </div>
 
@@ -587,7 +590,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
                   {project.sources.length === 0 ? (
                     <span className="text-muted-foreground italic">none — started from scratch</span>
                   ) : project.sources.map((s, i) => (
-                    <span key={i} className="rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight">
+                    <span key={i} className="rounded-md border bg-muted/60 px-1.5 py-0.5 text-2xs font-mono-tight">
                       {s.label}
                     </span>
                   ))}

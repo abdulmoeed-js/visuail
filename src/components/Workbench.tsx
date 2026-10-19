@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback, type ReactNode } from "react";
+import { Fragment, useState, useMemo, useRef, useEffect, useCallback, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -173,7 +173,7 @@ export function Workbench() {
             <div className="flex items-center gap-2">
               <div className="h-2 w-2 rounded-full bg-primary" />
               <h3 className="text-sm font-semibold">Source</h3>
-              <span className="text-[10px] font-mono-tight text-muted-foreground">
+              <span className="text-2xs font-mono-tight text-muted-foreground">
                 {transcript.length} chars · {transcript.trim().split(/\s+/).length} words
               </span>
             </div>
@@ -313,6 +313,8 @@ let activeArtifactRoot: HTMLElement | null = null;
 
 /** The tabs shown while presenting: diagrams to look at, nothing to edit. */
 const PRESENT_TABS = new Set<ArtifactTab>(["artifact", "usecases", "raci", "dfd", "decisiontree", "statediagram", "activity"]);
+/** The tabs that are diagrams (the rest are documents and lists). */
+const DIAGRAM_TABS = PRESENT_TABS;
 
 /** Somewhere the browser's own text undo applies, so Ctrl/Cmd+Z must be left
  *  to it. A <select> is not one: it has no text history, and treating it as
@@ -702,24 +704,33 @@ export function ArtifactView({
            *  scroll affordance, making Items/BRD/Traced backlog unreachable by click. */}
           <div
             role="tablist" aria-label="Artifact views"
-            className="flex h-11 min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 scroll-px-1 [scrollbar-width:thin]"
+            className="flex h-11 min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 scroll-px-1 [scrollbar-width:thin] [@media(pointer:coarse)]:h-14"
           >
-            {shownTabs.map((item) => {
+            {shownTabs.map((item, i) => {
               const active = tab === item.value;
+              // Diagrams first, then the documents and lists made from them.
+              const firstDocument = !DIAGRAM_TABS.has(item.value) && i > 0 && DIAGRAM_TABS.has(shownTabs[i - 1].value);
               return (
+                <Fragment key={item.value}>
+                {firstDocument && (
+                  <span aria-hidden className="ml-1 flex shrink-0 items-center gap-2 border-l pl-2 text-2xs font-mono-tight uppercase tracking-wide text-muted-foreground">
+                    Documents and tools
+                  </span>
+                )}
                 <button
                   key={item.value}
                   ref={active ? activeTabRef : undefined}
                   type="button" role="tab" aria-selected={active}
                   data-state={active ? "active" : "inactive"}
                   className={cn(
-                    "inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                    "inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [@media(pointer:coarse)]:h-10",
                     active && "bg-muted text-foreground shadow-sm",
                   )}
                   onClick={() => setTab(item.value)}
                 >
                   {item.label}
                 </button>
+                </Fragment>
               );
             })}
           </div>
@@ -1001,7 +1012,7 @@ function ItemGroup({ title, items, onAdd, onDelete, onEdit, projectId, commentCo
     <div className="rounded-lg border bg-card p-3">
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-sm font-semibold">{title}</h4>
-        <span className="text-[10px] font-mono-tight text-muted-foreground">{items.length}</span>
+        <span className="text-2xs font-mono-tight text-muted-foreground">{items.length}</span>
       </div>
       <EditableList
         items={items} onAdd={onAdd} onDelete={onDelete} onEdit={onEdit} compact

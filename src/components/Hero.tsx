@@ -87,7 +87,7 @@ function HeroCard() {
             <span className="h-2 w-2 rounded-full bg-unresolved/70" />
             <span className="h-2 w-2 rounded-full bg-confident/70" />
           </div>
-          <span className="text-[10px] font-mono-tight text-muted-foreground">artifact.process.v1</span>
+          <span className="text-2xs font-mono-tight text-muted-foreground">artifact.process.v1</span>
         </div>
         <div className="p-4 bp-grid-fine">
           {/* mini flow: the same grade chips and bar as the real artifact

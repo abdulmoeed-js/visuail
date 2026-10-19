@@ -78,7 +78,7 @@ export function CheckoutModal({ open, onOpenChange, tier, price, unlocks }: Prop
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <div className="inline-flex items-center gap-1.5 rounded-md border bg-muted px-2 py-0.5 text-[10px] font-mono-tight text-muted-foreground w-fit">
+          <div className="inline-flex items-center gap-1.5 rounded-md border bg-muted px-2 py-0.5 text-2xs font-mono-tight text-muted-foreground w-fit">
             <Lock className="size-3" /> Checkout · {tier}
           </div>
           <DialogTitle className="font-display text-2xl leading-tight mt-2">

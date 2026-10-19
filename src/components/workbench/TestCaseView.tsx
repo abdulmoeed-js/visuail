@@ -86,7 +86,7 @@ export function TestCaseView({
                       ))}
                     </select>
                     {t.relatedStepId && !stepText(t.relatedStepId) && (
-                      <div className="text-[10px] text-drift mt-0.5">step no longer exists</div>
+                      <div className="text-2xs text-drift mt-0.5">step no longer exists</div>
                     )}
                   </TableCell>
                   <TableCell>

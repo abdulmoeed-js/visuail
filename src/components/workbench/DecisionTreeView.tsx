@@ -80,7 +80,7 @@ export function DecisionTreeView({ model, editing }: Props) {
       bottomLeft={
         // How-to-edit hint only, so Present mode hides it with the controls it
         // describes.
-        <span data-edit-control className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground">
+        <span data-edit-control className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-2xs font-mono-tight text-muted-foreground">
           Press a question's branch count to edit its answers · add a branch to turn an outcome into a question
         </span>
       }
@@ -176,7 +176,7 @@ function RuleNodeView({
       {node.detached && (
         // Above the node, so it doesn't crowd the text. Kept in Present mode:
         // it says something true about the tree.
-        <span className="absolute -top-5 left-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+        <span className="absolute -top-5 left-0 rounded bg-muted px-1.5 py-0.5 text-2xs font-medium text-foreground">
           Not connected to the main tree
         </span>
       )}

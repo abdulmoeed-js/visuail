@@ -9,6 +9,7 @@ import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
 import { LAYER } from "./canvas-layers";
+import { DeleteX } from "./canvas-controls";
 import { ConnectHandles, ConnectorEnds, ConnectorPreview, LineBar, useConnectorDrag } from "./canvas-connectors";
 import { connectorRoute, type Point } from "@/lib/canvas/connector";
 import { useGrownHeights } from "./use-grown-heights";
@@ -165,6 +166,8 @@ export function DFDView({ model, editing }: Props) {
     return c ? `Data flow from ${shapeName(c.fromId)} to ${shapeName(c.toId)}` : "Data flow";
   };
   const shapeList = [...rectsById.keys()].map((id) => ({ id, name: shapeName(id) }));
+  // Processes are pills: their selection outline follows the curve.
+  const roundIds = useMemo(() => new Set(nodes.filter((x) => x.kind === "process").map((x) => x.id)), [nodes]);
   const sel = useShapeSelection({
     view: "dfd", model, rects: rectsById, shellApi, presenting,
     lines: drawnLines, onDeleteLine: editing.onDeleteConnection,
@@ -347,7 +350,7 @@ export function DFDView({ model, editing }: Props) {
         </div>
       )}
       <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
-      {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
+      {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} round={roundIds} />}
       {!presenting && <SnapGuides guides={sel.guides} />}
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
@@ -493,9 +496,7 @@ function DFDNodeView({
         <GripVertical data-no-pan data-edit-control onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
         {node.label && <IdChip id={node.label} tone="primary" />}
       </div>
-      <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${node.kind === "process" ? "process" : node.kind === "store" ? "data store" : "external entity"} ${node.text}`} className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
-        <X className="size-3" />
-      </button>
+      <DeleteX label={`Delete ${node.kind === "process" ? "process" : node.kind === "store" ? "data store" : "external entity"} “${node.text}”`} onClick={onDelete} />
     </div>
   );
 
@@ -543,7 +544,7 @@ function DFDNodeView({
 function Legend() {
   // No bare `flex` here: it would sit beside `hidden` at the same weight and
   // leave which one wins to the order the stylesheet happens to be built in.
-  const look = "items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-[10px] font-mono-tight text-muted-foreground";
+  const look = "items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-2xs font-mono-tight text-muted-foreground";
   const hint = `hidden @min-[640px]:flex ${look}`;
   const presenting = !!useArtifactFullscreen()?.presenting;
   if (presenting) {

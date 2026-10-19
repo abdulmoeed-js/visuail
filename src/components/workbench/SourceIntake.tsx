@@ -116,7 +116,7 @@ function SourceCard({
       source.status === "error" && "border-drift/60 bg-drift/5",
     )}>
       <div className="flex items-center gap-2">
-        <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-mono-tight text-muted-foreground">
+        <span className="rounded-md bg-muted px-1.5 py-0.5 text-2xs font-mono-tight text-muted-foreground">
           #{index + 1}
         </span>
         {source.origin === "upload"
@@ -128,7 +128,7 @@ function SourceCard({
           aria-label="Source name"
           className="h-7 flex-1 max-w-xs text-sm"
         />
-        <span className="text-[10px] font-mono-tight text-muted-foreground">
+        <span className="text-2xs font-mono-tight text-muted-foreground">
           {source.text.length} chars · {words} words
         </span>
         {onRemove && (

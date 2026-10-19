@@ -165,7 +165,7 @@ function Block({
           </span>
           <h3 className={cn("text-sm font-semibold", emphasis && "text-primary")}>{b.title}</h3>
         </div>
-        <span className="text-[10px] font-mono-tight text-muted-foreground">{b.items.length}</span>
+        <span className="text-2xs font-mono-tight text-muted-foreground">{b.items.length}</span>
       </header>
 
       {changed > 0 && (

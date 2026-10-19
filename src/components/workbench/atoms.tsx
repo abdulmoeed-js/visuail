@@ -81,7 +81,7 @@ export function IdChip({ id, tone = "muted" }: { id: string; tone?: "muted" | "p
   return (
     <span
       className={cn(
-        "font-mono-tight text-[10px] px-1.5 py-0.5 rounded",
+        "font-mono-tight text-2xs px-1.5 py-0.5 rounded",
         tone === "primary"
           ? "bg-primary/10 text-primary"
           : "bg-muted text-muted-foreground",

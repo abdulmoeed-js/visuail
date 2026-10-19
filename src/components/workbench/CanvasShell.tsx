@@ -939,7 +939,7 @@ export function CanvasShell({
 
       {/* Zoom toolbar */}
       <div className="absolute top-3 right-3 z-30 flex gap-1 rounded-md border bg-card/95 backdrop-blur p-1 shadow-sm" data-no-pan>
-        <Button size="icon" variant="ghost" className="h-7 w-7"
+        <Button size="icon" variant="ghost" className="h-7 w-7 [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
           onClick={() => zoomTo((z) => +(z - 0.1).toFixed(2))} title="Zoom out" aria-label="Zoom out">
           <ZoomOut className="size-3.5" />
         </Button>
@@ -947,11 +947,11 @@ export function CanvasShell({
           onClick={() => zoomTo(1)}
           title="Zoom to 100% (Shift 0)"
           aria-label={`Zoom is ${Math.round(zoom * 100)} percent. Set to 100 percent`}
-          className="w-12 text-center text-[11px] font-mono-tight text-muted-foreground hover:text-foreground self-center"
+          className="w-12 text-center text-[11px] font-mono-tight text-muted-foreground hover:text-foreground self-center [@media(pointer:coarse)]:h-10"
         >
           {Math.round(zoom * 100)}%
         </button>
-        <Button size="icon" variant="ghost" className="h-7 w-7"
+        <Button size="icon" variant="ghost" className="h-7 w-7 [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
           onClick={() => zoomTo((z) => +(z + 0.1).toFixed(2))} title="Zoom in" aria-label="Zoom in">
           <ZoomIn className="size-3.5" />
         </Button>
@@ -961,7 +961,7 @@ export function CanvasShell({
          *  whole diagram": a very tall flow bottoms out at the minimum zoom
          *  and still runs off the frame. */}
         <Button size="icon" variant="ghost"
-          className={cn("h-7 w-7", cutOff && "bg-primary/10 text-primary ring-1 ring-primary/50")}
+          className={cn("h-7 w-7 [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10", cutOff && "bg-primary/10 text-primary ring-1 ring-primary/50")}
           onClick={fitView}
           title={cutOff ? "Part of the diagram is off-screen. Fit to screen (Shift 1)" : "Fit to screen (Shift 1)"}
           aria-label={cutOff ? "Part of the diagram is off-screen. Fit to screen" : "Fit to screen"}>
@@ -971,7 +971,7 @@ export function CanvasShell({
          *  on, its own header holds the one way out, so this button only
          *  ever goes in. */}
         {afs && !afs.active && (
-          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={afs.toggle}
+          <Button size="icon" variant="ghost" className="h-7 w-7 [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10" onClick={afs.toggle}
             title="Full screen (F)" aria-label="Full screen">
             <Maximize2 className="size-3.5" />
           </Button>
@@ -1062,7 +1062,7 @@ export function CanvasShell({
                 <button
                   type="button" onClick={toggleKey} aria-expanded={keyOpen}
                   title={keyOpen ? "Hide the key" : "Show the key: what the shapes and outlines mean"}
-                  className="flex h-7 items-center gap-1.5 rounded border bg-card/95 px-2 text-[10px] font-mono-tight text-muted-foreground backdrop-blur transition hover:text-foreground"
+                  className="flex h-7 items-center gap-1.5 rounded border bg-card/95 px-2 text-2xs font-mono-tight text-muted-foreground backdrop-blur transition hover:text-foreground"
                 >
                   <Info className="size-3" aria-hidden /> {keyOpen ? "Hide key" : "Key"}
                 </button>

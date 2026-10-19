@@ -135,7 +135,7 @@ export function ItemCommentsPopover({ projectId, itemId, count, onCountChange, a
               <div key={c.id} className="text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">{c.authorEmail}</span>
-                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
                     {fmtCommentTime(c.createdAt)}
                     {c.authorId === session.userId && confirmingId !== c.id && (
                       <button
