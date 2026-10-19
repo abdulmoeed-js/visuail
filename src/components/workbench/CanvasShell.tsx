@@ -67,13 +67,13 @@ export function useWorldDrag() {
   const toWorld = useContext(ToWorldCtx);
   return (
     press: React.PointerEvent,
-    onMove: (dx: number, dy: number) => void,
+    onMove: (dx: number, dy: number, ev: PointerEvent) => void,
     end?: { up?: (ev: PointerEvent) => void; cancel?: () => void },
   ) => {
     try { (press.currentTarget as HTMLElement).setPointerCapture(press.pointerId); } catch { /* pointer already gone */ }
     const start = toWorld(press.clientX, press.clientY);
     return followPointer(press, {
-      move: (ev) => { const p = toWorld(ev.clientX, ev.clientY); onMove(p.x - start.x, p.y - start.y); },
+      move: (ev) => { const p = toWorld(ev.clientX, ev.clientY); onMove(p.x - start.x, p.y - start.y, ev); },
       up: end?.up,
       cancel: end?.cancel,
     });

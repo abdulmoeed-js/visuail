@@ -5,7 +5,7 @@ import { Plus, X, GripVertical, Database, Square, CircleDot, Wand2 } from "lucid
 import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
-import { SelectionBar, SelectionOutlines, useShapeSelection } from "./canvas-selection";
+import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "./canvas-selection";
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
 import { useGrownHeights } from "./use-grown-heights";
@@ -309,6 +309,7 @@ export function DFDView({ model, editing }: Props) {
       )}
       <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
       {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
+      {!presenting && <SnapGuides guides={sel.guides} />}
       {!presenting && <SelectionBar ids={sel.selection.ids} rects={rectsById} actions={sel.actions} />}
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
@@ -342,11 +343,10 @@ export function DFDView({ model, editing }: Props) {
           canEdit={editing.canEdit}
           onPress={(e) => sel.pressShape(n.id, e)}
           onGrip={(e) => {
-            // A grip on one of several selected shapes moves them all.
+            // A grip on one of several selected shapes moves them all; on
+            // any other, just that shape. Either way with snap guides.
             const ids = sel.selection.ids;
-            if (ids.length < 2 || !ids.includes(n.id)) return false;
-            sel.dragSelection(e, ids);
-            return true;
+            return sel.dragSelection(e, ids.length > 1 && ids.includes(n.id) ? ids : [n.id]);
           }}
           onDelete={() => editing.onDeleteAny(n.id)}
           onUpdate={(text) => editing.onUpdateItem(n.id, { text })}

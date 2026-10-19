@@ -95,6 +95,7 @@ const SHORTCUTS: [string, string, "editing"?][] = [
   ["Double-click / Enter", "Type on a shape, or on a line's label", "editing"],
   ["Delete", "Delete the selection", "editing"],
   ["Arrows", "Nudge the selection (Shift: further)", "editing"],
+  ["Ctrl/⌘ + drag", "Move without lining up with other shapes", "editing"],
   ["Ctrl/⌘ A", "Select everything", "editing"],
   ["Ctrl/⌘ D, C, V", "Duplicate, copy, paste (asks first)", "editing"],
   ["Ctrl/⌘ Z", "Undo", "editing"],

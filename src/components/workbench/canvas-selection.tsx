@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import type { NodeLayout, ProcessModel, ViewId } from "@/data/samples";
 import { boxBetween, clipForView, copyShapes, shapeClipboard, shapesInBox, type ShapeClip } from "@/lib/canvas/clipboard";
 import type { Rect } from "@/lib/canvas/layout";
+import { alignTo, type Guide } from "@/lib/canvas/guides";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useCanvasViewState } from "./canvas-view-store";
 import { isTypingTarget } from "./artifact-fullscreen";
@@ -171,7 +172,8 @@ export interface ShapeSelectionOptions {
   /** Front/back stacking for the bar (Process map only). */
   onBringToFront?: (id: string) => void;
   onSendToBack?: (id: string) => void;
-  /** Rounds a place while dragging (the Process map snaps to its grid). */
+  /** Rounds a place while dragging (the Process map snaps to its grid),
+   *  where no other shape is close enough to line up with. */
   snap?: (v: number) => number;
 }
 
@@ -209,14 +211,49 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
 
   /** Moves `ids` with the pointer from a press, once it has moved a few
    *  pixels (less is a click). Saved on release, as one undo step. */
+  // Snap guides: what is being moved lines up with the shapes around it
+  // when it comes close, and thin lines show what it lined up with.
+  const [guides, setGuides] = useState<Guide[]>([]);
+  const showGuides = (next: Guide[]) => setGuides((cur) => (
+    cur.length === next.length && cur.every((g, i) => g.axis === next[i].axis && g.at === next[i].at && g.from === next[i].from && g.to === next[i].to)
+      ? cur : next
+  ));
+  const endGuides = () => showGuides([]);
+  /** Where shapes being moved go: `raw` (top-left corners) lined up with
+   *  another shape when one is within a few pixels on screen, and elsewhere
+   *  rounded to the grid (Process map). Ctrl/Cmd held (`free`): as dragged. */
+  const lineUp = (raw: Record<string, { x: number; y: number }>, free: boolean) => {
+    const api = latest.current.shellApi.current;
+    const grid = latest.current.snap;
+    const rects = latest.current.rects;
+    if (free || !api) { endGuides(); return raw; }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [id, p] of Object.entries(raw)) {
+      const r = rects.get(id);
+      x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+      x1 = Math.max(x1, p.x + (r?.w ?? 0)); y1 = Math.max(y1, p.y + (r?.h ?? 0));
+    }
+    if (!Number.isFinite(x0)) { endGuides(); return raw; }
+    const others = [...rects].filter(([id]) => !(id in raw)).map(([, r]) => r);
+    // A few pixels on screen, whatever the zoom.
+    const a = api.screenToWorld(0, 0), b = api.screenToWorld(GUIDE_REACH_PX, 0);
+    const { dx, dy, guides: lines } = alignTo({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, others, Math.abs(b.x - a.x));
+    showGuides(lines);
+    return Object.fromEntries(Object.entries(raw).map(([id, p]) => [id, {
+      x: dx !== null ? p.x + dx : grid ? grid(p.x) : p.x,
+      y: dy !== null ? p.y + dy : grid ? grid(p.y) : p.y,
+    }]));
+  };
+
+  /** Drags `ids` from a press; false when the canvas isn't ready to. */
   const dragFrom = (e: { pointerId: number; clientX: number; clientY: number }, ids: string[]) => {
     const api = latest.current.shellApi.current;
-    if (!api) return;
+    if (!api) return false;
     const startAt = api.screenToWorld(e.clientX, e.clientY);
     const start = placesOf(ids);
     let moving = false, allowed = true;
     let last: Record<string, { x: number; y: number }> | null = null;
-    const snap = latest.current.snap ?? ((v: number) => v);
+    const finish = () => { endGuides(); if (last) latest.current.commit(last); };
     followPointer(e, {
       move: (ev) => {
         if (!moving && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 4) return;
@@ -224,12 +261,14 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
         if (!allowed) return;
         const p = api.screenToWorld(ev.clientX, ev.clientY);
         const dx = p.x - startAt.x, dy = p.y - startAt.y;
-        last = Object.fromEntries(Object.entries(start).map(([id, s0]) => [id, { x: snap(s0.x + dx), y: snap(s0.y + dy) }]));
+        const raw = Object.fromEntries(Object.entries(start).map(([id, s0]) => [id, { x: s0.x + dx, y: s0.y + dy }]));
+        last = lineUp(raw, ev.metaKey || ev.ctrlKey);
         latest.current.preview(last);
       },
-      up: () => { if (last) latest.current.commit(last); },
-      cancel: () => { if (last) latest.current.commit(last); },
+      up: finish,
+      cancel: finish,
     });
+    return true;
   };
 
   /** A press on a shape's body: select it (Shift: add or remove it), then
@@ -384,8 +423,11 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
 
   return {
     selection, frameRef, pressShape, onSelectBox, onBackgroundPress, pasteDialog,
-    /** For a grip on a selected shape: drag the whole selection. */
+    /** For a grip: drag these shapes (with snap guides). */
     dragSelection: dragFrom,
+    /** The snap guides to draw (SnapGuides), and for a drag this engine
+     *  doesn't run: line its shapes up, then end the guides when it ends. */
+    guides, lineUp, endGuides,
     actions: {
       remove: () => remove(selRef.current),
       duplicate,
@@ -397,6 +439,30 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
 
 /** Outlines round the selected shapes, drawn in the canvas (inside
  *  CanvasShell). Editing chrome: hidden while presenting and in downloads. */
+/** How close, in pixels on screen, a moving edge or middle must come to
+ *  another shape's to line up with it. */
+const GUIDE_REACH_PX = 6;
+
+/** The snap guides: thin lines across what a moving shape lines up with,
+ *  one screen pixel wide whatever the zoom. */
+export function SnapGuides({ guides }: { guides: Guide[] }) {
+  const { zoom } = useCanvas();
+  const t = 1 / zoom, over = 8 / zoom;
+  return (
+    <>
+      {guides.map((g) => (
+        <div
+          key={`${g.axis}:${g.at}`} data-edit-control aria-hidden
+          className="pointer-events-none absolute bg-primary"
+          style={g.axis === "x"
+            ? { left: g.at - t / 2, top: g.from - over, width: t, height: g.to - g.from + over * 2, zIndex: 960 }
+            : { top: g.at - t / 2, left: g.from - over, height: t, width: g.to - g.from + over * 2, zIndex: 960 }}
+        />
+      ))}
+    </>
+  );
+}
+
 export function SelectionOutlines({ ids, rects }: { ids: string[]; rects: Map<string, Rect> }) {
   return (
     <>

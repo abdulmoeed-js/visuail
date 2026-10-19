@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
-import { SelectionBar, SelectionOutlines, useShapeSelection } from "./canvas-selection";
+import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "./canvas-selection";
 import type { ShapeClip } from "@/lib/canvas/clipboard";
 import { isUserCreatedId } from "@/lib/item-origin";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
@@ -663,24 +663,28 @@ export function ProcessCanvas({
   /** A drag by a grip: the whole selection when that shape is part of a
    *  bigger one, else just the shape. */
   const gripGroup = useRef<Record<string, { x: number; y: number }> | null>(null);
-  const gripDrag = (id: string, cx: number, cy: number, delta: { dx: number; dy: number }, done?: boolean) => {
+  const gripDrag = (id: string, delta: DragDelta, done?: boolean) => {
     const ids = sel.selection.ids;
-    if (ids.length > 1 && ids.includes(id)) {
-      if (!gripGroup.current) {
-        gripGroup.current = Object.fromEntries(ids.map((x) => [x, rectsById.get(x)]).filter(([, r]) => r)
-          .map(([x, r]) => [x as string, { x: (r as { x: number }).x, y: (r as { y: number }).y }]));
-      }
-      const moved = Object.fromEntries(Object.entries(gripGroup.current)
-        .map(([x, p]) => [x, { x: snap(p.x + delta.dx), y: snap(p.y + delta.dy) }]));
-      if (!done) { for (const [x, p] of Object.entries(moved)) { const g = geomRef.current.get(x); if (g) moveOverride(x, { cx: p.x + g.w / 2, cy: p.y + g.h / 2 }); } return; }
-      gripGroup.current = null;
-      if (SAVE_LAYOUTS && onPlaceShapes) {
-        onPlaceShapes("process", moved, currentPlaces());
-        setOverrides((cur) => { const next = { ...cur }; for (const x of Object.keys(moved)) { const z = cur[x]?.z; if (z === undefined) delete next[x]; else next[x] = { z }; } return next; });
-      }
+    const group = ids.length > 1 && ids.includes(id) ? ids : [id];
+    if (!gripGroup.current) {
+      gripGroup.current = Object.fromEntries(group.map((x) => [x, rectsById.get(x)]).filter(([, r]) => r)
+        .map(([x, r]) => [x as string, { x: (r as { x: number }).x, y: (r as { y: number }).y }]));
+    }
+    // Lined up with the shapes around (snap guides), else on the grid.
+    const moved = sel.lineUp(Object.fromEntries(Object.entries(gripGroup.current)
+      .map(([x, p]) => [x, { x: p.x + delta.dx, y: p.y + delta.dy }])), !!delta.free);
+    if (!done) { for (const [x, p] of Object.entries(moved)) { const g = geomRef.current.get(x); if (g) moveOverride(x, { cx: p.x + g.w / 2, cy: p.y + g.h / 2 }); } return; }
+    gripGroup.current = null;
+    sel.endGuides();
+    if (group.length === 1) {
+      const g = geomRef.current.get(id), p = moved[id];
+      if (g && p) place(id, { cx: p.x + g.w / 2, cy: p.y + g.h / 2 }, true);
       return;
     }
-    place(id, { cx: snap(cx + delta.dx), cy: snap(cy + delta.dy) }, done);
+    if (SAVE_LAYOUTS && onPlaceShapes) {
+      onPlaceShapes("process", moved, currentPlaces());
+      setOverrides((cur) => { const next = { ...cur }; for (const x of Object.keys(moved)) { const z = cur[x]?.z; if (z === undefined) delete next[x]; else next[x] = { z }; } return next; });
+    }
   };
 
   // Adding from the bar asks who does the step instead of assuming. The
@@ -1243,7 +1247,7 @@ export function ProcessCanvas({
               onMeasure={(w, h) => reportMeasure(s.id, w, h)}
               onDelete={() => onDeleteAny(s.id)}
               onUpdate={(patch) => onUpdateItem(s.id, patch as Record<string, unknown>)}
-              onDrag={(delta, done) => gripDrag(s.id, n.cx, n.cy, delta, done)}
+              onDrag={(delta, done) => gripDrag(s.id, delta, done)}
               onResize={(w, h, done) => place(s.id, { w: snap(w), ...(h !== undefined ? { h: snap(h) } : {}) }, done)}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(s.id, e) : undefined}
@@ -1267,7 +1271,7 @@ export function ProcessCanvas({
               onMeasure={(w, h) => reportMeasure(d.id, w, h)}
               onDelete={() => onDeleteAny(d.id)}
               onUpdate={(patch) => onUpdateItem(d.id, patch as Record<string, unknown>)}
-              onDrag={(delta, done) => gripDrag(d.id, n.cx, n.cy, delta, done)}
+              onDrag={(delta, done) => gripDrag(d.id, delta, done)}
               onResize={(w, h, done) => place(d.id, { w: snap(w), ...(h !== undefined ? { h: snap(h) } : {}) }, done)}
               onRefine={handleRefine}
               onStartConnect={onAddConnection ? (e) => startConnDrag(d.id, e) : undefined}
@@ -1289,7 +1293,7 @@ export function ProcessCanvas({
             onMeasure={(w, h) => reportMeasure(e.id, w, h)}
             onDelete={() => onDeleteAny(e.id)}
             onUpdate={(patch) => onUpdateItem(e.id, patch as Record<string, unknown>)}
-            onDrag={(delta, done) => gripDrag(e.id, n.cx, n.cy, delta, done)}
+            onDrag={(delta, done) => gripDrag(e.id, delta, done)}
             onResize={(w, h, done) => place(e.id, { w: snap(w), ...(h !== undefined ? { h: snap(h) } : {}) }, done)}
             onRefine={handleRefine}
             onStartConnect={onAddConnection ? (ev) => startConnDrag(e.id, ev) : undefined}
@@ -1302,6 +1306,7 @@ export function ProcessCanvas({
       })}
 
       {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
+      {!presenting && <SnapGuides guides={sel.guides} />}
       {!presenting && <SelectionBar ids={sel.selection.ids} rects={rectsById} actions={sel.actions} />}
 
       <FlashRing key={flashId ?? "idle"} rect={flashGeom ? {
@@ -1729,7 +1734,10 @@ const EditGuardCtx = createContext<() => boolean>(alwaysEditable);
 /** Drags a node by its grip. `onDrag` gets the distance from the press, in
  *  the diagram (see useWorldDrag), and is called once more with `done` when
  *  the pointer lets go or the drag is cut short (a pinch). */
-function useNodeDrag(onDrag: (d: { dx: number; dy: number }, done?: boolean) => void, onSelect?: () => void) {
+/** A drag's distance; `free` while Ctrl/Cmd is held (no snapping). */
+type DragDelta = { dx: number; dy: number; free?: boolean };
+
+function useNodeDrag(onDrag: (d: DragDelta, done?: boolean) => void, onSelect?: () => void) {
   const worldDrag = useWorldDrag();
   const mayEdit = useContext(EditGuardCtx);
   return {
@@ -1739,9 +1747,9 @@ function useNodeDrag(onDrag: (d: { dx: number; dy: number }, done?: boolean) => 
       if (!mayEdit()) return;
       onSelect?.();
       // A press that never moved is a click, not a move: nothing to save.
-      let last: { dx: number; dy: number } | null = null;
+      let last: DragDelta | null = null;
       const finish = () => { if (last) onDrag(last, true); };
-      worldDrag(e, (dx, dy) => { last = { dx, dy }; onDrag(last); }, { up: finish, cancel: finish });
+      worldDrag(e, (dx, dy, ev) => { last = { dx, dy, free: ev.metaKey || ev.ctrlKey }; onDrag(last); }, { up: finish, cancel: finish });
     },
   };
 }
@@ -2010,7 +2018,7 @@ function StepNode({
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Step>) => void;
-  onDrag: (d: { dx: number; dy: number }, done?: boolean) => void;
+  onDrag: (d: DragDelta, done?: boolean) => void;
   onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
@@ -2239,7 +2247,7 @@ function SectionedNode({
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Step>) => void;
-  onDrag: (d: { dx: number; dy: number }, done?: boolean) => void;
+  onDrag: (d: DragDelta, done?: boolean) => void;
   onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
@@ -2447,7 +2455,7 @@ function DecisionNode({
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Decision>) => void;
-  onDrag: (delta: { dx: number; dy: number }, done?: boolean) => void;
+  onDrag: (delta: DragDelta, done?: boolean) => void;
   onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (e: React.PointerEvent) => void;
@@ -2621,7 +2629,7 @@ function ExceptionNode({
   onMeasure: (w: number, h: number) => void;
   onDelete: () => void;
   onUpdate: (patch: Partial<Exception>) => void;
-  onDrag: (d: { dx: number; dy: number }, done?: boolean) => void;
+  onDrag: (d: DragDelta, done?: boolean) => void;
   onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
   onStartConnect?: (ev: React.PointerEvent) => void;
