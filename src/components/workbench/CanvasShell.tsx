@@ -924,6 +924,7 @@ export function CanvasShell({
         gliding && "motion-safe:transition-[background-position] motion-safe:duration-300 motion-safe:ease-out",
       )}
       style={gridStyle}
+      role="group"
       aria-label={fullscreenLabel}
       // overflow-hidden still leaves this a scroll container: focusing a node
       // or field that sits outside the frame makes the browser scroll the
@@ -963,7 +964,7 @@ export function CanvasShell({
           className={cn("h-7 w-7", cutOff && "bg-primary/10 text-primary ring-1 ring-primary/50")}
           onClick={fitView}
           title={cutOff ? "Part of the diagram is off-screen. Fit to screen (Shift 1)" : "Fit to screen (Shift 1)"}
-          aria-label={cutOff ? "Part of the diagram is off-screen. Fit to view" : "Fit to view"}>
+          aria-label={cutOff ? "Part of the diagram is off-screen. Fit to screen" : "Fit to screen"}>
           <LocateFixed className="size-3.5" />
         </Button>
         {/* Full screen is the artifact's (tabs, undo and canvas together). Once

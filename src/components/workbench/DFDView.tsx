@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { ProcessModel, Connection, NodeLayout } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { Plus, X, GripVertical, Database, Square, CircleDot, Wand2 } from "lucide-react";
@@ -9,7 +9,7 @@ import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
 import { LAYER } from "./canvas-layers";
-import { ConnectHandles, ConnectorEnds, ConnectorPreview, useConnectorDrag } from "./canvas-connectors";
+import { ConnectHandles, ConnectorEnds, ConnectorPreview, LineBar, useConnectorDrag } from "./canvas-connectors";
 import { connectorRoute, type Point } from "@/lib/canvas/connector";
 import { useGrownHeights } from "./use-grown-heights";
 import { roundedPath } from "@/lib/canvas/geometry";
@@ -153,9 +153,22 @@ export function DFDView({ model, editing }: Props) {
   // The flows drawn (both ends on this diagram): one can be selected.
   const drawnFlows = useMemo(() => flows.filter((c) => rectsById.has(c.fromId) && rectsById.has(c.toId)), [flows, rectsById]);
   const drawnLines = useMemo(() => new Set(drawnFlows.map((c) => c.id)), [drawnFlows]);
+  // What each shape and line is called: for screen readers, and the lists
+  // in the selection bar and the line bar.
+  const shapeName = (id: string) => {
+    const n = nodesRef.current.find((x) => x.id === id);
+    if (!n) return id;
+    return `${n.kind === "process" ? "Process" : n.kind === "store" ? "Data store" : "External entity"} “${n.text}”`;
+  };
+  const lineName = (id: string) => {
+    const c = (model.connections ?? []).find((x) => x.id === id);
+    return c ? `Data flow from ${shapeName(c.fromId)} to ${shapeName(c.toId)}` : "Data flow";
+  };
+  const shapeList = [...rectsById.keys()].map((id) => ({ id, name: shapeName(id) }));
   const sel = useShapeSelection({
     view: "dfd", model, rects: rectsById, shellApi, presenting,
     lines: drawnLines, onDeleteLine: editing.onDeleteConnection,
+    nameOf: shapeName, lineNameOf: lineName,
     canEdit: editing.canEdit,
     preview: (places) => {
       if (!SAVE_LAYOUTS) noteMove(model);
@@ -203,6 +216,28 @@ export function DFDView({ model, editing }: Props) {
   const routeOf = (c: Connection) => {
     const a = rectsById.get(c.fromId), b = rectsById.get(c.toId);
     return a && b ? connectorRoute(a, b) : null;
+  };
+
+  // The selection bar and the line bar sit right after their shape or
+  // line in the page, so Tab goes shape, its bar, the next shape.
+  const barAfter = (id: string) => presenting || sel.selection.ids[0] !== id ? null : (
+    <SelectionBar
+      ids={sel.selection.ids} rects={rectsById} actions={sel.actions}
+      connect={{
+        what: "data flow", targets: shapeList.filter((t) => t.id !== sel.selection.ids[0]),
+        onPick: (to) => editing.onAddConnection(sel.selection.ids[0], to),
+      }}
+    />
+  );
+  const lineBarAfter = (c: Connection) => {
+    const r = presenting || sel.line !== c.id ? null : routeOf(c);
+    return r ? (
+      <LineBar
+        lineId={c.id} at={r.mid} fromId={c.fromId} toId={c.toId} shapes={shapeList} what="data flow"
+        onChange={(end, id) => editing.onUpdateConnection(c.id, end === "from" ? { fromId: id } : { toId: id })}
+        onDelete={() => editing.onDeleteConnection(c.id)}
+      />
+    ) : null;
   };
 
   const [adding, setAdding] = useState<null | "process" | "store" | "entity">(null);
@@ -314,7 +349,6 @@ export function DFDView({ model, editing }: Props) {
       <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
       {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
       {!presenting && <SnapGuides guides={sel.guides} />}
-      {!presenting && <SelectionBar ids={sel.selection.ids} rects={rectsById} actions={sel.actions} />}
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <marker id="dfd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -354,8 +388,8 @@ export function DFDView({ model, editing }: Props) {
       </svg>
 
       {nodes.map((n) => (
+        <Fragment key={n.id}>
         <DFDNodeView
-          key={n.id}
           node={n}
           onDrag={(dx, dy, done) => patchPos(n.id, n.cx + dx, n.cy + dy, done)}
           canEdit={editing.canEdit}
@@ -370,6 +404,8 @@ export function DFDView({ model, editing }: Props) {
           onUpdate={(text) => editing.onUpdateItem(n.id, { text })}
           onStartConnect={(e, from) => startConnDrag(n.id, e, from)}
         />
+        {barAfter(n.id)}
+        </Fragment>
       ))}
 
       {drawnFlows.map((c) => {
@@ -377,8 +413,9 @@ export function DFDView({ model, editing }: Props) {
         const m = routeOf(c)?.mid;
         if (!m) return null;
         return (
+          <Fragment key={`lbl-${c.id}`}>
           <LineLabel
-            key={`lbl-${c.id}`} lineId={c.id} onSelect={() => sel.selectLine(c.id)}
+            lineId={c.id} onSelect={() => sel.selectLine(c.id)} name={lineName(c.id)}
             x={m.x} y={m.y}
             value={c.label ?? ""} placeholder="Add label" tone="verified"
             fieldLabel="Data flow label"
@@ -386,6 +423,8 @@ export function DFDView({ model, editing }: Props) {
             onDelete={() => editing.onDeleteConnection(c.id)}
             deleteLabel={`Delete flow${c.label ? ` ${c.label}` : ""}`}
           />
+          {lineBarAfter(c)}
+          </Fragment>
         );
       })}
       {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-verified)" />}
@@ -397,6 +436,7 @@ export function DFDView({ model, editing }: Props) {
         return <ConnectorEnds from={p0} to={p1} onStart={(e, end) => startEndDrag(c, end, e, end === "from" ? p1 : p0)} />;
       })()}
     </CanvasShell>
+    {sel.liveRegion}
     {sel.pasteDialog}
     </div>
   );
@@ -472,7 +512,7 @@ function DFDNodeView({
       <div data-node data-dfd-node={node.id} data-shape-id={node.id} onPointerDown={onPress} className="group absolute rounded-full border-2 border-primary/60 bg-card shadow-sm flex flex-col items-center justify-center gap-0.5 text-center px-5 py-1" style={style}>
         {header}
         <div className="text-xs font-medium leading-snug break-words px-1">
-          <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" />
+          <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" label="Process" />
         </div>
         {connectHandle}
       </div>
@@ -483,7 +523,7 @@ function DFDNodeView({
       <div data-node data-dfd-node={node.id} data-shape-id={node.id} onPointerDown={onPress} className="group absolute border-t-2 border-b-2 border-primary/60 bg-card shadow-sm flex flex-col justify-center gap-0.5 px-2" style={style}>
         {header}
         <div className="text-xs font-medium leading-snug break-words px-1">
-          <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" />
+          <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" label="Data store" />
         </div>
         {connectHandle}
       </div>
@@ -493,7 +533,7 @@ function DFDNodeView({
     <div data-node data-dfd-node={node.id} data-shape-id={node.id} onPointerDown={onPress} className="group absolute rounded-md border-2 border-primary/60 bg-card shadow-sm flex flex-col gap-0.5" style={style}>
       {header}
       <div className="text-xs font-medium leading-snug break-words px-2 pb-1.5">
-        <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" />
+        <InlineEdit value={node.text} onChange={onUpdate} multiline activate="double" label="External entity" />
       </div>
       {connectHandle}
     </div>

@@ -13,7 +13,8 @@
 // clearing a selection comes before Esc leaving full screen.
 
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ArrowDownToLine, ArrowUpToLine, Copy, Trash2 } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, Copy, Spline, Trash2 } from "lucide-react";
+import { ShapeListPopover } from "./shape-list-popover";
 import { toast } from "sonner";
 import type { NodeLayout, ProcessModel, ViewId } from "@/data/samples";
 import { boxBetween, clipForView, copyShapes, shapeClipboard, shapesInBox, type ShapeClip } from "@/lib/canvas/clipboard";
@@ -60,6 +61,9 @@ export interface SelectionKeyHandlers {
   onDuplicate: () => void;
   /** Type on the one selected shape. */
   onEdit: () => void;
+  /** Alt+Shift+arrows: make the one selected shape wider/narrower or
+   *  taller/shorter (diagrams whose shapes can be resized). */
+  onResize?: (dw: number, dh: number) => void;
 }
 
 /** Something that keeps its own keys: a pop-up, menu, list or dialog. */
@@ -105,6 +109,16 @@ function pageTextSelected(root: HTMLElement): boolean {
   return !root.contains(sel.getRangeAt(0).commonAncestorContainer);
 }
 
+/** When the Tab key was last pressed: a shape (or line label) that gets
+ *  focus right after it is being stepped to, and so is selected. Focus that
+ *  arrives any other way (a dialog handing it back, the window regaining
+ *  it, a click) changes nothing. */
+let tabAt = 0;
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", (e) => { if (e.key === "Tab") tabAt = performance.now(); }, true);
+}
+export const focusCameFromTab = () => performance.now() - tabAt < 400;
+
 /** Installs the selection keys for the diagram whose frame is `rootRef`. */
 export function useSelectionKeys(rootRef: React.RefObject<HTMLElement | null>, handlers: SelectionKeyHandlers) {
   const latest = useRef(handlers);
@@ -131,6 +145,13 @@ export function useSelectionKeys(rootRef: React.RefObject<HTMLElement | null>, h
         if (key === "x" && !e.shiftKey) return take(h.onCut);
         if (key === "d" && !e.shiftKey) return take(h.onDuplicate);
         return;
+      }
+      if (e.altKey && e.shiftKey && !mod && h.count === 1 && h.onResize && e.key.startsWith("Arrow")) {
+        const d = 20;
+        if (e.key === "ArrowLeft") return take(() => h.onResize!(-d, 0));
+        if (e.key === "ArrowRight") return take(() => h.onResize!(d, 0));
+        if (e.key === "ArrowUp") return take(() => h.onResize!(0, -d));
+        if (e.key === "ArrowDown") return take(() => h.onResize!(0, d));
       }
       if (e.altKey || e.metaKey || e.ctrlKey || h.count === 0) return;
       if (e.key === "Delete" || e.key === "Backspace") return take(h.onDelete);
@@ -181,6 +202,12 @@ export interface ShapeSelectionOptions {
    *  shapes (a click on it), and Delete deletes it. */
   lines?: Set<string>;
   onDeleteLine?: (id: string) => void;
+  /** What a shape or line is called, for screen readers ("Step “Check
+   *  stock”", "Line from … to …"). */
+  nameOf?: (id: string) => string;
+  lineNameOf?: (id: string) => string;
+  /** Alt+Shift+arrows resize the one selected shape (Process map). */
+  onResizeBy?: (id: string, dw: number, dh: number) => void;
 }
 
 /** Selection on one diagram: click, Shift-click, a box, dragging the
@@ -193,6 +220,23 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
   latest.current = o;
   const selRef = useRef(selection.ids);
   selRef.current = selection.ids;
+
+  // The keyboard's way in: Tab to a shape's text and that shape is
+  // selected, so the arrows, Delete, Enter and the bar act on it.
+  useEffect(() => {
+    const root = frameRef.current;
+    if (!root) return;
+    const onFocus = (e: FocusEvent) => {
+      if (latest.current.presenting || !focusCameFromTab()) return;
+      const t = e.target as HTMLElement | null;
+      if (!t?.matches?.("[data-edit-text]") || t.closest("[data-line-label]")) return;
+      const host = t.closest("[data-node-id], [data-shape-id]") as HTMLElement | null;
+      const id = host?.dataset.nodeId ?? host?.dataset.shapeId;
+      if (id && latest.current.rects.has(id) && !selRef.current.includes(id)) selection.set([id]);
+    };
+    root.addEventListener("focusin", onFocus);
+    return () => root.removeEventListener("focusin", onFocus);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Shapes that are gone (deleted, undone) leave the selection.
   useEffect(() => {
@@ -424,6 +468,10 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
     },
     onSelectAll: () => { if (!latest.current.presenting) selection.set([...latest.current.rects.keys()]); },
     onClear: clearAll,
+    onResize: o.onResizeBy ? (dw, dh) => {
+      const id = selRef.current[0];
+      if (id && latest.current.canEdit()) latest.current.onResizeBy?.(id, dw, dh);
+    } : undefined,
     onCopy: () => { copy(selRef.current); },
     onCut: () => { if (copy(selRef.current)) remove(selRef.current); },
     onPaste: () => { if (!latest.current.presenting) paste(); },
@@ -437,6 +485,13 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
       el?.dispatchEvent(new Event(EDIT_TEXT_EVENT));
     },
   });
+
+  const spoken = o.presenting ? ""
+    : line && selection.ids.length === 0 ? `${o.lineNameOf?.(line) ?? "Line"} selected`
+    : selection.ids.length === 1 ? `${o.nameOf?.(selection.ids[0]) ?? "Shape"} selected`
+    : selection.ids.length > 1 ? `${selection.ids.length} shapes selected`
+    : "";
+  const liveRegion = <div role="status" aria-live="polite" className="sr-only">{spoken}</div>;
 
   const n = pending?.clip.items.length ?? 0;
   const left = pending?.left ?? 0;
@@ -464,6 +519,8 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
 
   return {
     selection, frameRef, pressShape, onSelectBox, onBackgroundPress, pasteDialog,
+    /** Says the selection out loud (render it once, anywhere in the frame). */
+    liveRegion,
     /** The selected line, if a line is selected (not shapes). */
     line, selectLine, editLineLabel,
     /** For a grip: drag these shapes (with snap guides). */
@@ -478,6 +535,23 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
       sendToBack: o.onSendToBack ? () => selRef.current.forEach((id) => o.onSendToBack!(id)) : undefined,
     },
   };
+}
+
+/** "Connect to…": a list of the other shapes; picking one draws a line
+ *  from the selected shape to it. Focus then goes back to that shape. */
+function ConnectPicker({ connect, className, focusShape }: {
+  connect: NonNullable<Parameters<typeof SelectionBar>[0]["connect"]>; className: string; focusShape: () => void;
+}) {
+  return (
+    <ShapeListPopover
+      title={`Draw a ${connect.what} to`} items={connect.targets} onPick={connect.onPick} onClosed={focusShape}
+      trigger={
+        <button type="button" className={className} title={`Draw a ${connect.what} to…`} aria-label={`Draw a ${connect.what} to another shape`}>
+          <Spline className="size-3.5" />
+        </button>
+      }
+    />
+  );
 }
 
 /** Outlines round the selected shapes, drawn in the canvas (inside
@@ -527,13 +601,17 @@ export function SelectionOutlines({ ids, rects }: { ids: string[]; rects: Map<st
 /** A small bar above the selection: how many, and what can be done to them.
  *  Drawn in the canvas at a constant size whatever the zoom. */
 export function SelectionBar({
-  ids, rects, actions,
+  ids, rects, actions, connect,
 }: {
   ids: string[];
   rects: Map<string, Rect>;
   actions: { remove: () => void; duplicate: () => void; bringToFront?: () => void; sendToBack?: () => void };
+  /** Draw a line from the one selected shape to one picked from a list:
+   *  the keyboard's way to connect (and a quick one for everyone). */
+  connect?: { targets: { id: string; name: string }[]; onPick: (toId: string) => void; what: string };
 }) {
   const { zoom } = useCanvas();
+  const barRef = useRef<HTMLDivElement | null>(null);
   const boxes = ids.map((id) => rects.get(id)).filter((r): r is Rect => !!r);
   if (boxes.length === 0) return null;
   const x0 = Math.min(...boxes.map((r) => r.x)), y0 = Math.min(...boxes.map((r) => r.y));
@@ -543,6 +621,17 @@ export function SelectionBar({
     <div className="flex items-center gap-0.5 rounded-lg border bg-card px-1 py-0.5 shadow-md">
       {ids.length > 1 && <span className="px-1.5 text-xs text-muted-foreground tabular-nums">{ids.length} selected</span>}
       <button type="button" className={btn} onClick={actions.duplicate} title="Duplicate (Ctrl/⌘ D)" aria-label="Duplicate"><Copy className="size-3.5" /></button>
+      {connect && ids.length === 1 && connect.targets.length > 0 && (
+        <ConnectPicker
+          connect={connect} className={btn}
+          focusShape={() => {
+            const id = CSS.escape(ids[0]);
+            const el = barRef.current?.closest("[data-canvas-content]")
+              ?.querySelector<HTMLElement>(`[data-node-id="${id}"] [data-edit-text], [data-shape-id="${id}"] [data-edit-text]`);
+            el?.focus({ preventScroll: true });
+          }}
+        />
+      )}
       {actions.bringToFront && <button type="button" className={btn} onClick={actions.bringToFront} title="Bring to front" aria-label="Bring to front"><ArrowUpToLine className="size-3.5" /></button>}
       {actions.sendToBack && <button type="button" className={btn} onClick={actions.sendToBack} title="Send to back" aria-label="Send to back"><ArrowDownToLine className="size-3.5" /></button>}
       <button type="button" className={btn + " hover:text-destructive"} onClick={actions.remove} title="Delete (Delete key)" aria-label={ids.length > 1 ? `Delete ${ids.length} shapes` : "Delete"}><Trash2 className="size-3.5" /></button>
@@ -550,6 +639,7 @@ export function SelectionBar({
   );
   return (
     <div
+      ref={barRef}
       data-edit-control data-no-pan
       className="absolute"
       // Centred above the selection, counter-scaled so it reads the same at any zoom.

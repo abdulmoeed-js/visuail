@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { decisionBranches, type BaseItem, type ProcessModel, type Step, type Decision, type DecisionBranch, type Exception, type Connection, type CrowMarker, type NodeLayout, type ViewId } from "@/data/samples";
 import { cn } from "@/lib/utils";
 import { gradeOf } from "@/lib/grade";
@@ -22,7 +22,7 @@ import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
 import { LAYER, restack } from "./canvas-layers";
-import { ConnectHandles, ConnectorEnds, ConnectorPreview, useConnectorDrag } from "./canvas-connectors";
+import { ConnectHandles, ConnectorEnds, ConnectorPreview, LineBar, useConnectorDrag } from "./canvas-connectors";
 import { connectorRoute } from "@/lib/canvas/connector";
 import { edgePoint, roundedPath, type Point } from "@/lib/canvas/geometry";
 import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
@@ -622,11 +622,35 @@ export function ProcessCanvas({
     [model.connections, geomById],
   );
 
+  // What each shape and line is called: for screen readers, and the lists
+  // in the selection bar and the line bar.
+  const shapeName = (id: string) => {
+    const s = model.steps.find((x) => x.id === id); if (s) return `Step “${s.text}”`;
+    const d = model.decisions.find((x) => x.id === id); if (d) return `Decision “${d.text}”`;
+    const e = model.exceptions.find((x) => x.id === id); if (e) return `Exception “${e.text}”`;
+    return id;
+  };
+  const lineName = (id: string) => {
+    const c = (model.connections ?? []).find((x) => x.id === id);
+    return c ? `Line from ${shapeName(c.fromId)} to ${shapeName(c.toId)}` : "Line";
+  };
+  const shapeList = [...rectsById.keys()].map((id) => ({ id, name: shapeName(id) }));
+
   // Selecting shapes (click, Shift-click, a box), moving them together, the
   // keys, copy and paste (canvas-selection.tsx).
   const sel = useShapeSelection({
     view: "process", model, rects: rectsById, shellApi, presenting,
     lines: drawnLines, onDeleteLine: onDeleteConnection,
+    nameOf: shapeName, lineNameOf: lineName,
+    // Alt+Shift+arrows: wider/narrower, taller/shorter, on the grid.
+    onResizeBy: (id, dw, dh) => {
+      const g = geomRef.current.get(id);
+      if (!g) return;
+      place(id, {
+        ...(dw ? { w: snap(Math.min(MAX_W, Math.max(MIN_W, g.w + dw))) } : {}),
+        ...(dh ? { h: snap(Math.min(MAX_H, Math.max(MIN_H, g.h + dh))) } : {}),
+      }, true);
+    },
     canEdit: canEdit ?? alwaysEditable,
     preview: (places) => {
       for (const [id, p] of Object.entries(places)) {
@@ -882,6 +906,28 @@ export function ProcessCanvas({
         onUpdateConnection(c.id, end === "from" ? { fromId: id } : { toId: id });
       },
     });
+  };
+
+  // The selection bar and the line bar sit right after their shape or
+  // line in the page, so Tab goes shape, its bar, the next shape.
+  const barAfter = (id: string) => presenting || sel.selection.ids[0] !== id ? null : (
+    <SelectionBar
+      ids={sel.selection.ids} rects={rectsById} actions={sel.actions}
+      connect={onAddConnection ? {
+        what: "line", targets: shapeList.filter((t) => t.id !== sel.selection.ids[0]),
+        onPick: (to) => onAddConnection(sel.selection.ids[0], to),
+      } : undefined}
+    />
+  );
+  const lineBarAfter = (c: Connection) => {
+    const r = presenting || !onUpdateConnection || sel.line !== c.id ? null : routeOf(c.fromId, c.toId);
+    return r && onUpdateConnection ? (
+      <LineBar
+        lineId={c.id} at={r.mid} fromId={c.fromId} toId={c.toId} shapes={shapeList} what="line"
+        onChange={(end, id) => onUpdateConnection(c.id, end === "from" ? { fromId: id } : { toId: id })}
+        onDelete={onDeleteConnection ? () => onDeleteConnection(c.id) : undefined}
+      />
+    ) : null;
   };
 
   // Assemble a single render list sorted by z so overlap ordering is deterministic.
@@ -1218,7 +1264,9 @@ export function ProcessCanvas({
         })}
       </svg>
 
-      {items.map((it) => {
+      {items.map((it) => (
+        <Fragment key={it.node.ref.id}>
+        {(() => {
         if (it.kind === "step") {
           const n = it.node;
           const s = n.ref as Step;
@@ -1288,12 +1336,14 @@ export function ProcessCanvas({
             z={n.z}
           />
         );
-      })}
+        })()}
+        {barAfter(it.node.ref.id)}
+        </Fragment>
+      ))}
 
       {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
       {!presenting && <SnapGuides guides={sel.guides} />}
       {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-verified)" />}
-      {!presenting && <SelectionBar ids={sel.selection.ids} rects={rectsById} actions={sel.actions} />}
 
       <FlashRing key={flashId ?? "idle"} rect={flashGeom ? {
         x: flashGeom.cx - flashGeom.w / 2, y: flashGeom.cy - flashGeom.h / 2, w: flashGeom.w, h: flashGeom.h,
@@ -1304,8 +1354,9 @@ export function ProcessCanvas({
         if (!m) return null;
         // The label is typed on the line; the ends and Delete are under "...".
         return (
+          <Fragment key={`ctl-${c.id}`}>
           <LineLabel
-            key={`ctl-${c.id}`} x={m.x} y={m.y} lineId={c.id} onSelect={() => sel.selectLine(c.id)}
+            x={m.x} y={m.y} lineId={c.id} onSelect={() => sel.selectLine(c.id)} name={lineName(c.id)}
             value={c.label ?? ""} placeholder="Add label" tone="verified" quiet
             fieldLabel="Connector label"
             onChange={onUpdateConnection ? (label) => onUpdateConnection(c.id, { label }) : undefined}
@@ -1316,6 +1367,8 @@ export function ProcessCanvas({
               onUpdate={onUpdateConnection ? (patch) => onUpdateConnection(c.id, patch) : undefined}
             />
           </LineLabel>
+          {lineBarAfter(c)}
+          </Fragment>
         );
       })}
       {!presenting && onUpdateConnection && (() => {
@@ -1326,6 +1379,7 @@ export function ProcessCanvas({
         return <ConnectorEnds from={p0} to={p1} onStart={(e, end) => startEndDrag(c, end, e, end === "from" ? p1 : p0)} />;
       })()}
     </CanvasShell>
+    {sel.liveRegion}
     {sel.pasteDialog}
     </div>
     </EditGuardCtx.Provider>
@@ -2064,7 +2118,7 @@ function StepNode({
           <DragHandle handlers={drag} />
           <IdChip id={step.id} tone="primary" />
           <div className="text-xs font-medium flex-1 text-center break-words">
-            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} activate="double" />
+            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} activate="double" label="Step" />
           </div>
           <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete step “${step.text}”`}
             className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
@@ -2155,7 +2209,7 @@ function StepNode({
         </div>
       </div>
       <div className="text-xs leading-snug font-medium break-words">
-        <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" />
+        <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" label="Step" />
       </div>
       {shape !== "swimlane" && shape !== "event" && (
         <div className="flex flex-wrap gap-1 text-[10px] font-mono-tight text-muted-foreground mt-auto">
@@ -2285,7 +2339,7 @@ function SectionedNode({
             <div className="text-[9px] font-mono-tight text-muted-foreground leading-none">{stereotype}</div>
           )}
           <div className="text-xs font-semibold break-words leading-tight">
-            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} activate="double" />
+            <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} activate="double" label="Step" />
           </div>
         </div>
         <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
@@ -2521,7 +2575,7 @@ function DecisionNode({
         </div>
 
         <div className="text-[11px] font-medium leading-tight break-words w-full">
-          <InlineEdit value={d.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" />
+          <InlineEdit value={d.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" label="Decision" />
         </div>
         {/* Not there at all while presenting, so a branch editor left open
          *  closes then and comes back closed. */}
@@ -2655,7 +2709,7 @@ function ExceptionNode({
         <Zap className="size-3" aria-hidden /> Exception
       </span>
       <div className="text-[11px] leading-snug break-words">
-        <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" />
+        <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" label="Exception" />
       </div>
       {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { ProcessModel, Connection, StateItem, NodeLayout } from "@/data/samples";
 import { Plus, X, GripVertical, CircleDot, Wand2 } from "lucide-react";
 import { CanvasShell, useWorldDrag } from "./CanvasShell";
@@ -8,7 +8,7 @@ import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
 import { LAYER } from "./canvas-layers";
-import { ConnectHandles, ConnectorEnds, ConnectorPreview, useConnectorDrag } from "./canvas-connectors";
+import { ConnectHandles, ConnectorEnds, ConnectorPreview, LineBar, useConnectorDrag } from "./canvas-connectors";
 import { connectorRoute, type Point } from "@/lib/canvas/connector";
 import { useGrownHeights } from "./use-grown-heights";
 import { roundedPath } from "@/lib/canvas/geometry";
@@ -115,9 +115,21 @@ export function StateDiagramView({ model, editing }: Props) {
   // The transitions drawn (both ends on this diagram): one can be selected.
   const drawnTransitions = useMemo(() => transitions.filter((c) => rectsById.has(c.fromId) && rectsById.has(c.toId)), [transitions, rectsById]);
   const drawnLines = useMemo(() => new Set(drawnTransitions.map((c) => c.id)), [drawnTransitions]);
+  // What each shape and line is called: for screen readers, and the lists
+  // in the selection bar and the line bar.
+  const shapeName = (id: string) => {
+    const st = states.find((x) => x.id === id);
+    return st ? `State “${st.text}”` : id;
+  };
+  const lineName = (id: string) => {
+    const c = (model.connections ?? []).find((x) => x.id === id);
+    return c ? `Transition from ${shapeName(c.fromId)} to ${shapeName(c.toId)}` : "Transition";
+  };
+  const shapeList = [...rectsById.keys()].map((id) => ({ id, name: shapeName(id) }));
   const sel = useShapeSelection({
     view: "state", model, rects: rectsById, shellApi, presenting,
     lines: drawnLines, onDeleteLine: editing.onDeleteConnection,
+    nameOf: shapeName, lineNameOf: lineName,
     canEdit: editing.canEdit,
     preview: (places) => {
       if (!SAVE_LAYOUTS) noteMove(model);
@@ -175,6 +187,29 @@ export function StateDiagramView({ model, editing }: Props) {
     }
     const r = connectorRoute(a, b);
     return { path: roundedPath(r.points), from: r.points[0], to: r.points[r.points.length - 1], mid: r.mid };
+  };
+
+  // The selection bar and the line bar sit right after their state or
+  // transition in the page, so Tab goes state, its bar, the next state.
+  const barAfter = (id: string) => presenting || sel.selection.ids[0] !== id ? null : (
+    <SelectionBar
+      ids={sel.selection.ids} rects={rectsById} actions={sel.actions}
+      connect={{
+        what: "transition",
+        targets: shapeList.map((t) => (t.id === sel.selection.ids[0] ? { ...t, name: `${t.name} (loop back to itself)` } : t)),
+        onPick: (to) => editing.onAddConnection(sel.selection.ids[0], to),
+      }}
+    />
+  );
+  const lineBarAfter = (c: Connection) => {
+    const l = presenting || sel.line !== c.id ? null : lineOf(c);
+    return l ? (
+      <LineBar
+        lineId={c.id} at={l.mid} fromId={c.fromId} toId={c.toId} shapes={shapeList} what="transition" allowSelf
+        onChange={(end, id) => editing.onUpdateConnection(c.id, end === "from" ? { fromId: id } : { toId: id })}
+        onDelete={() => editing.onDeleteConnection(c.id)}
+      />
+    ) : null;
   };
 
   const [adding, setAdding] = useState(false);
@@ -269,7 +304,6 @@ export function StateDiagramView({ model, editing }: Props) {
       <FlashRing key={flashId ?? "idle"} rect={flashId ? rectFor(flashId) : null} />
       {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
       {!presenting && <SnapGuides guides={sel.guides} />}
-      {!presenting && <SelectionBar ids={sel.selection.ids} rects={rectsById} actions={sel.actions} />}
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <marker id="sd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -317,8 +351,8 @@ export function StateDiagramView({ model, editing }: Props) {
       </svg>
 
       {placed.map((p) => (
+        <Fragment key={p.ref.id}>
         <StateNodeView
-          key={p.ref.id}
           node={p}
           onDrag={(dx, dy, done) => patchPos(p.ref.id, p.cx + dx, p.cy + dy, done)}
           canEdit={editing.canEdit}
@@ -335,6 +369,8 @@ export function StateDiagramView({ model, editing }: Props) {
           onToggleFinal={() => editing.onUpdateItem(p.ref.id, { isFinal: !p.ref.isFinal })}
           onStartConnect={(e, from) => startConnDrag(p.ref.id, e, from)}
         />
+        {barAfter(p.ref.id)}
+        </Fragment>
       ))}
 
       {drawnTransitions.map((c) => {
@@ -342,14 +378,17 @@ export function StateDiagramView({ model, editing }: Props) {
         const m = lineOf(c)?.mid;
         if (!m) return null;
         return (
+          <Fragment key={`lbl-${c.id}`}>
           <LineLabel
-            key={`lbl-${c.id}`} lineId={c.id} x={m.x} y={m.y} onSelect={() => sel.selectLine(c.id)}
+            lineId={c.id} x={m.x} y={m.y} onSelect={() => sel.selectLine(c.id)} name={lineName(c.id)}
             value={c.label ?? ""} placeholder="Add event" tone="primary"
             fieldLabel="Transition: event [guard] / action"
             onChange={(label) => editing.onUpdateConnection(c.id, { label })}
             onDelete={() => editing.onDeleteConnection(c.id)}
             deleteLabel={`Delete transition${c.label ? ` ${c.label}` : ""}`}
           />
+          {lineBarAfter(c)}
+          </Fragment>
         );
       })}
       {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-primary)" />}
@@ -360,6 +399,7 @@ export function StateDiagramView({ model, editing }: Props) {
         return <ConnectorEnds from={l.from} to={l.to} onStart={(e, end) => startEndDrag(c, end, e, end === "from" ? l.to : l.from)} />;
       })()}
     </CanvasShell>
+    {sel.liveRegion}
     {sel.pasteDialog}
     </div>
   );
@@ -425,7 +465,7 @@ function StateNodeView({
         </button>
       </div>
       <div className="text-xs font-medium leading-snug break-words">
-        <InlineEdit value={node.ref.text} onChange={onUpdateText} multiline activate="double" />
+        <InlineEdit value={node.ref.text} onChange={onUpdateText} multiline activate="double" label="State" />
       </div>
       <div className="mt-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition" data-no-pan data-edit-control>
         <button onClick={onToggleInitial} title={node.ref.isInitial ? "Initial state (click to unmark)" : "Mark as initial state"} aria-pressed={!!node.ref.isInitial} aria-label="Initial state"

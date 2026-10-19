@@ -5,11 +5,13 @@
 // selected line. How a line is routed is in src/lib/canvas/connector.ts;
 // selecting a line, and Delete / Esc / Enter on it, in canvas-selection.tsx.
 
-import { useState, type RefObject } from "react";
+import { useRef, useState, type RefObject } from "react";
 import type { Rect } from "@/lib/canvas/layout";
 import { anchor, type Point, type Side } from "@/lib/canvas/connector";
 import { cn } from "@/lib/utils";
-import { followPointer, type CanvasApi } from "./CanvasShell";
+import { Trash2 } from "lucide-react";
+import { ShapeListPopover } from "./shape-list-popover";
+import { followPointer, useCanvas, type CanvasApi } from "./CanvasShell";
 import { LAYER } from "./canvas-layers";
 
 /** A line being drawn or re-attached: from a point to the pointer, and the
@@ -162,5 +164,72 @@ export function ConnectorEnds({
         />
       ))}
     </>
+  );
+}
+
+/**
+ * Under the selected line: where it starts and ends, each a list to pick
+ * another shape from (the keyboard's way to re-attach a line, and a plain
+ * statement of what it joins), and Delete. Drawn at a constant size, and
+ * placed right after the line's label in the page so Tab reaches it next.
+ */
+export function LineBar({
+  lineId, at, fromId, toId, shapes, allowSelf, what, onChange, onDelete,
+}: {
+  lineId: string;
+  /** Where the line's label sits, in canvas units. */
+  at: Point;
+  fromId: string;
+  toId: string;
+  /** Every shape a line can join here, by name. */
+  shapes: { id: string; name: string }[];
+  /** Whether both ends may be the same shape (a state's loop). */
+  allowSelf?: boolean;
+  /** "line", "data flow", "transition". */
+  what: string;
+  onChange: (end: "from" | "to", id: string) => void;
+  onDelete?: () => void;
+}) {
+  const { zoom } = useCanvas();
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const nameOf = (id: string) => shapes.find((x) => x.id === id)?.name ?? id;
+  // Back to the line's label once a list closes, so its keys work on.
+  const focusLabel = () => barRef.current?.closest("[data-canvas-content]")
+    ?.querySelector<HTMLElement>(`[data-line-id="${CSS.escape(lineId)}"] [data-edit-text]`)?.focus({ preventScroll: true });
+  const pick = (end: "from" | "to", value: string, other: string) => (
+    <ShapeListPopover
+      title={end === "from" ? `Start this ${what} at` : `End this ${what} at`}
+      items={shapes.filter((x) => allowSelf || x.id !== other || x.id === value)}
+      current={value} onPick={(id) => onChange(end, id)} onClosed={focusLabel}
+      trigger={
+        <button
+          type="button"
+          aria-label={`${end === "from" ? "Starts at" : "Ends at"} ${nameOf(value)}. Change`}
+          className="max-w-[10rem] truncate rounded border bg-background px-1.5 py-0.5 text-left text-xs text-foreground hover:bg-muted"
+        >{nameOf(value)}</button>
+      }
+    />
+  );
+  return (
+    <div
+      ref={barRef}
+      data-edit-control data-no-pan
+      className="absolute"
+      style={{ left: at.x, top: at.y + 14, transform: `translate(-50%, 0) scale(${1 / zoom})`, transformOrigin: "top center", zIndex: LAYER.bar }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border bg-card px-2 py-1 text-xs text-muted-foreground shadow-md" role="group" aria-label={`Selected ${what}`}>
+        <span>From</span>{pick("from", fromId, toId)}
+        <span>to</span>{pick("to", toId, fromId)}
+        {onDelete && (
+          <button
+            type="button" onClick={onDelete} aria-label={`Delete this ${what}`} title={`Delete this ${what} (Delete key)`}
+            className="ml-0.5 inline-flex h-6 w-6 items-center justify-center rounded hover:bg-muted hover:text-destructive"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

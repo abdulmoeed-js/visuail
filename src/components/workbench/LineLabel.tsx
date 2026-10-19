@@ -9,10 +9,13 @@ import { cn } from "@/lib/utils";
 import { useArtifactFullscreen } from "./artifact-fullscreen";
 import { InlineEdit } from "./InlineEdit";
 import { LAYER } from "./canvas-layers";
+import { focusCameFromTab } from "./canvas-selection";
 
 export function LineLabel({
-  x, y, value, placeholder, tone, onChange, onDelete, deleteLabel, fieldLabel, quiet, zIndex = LAYER.lineLabel, children, lineId, onSelect,
+  x, y, value, placeholder, tone, onChange, onDelete, deleteLabel, fieldLabel, quiet, zIndex = LAYER.lineLabel, children, lineId, onSelect, name,
 }: {
+  /** What the line joins ("Data flow from … to …"), for screen readers. */
+  name?: string;
   /** A click on the words, or focus on them, selects the line (they often
    *  cover a short one; and the keys then act on the line). */
   onSelect?: () => void;
@@ -61,7 +64,7 @@ export function LineLabel({
       data-no-pan data-line-label data-line-id={lineId}
       className="group/line absolute -translate-x-1/2 -translate-y-1/2" style={at}
       onPointerDown={(e) => { if (e.button !== 0 || !onSelect) return; e.stopPropagation(); onSelect(); }}
-      onFocus={onSelect}
+      onFocus={() => { if (focusCameFromTab()) onSelect?.(); }}
     >
       {onChange ? (
         <div
@@ -77,7 +80,7 @@ export function LineLabel({
         >
           <InlineEdit
             value={value} onChange={onChange} placeholder={placeholder}
-            activate="double" allowEmpty label={fieldLabel}
+            activate="double" allowEmpty label={name ? `${name}, ${fieldLabel.toLowerCase()}` : fieldLabel}
             className="min-w-[2ch] not-italic"
           />
         </div>
