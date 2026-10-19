@@ -63,7 +63,7 @@ export function Hero() {
                 See it on a sample call <ArrowRight className="size-4" />
               </Button>
               <span className="text-xs text-muted-foreground font-mono-tight">
-                No signup. No wall before value.
+                No sign-up needed.
               </span>
             </div>
 

@@ -28,6 +28,16 @@ const DOT_TONE: Record<GradeTone, string> = {
 export function ConfidenceBadge({ item, compact = false }: { item: BaseItem; compact?: boolean }) {
   const g = gradeOf(item);
   const Icon = g.grade === "disagree" ? GitCompareArrows : g.grade === "changed" ? AlertOctagon : g.provenance || g.grade === "confirmed" ? Check : null;
+  // On a diagram, "stated clearly" is the usual case: a dot says it without
+  // a word on every shape. The chip is kept for what needs a look.
+  if (compact && g.grade === "clear" && !g.provenance) {
+    return (
+      <span className="inline-flex size-4 shrink-0 items-center justify-center" title={`${g.label}: ${g.reason}`}>
+        <span className={cn("size-2 rounded-full", DOT_TONE[g.tone])} aria-hidden />
+        <span className="sr-only">{g.label}. {g.reason}</span>
+      </span>
+    );
+  }
   return (
     <span
       className={cn(

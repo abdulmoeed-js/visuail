@@ -6,7 +6,7 @@ import { ConfidenceBadge, IdChip } from "./atoms";
 import {
   Plus, X, GripVertical, Square, Diamond, AlertTriangle, Wand2,
   PanelRightOpen, PanelRightClose, Circle, FileText, ChevronsRight,
-  Layers, ArrowUpToLine, ArrowDownToLine, Zap, Rows3,
+  Layers, Zap, Rows3,
   Table2, Boxes, GitBranch, MoreHorizontal, BookOpen,
 
 } from "lucide-react";
@@ -21,6 +21,7 @@ import { isUserCreatedId } from "@/lib/item-origin";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
+import { LAYER, restack } from "./canvas-layers";
 import { ConnectHandles, ConnectorEnds, ConnectorPreview, useConnectorDrag } from "./canvas-connectors";
 import { connectorRoute } from "@/lib/canvas/connector";
 import { edgePoint, roundedPath, type Point } from "@/lib/canvas/geometry";
@@ -429,7 +430,6 @@ export function ProcessCanvas({
   // back does not snap every node to the auto layout again.
   const [overrides, setOverrides] = useCanvasViewState<Overrides>("process:overrides", {});
   const [measured, setMeasured] = useState<Measured>({});
-  const [, setZCounter] = useCanvasViewState<number>("process:z", 1);
 
   const isEmpty = model.steps.length === 0 && model.decisions.length === 0 && model.exceptions.length === 0;
   // Present mode (full screen, showing the diagram to others): every editing
@@ -505,19 +505,21 @@ export function ProcessCanvas({
   const patchOverride = (id: string, o: NodeOverride) =>
     setOverrides((cur) => ({ ...cur, [id]: { ...cur[id], ...o } }));
 
-  const bringToFront = useCallback((id: string) => {
-    setZCounter((z) => {
-      const next = z + 1;
-      setOverrides((cur) => ({ ...cur, [id]: { ...cur[id], z: next } }));
+  // Stacking by hand: ranks recounted on every change (canvas-layers.ts),
+  // so a shape clicked a thousand times still sits under the line labels
+  // and the selection outline.
+  const restackTo = useCallback((id: string, where: "front" | "back") => {
+    setOverrides((cur) => {
+      const ranks = restack(Object.fromEntries(Object.entries(cur).map(([k, o]) => [k, o?.z])), id, where);
+      if (Object.entries(cur).every(([k, o]) => (o?.z ?? 0) === (ranks[k] ?? 0)) && (ranks[id] ?? 0) === (cur[id]?.z ?? 0)) return cur;
+      const next = { ...cur };
+      for (const [k, o] of Object.entries(next)) if (o?.z !== undefined && !(k in ranks)) next[k] = { ...o, z: undefined };
+      for (const [k, z] of Object.entries(ranks)) next[k] = { ...next[k], z };
       return next;
     });
-  }, [setOverrides, setZCounter]);
-  const sendToBack = useCallback((id: string) => {
-    setOverrides((cur) => {
-      const minZ = Math.min(0, ...Object.values(cur).map((o) => o?.z ?? 0)) - 1;
-      return { ...cur, [id]: { ...cur[id], z: minZ } };
-    });
   }, [setOverrides]);
+  const bringToFront = useCallback((id: string) => restackTo(id, "front"), [restackTo]);
+  const sendToBack = useCallback((id: string) => restackTo(id, "back"), [restackTo]);
   // Pressing on a node brings it to the front. Not while presenting: there a
   // press on a node starts panning the view, and the stacking stays put.
   const selectNode = (id: string) => { if (!presenting) bringToFront(id); };
@@ -1198,7 +1200,7 @@ export function ProcessCanvas({
               )}
               {selected && (
                 <path
-                  d={d} fill="none" stroke="var(--color-primary)" strokeOpacity={0.25} strokeWidth={8}
+                  d={d} fill="none" stroke="var(--color-primary)" strokeOpacity={0.6} strokeWidth={7}
                   strokeLinecap="round" pointerEvents="none" data-edit-control
                 />
               )}
@@ -1303,8 +1305,8 @@ export function ProcessCanvas({
         // The label is typed on the line; the ends and Delete are under "...".
         return (
           <LineLabel
-            key={`ctl-${c.id}`} x={m.x} y={m.y} zIndex={40} lineId={c.id} onSelect={() => sel.selectLine(c.id)}
-            value={c.label ?? ""} placeholder="label" tone="verified" quiet
+            key={`ctl-${c.id}`} x={m.x} y={m.y} lineId={c.id} onSelect={() => sel.selectLine(c.id)}
+            value={c.label ?? ""} placeholder="Add label" tone="verified" quiet
             fieldLabel="Connector label"
             onChange={onUpdateConnection ? (label) => onUpdateConnection(c.id, { label }) : undefined}
           >
@@ -1384,7 +1386,9 @@ function ConnectorControl({
       <button
         ref={toggleRef}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        title="Connector settings"
+        title="Line ends and delete"
+        aria-label={`Line options${conn.label ? ` for ${conn.label}` : ""}`}
+        aria-expanded={open}
         className="h-5 w-5 rounded-full border border-primary/60 bg-card text-primary opacity-70 hover:opacity-100 focus-visible:opacity-100 hover:bg-primary hover:text-primary-foreground transition flex items-center justify-center"
       >
         <MoreHorizontal className="size-3" />
@@ -1539,7 +1543,7 @@ function ShapePalette({
               </>
             )}
             <div className="mt-2 text-[10px] text-muted-foreground leading-snug px-1">
-              Drag a node by its grip, a corner to resize. Hover a node for its connect handle. Everything snaps to the grid.
+              Drag a shape to move it, or its corner to resize. Drag a dot on its side to draw a line. Shapes line up with each other as you drag.
             </div>
           </div>
         </div>
@@ -1710,7 +1714,7 @@ function Legend() {
        *  (the bottom bar is a container-query container). The same words
        *  live in the shape palette for narrower canvases. Editing help, so
        *  hidden while presenting. */}
-      <span className={cn(chip, "hidden @min-[900px]:flex")} data-edit-control><GripVertical className="size-3" /> Click to select · drag to move · double-click to edit</span>
+      <span className={cn(chip, "hidden @min-[900px]:flex")} data-edit-control><GripVertical className="size-3" /> Click to select · drag to move · double-click to type · drag a side dot to draw a line</span>
     </>
   );
 }
@@ -1816,7 +1820,7 @@ function ResizeHandle({ w, h, onResize }: { w: number; h: number; onResize: (w: 
       onPointerDown={onPointerDown}
       data-no-pan
       data-edit-control
-      className="absolute bottom-0 right-0 w-3 h-3 rounded-[3px] border border-primary/60 bg-card cursor-nwse-resize opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition z-10"
+      className="counter-zoom absolute bottom-0 right-0 w-3 h-3 origin-bottom-right rounded-[3px] border border-primary/60 bg-card cursor-nwse-resize opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition-opacity z-10 before:absolute before:-inset-1.5 before:content-['']"
       title="Resize"
     />
   );
@@ -1829,7 +1833,11 @@ function DragHandle({ handlers }: { handlers: ReturnType<typeof useNodeDrag> }) 
       data-no-pan
       data-edit-control
       className="cursor-grab active:cursor-grabbing text-muted-foreground/70 hover:text-foreground shrink-0"
-      title="Drag to reposition"
+      title="Drag to move"
+      // The keyboard moves a shape with the arrows once its text has focus
+      // (selection keys), so the grip is a pointer handle only.
+      tabIndex={-1}
+      aria-hidden
     >
       <GripVertical className="size-3.5" />
     </button>
@@ -1839,27 +1847,6 @@ function DragHandle({ handlers }: { handlers: ReturnType<typeof useNodeDrag> }) 
 /** A node's box in canvas units (where its connectors start). */
 function rectOfNode(node: { cx: number; cy: number; w: number; h: number }) {
   return { x: node.cx - node.w / 2, y: node.cy - node.h / 2, w: node.w, h: node.h };
-}
-
-function ZOrderButtons({ onFront, onBack }: { onFront: () => void; onBack: () => void }) {
-  return (
-    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition" data-no-pan data-edit-control>
-      <button
-        onClick={(e) => { e.stopPropagation(); onFront(); }}
-        title="Bring to front"
-        className="text-muted-foreground hover:text-foreground p-0.5"
-      >
-        <ArrowUpToLine className="size-3" />
-      </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); onBack(); }}
-        title="Send to back"
-        className="text-muted-foreground hover:text-foreground p-0.5"
-      >
-        <ArrowDownToLine className="size-3" />
-      </button>
-    </div>
-  );
 }
 
 // -------- Node outline, from the item's grade --------
@@ -2064,7 +2051,7 @@ function StepNode({
           top: node.cy - node.h / 2,
           width: node.w,
           minHeight: Math.max(200, setH ?? 0),
-          zIndex: 10 + z,
+          zIndex: LAYER.shape + z,
         }}
       >
         <div className={cn(
@@ -2079,9 +2066,8 @@ function StepNode({
           <div className="text-xs font-medium flex-1 text-center break-words">
             <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} activate="double" />
           </div>
-          <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
-          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${step.id}`}
-            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
+          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete step “${step.text}”`}
+            className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
@@ -2155,16 +2141,15 @@ function StepNode({
         </div>
         <div className="flex items-center gap-1">
           <ConfidenceBadge item={step} compact />
-          <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
           {onOpenUseCase && (
-            <button onClick={onOpenUseCase} data-no-pan title="View use case description"
+            <button onClick={onOpenUseCase} data-no-pan title="View use case description" aria-label={`Use case for “${step.text}”`}
               className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-primary transition">
               <BookOpen className="size-3" />
             </button>
           )}
-          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${step.id}`}
-            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
+          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete step “${step.text}”`}
+            className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>
@@ -2204,7 +2189,7 @@ function StepNode({
         top: node.cy - node.h / 2,
         width: node.w,
         minHeight: Math.max(minH, setH ?? 0),
-        zIndex: 10 + z,
+        zIndex: LAYER.shape + z,
       }}
     >
       {isShaped ? (
@@ -2288,7 +2273,7 @@ function SectionedNode({
         top: node.cy - node.h / 2,
         width: node.w,
         minHeight: Math.max(120, setH ?? 0),
-        zIndex: 10 + z,
+        zIndex: LAYER.shape + z,
       }}
     >
       {/* header */}
@@ -2303,10 +2288,9 @@ function SectionedNode({
             <InlineEdit value={step.text} onChange={(v) => onUpdate({ text: v })} activate="double" />
           </div>
         </div>
-        <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
         <RefineControl node={{ id: step.id, kind: "step", text: step.text }} model={model} onApply={onRefine} />
-        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${step.id}`}
-          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
+        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete step “${step.text}”`}
+          className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
           <X className="size-3" />
         </button>
       </div>
@@ -2415,7 +2399,7 @@ function MetaSelect({
         onClick={(e) => e.stopPropagation()}
         className="absolute inset-0 opacity-0 cursor-pointer"
         aria-label={label}
-        title="Change"
+        title={`Change: ${label}`}
       >
         {!known && <option value={value}>Unassigned</option>}
         {options.map((o) => (
@@ -2498,7 +2482,7 @@ function DecisionNode({
         top: node.cy - node.h / 2,
         width: node.w,
         minHeight: Math.max(DEC_H, setH ?? 0),
-        zIndex: 10 + z,
+        zIndex: LAYER.shape + z,
       }}
     >
       <svg
@@ -2529,10 +2513,9 @@ function DecisionNode({
           <DragHandle handlers={drag} />
           <IdChip id={d.id} tone="primary" />
           <ConfidenceBadge item={d} compact />
-          <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: d.id, kind: "decision", text: d.text }} model={model} onApply={onRefine} />
-          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${d.id}`}
-            className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition">
+          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete decision “${d.text}”`}
+            className="relative before:absolute before:-inset-1 before:content-[''] text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition">
             <X className="size-3" />
           </button>
         </div>
@@ -2650,7 +2633,7 @@ function ExceptionNode({
         top: node.cy - node.h / 2,
         width: node.w,
         minHeight: Math.max(EX_H, setH ?? 0),
-        zIndex: 10 + z,
+        zIndex: LAYER.shape + z,
       }}
     >
       <div className="flex items-center justify-between gap-1">
@@ -2660,10 +2643,9 @@ function ExceptionNode({
         </div>
         <div className="flex items-center gap-1">
           <ConfidenceBadge item={e} compact />
-          <ZOrderButtons onFront={onBringToFront} onBack={onSendToBack} />
           <RefineControl node={{ id: e.id, kind: "exception", text: e.text }} model={model} onApply={onRefine} />
-          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${e.id}`}
-            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
+          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete exception “${e.text}”`}
+            className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
             <X className="size-3" />
           </button>
         </div>

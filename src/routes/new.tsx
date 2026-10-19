@@ -26,8 +26,8 @@ import { friendlyError, type FriendlyError } from "@/lib/friendly-error";
 export const Route = createFileRoute("/new")({
   head: () => ({
     meta: [
-      { title: "New project — visu" },
-      { name: "description", content: "Create a new visu project." },
+      { title: "New project — Visu" },
+      { name: "description", content: "Create a new Visu project." },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -441,21 +441,29 @@ function NewProjectPage() {
   );
 }
 
+/** The three steps, named so the person knows what is coming. */
+const STEP_NAMES = ["Name", "Artifacts", "Start"];
+
 function StepRail({ step }: { step: Step }) {
-  const items = [1, 2, 3];
   return (
-    <div className="flex items-center gap-1.5 text-[11px] font-mono-tight tabular-nums">
-      {items.map(i => (
-        <div key={i} className={cn(
-          "h-6 w-6 rounded-full grid place-items-center border",
-          i < step && "bg-primary/10 border-primary/40 text-primary",
-          i === step && "bg-primary/10 text-primary border-primary font-semibold",
-          i > step && "text-muted-foreground",
-        )}>
-          {i < step ? <Check className="size-3" /> : i}
-        </div>
-      ))}
-    </div>
+    <ol className="flex items-center gap-3 text-[11px] font-mono-tight tabular-nums" aria-label="Steps">
+      {STEP_NAMES.map((name, n) => {
+        const i = n + 1;
+        return (
+          <li key={i} className="flex items-center gap-1.5" aria-current={i === step ? "step" : undefined}>
+            <span className={cn(
+              "h-6 w-6 rounded-full grid place-items-center border",
+              i < step && "bg-primary/10 border-primary/40 text-primary",
+              i === step && "bg-primary/10 text-primary border-primary font-semibold",
+              i > step && "text-muted-foreground",
+            )}>
+              {i < step ? <Check className="size-3" aria-label="done" /> : i}
+            </span>
+            <span className={cn("hidden sm:inline", i === step ? "text-primary" : "text-muted-foreground")}>{name}</span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

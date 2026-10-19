@@ -19,6 +19,7 @@ import type { NodeLayout, ProcessModel, ViewId } from "@/data/samples";
 import { boxBetween, clipForView, copyShapes, shapeClipboard, shapesInBox, type ShapeClip } from "@/lib/canvas/clipboard";
 import type { Rect } from "@/lib/canvas/layout";
 import { alignTo, type Guide } from "@/lib/canvas/guides";
+import { LAYER } from "./canvas-layers";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useCanvasViewState } from "./canvas-view-store";
 import { isTypingTarget } from "./artifact-fullscreen";
@@ -328,7 +329,7 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
 
   // Copy and paste ask first before making new items (the owner's rule:
   // pasted shapes become new requirements).
-  const [pending, setPending] = useState<{ clip: ShapeClip; dx: number; dy: number; left: number } | null>(null);
+  const [pending, setPending] = useState<{ clip: ShapeClip; dx: number; dy: number; left: number; dup?: boolean } | null>(null);
   const pasteRepeat = useRef<{ clip: ShapeClip | null; n: number }>({ clip: null, n: 0 });
   const copy = (ids: string[]) => {
     const clip = copyShapes(latest.current.model, latest.current.view, ids, placesOf(ids));
@@ -346,9 +347,9 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
     }
     return Number.isFinite(x0) ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
   };
-  const askPaste = (clip: ShapeClip, dx: number, dy: number, left = 0) => {
+  const askPaste = (clip: ShapeClip, dx: number, dy: number, left = 0, dup = false) => {
     if (!latest.current.canEdit()) return;
-    setPending({ clip, dx, dy, left });
+    setPending({ clip, dx, dy, left, dup });
   };
   const paste = () => {
     const held = shapeClipboard.get();
@@ -357,8 +358,8 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
     // be added where no one can see them.
     const clip = clipForView(held, latest.current.view);
     if (!clip) {
-      toast("This diagram can’t show those shapes", {
-        description: "They were copied from a diagram that draws other kinds of item. Paste them back there.",
+      toast("This tab can’t show those shapes", {
+        description: "They were copied from a tab that draws other kinds of shape. Paste them back there.",
       });
       return;
     }
@@ -376,7 +377,7 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
   };
   const duplicate = () => {
     const clip = copy(selRef.current);
-    if (clip) askPaste(clip, 40, 40);
+    if (clip) askPaste({ ...clip, duplicate: true }, 40, 40, 0, true);
   };
   const confirmPaste = () => {
     const p = pending;
@@ -389,10 +390,15 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
     if (ids.length === 0 || !latest.current.canEdit()) return;
     latest.current.onDeleteMany(ids);
     selection.clear();
-    // One model feeds several diagrams: say so when it is more than one thing.
+    // One model feeds several diagrams: say so when it is more than one
+    // thing, and when they are drawn elsewhere (states are not).
     if (ids.length > 1) {
+      const states = new Set((latest.current.model.states ?? []).map((s) => s.id));
+      const elsewhere = ids.some((id) => !states.has(id));
       toast(`Deleted ${ids.length} shapes`, {
-        description: "They are gone from this artifact's other diagrams too. Undo with Ctrl/\u2318 Z.",
+        description: elsewhere
+          ? "Also removed from this artifact's other tabs. Press Ctrl/\u2318 Z to undo."
+          : "Press Ctrl/\u2318 Z to undo.",
       });
     }
   };
@@ -434,6 +440,7 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
 
   const n = pending?.clip.items.length ?? 0;
   const left = pending?.left ?? 0;
+  const verb = pending?.dup ? "Duplicate" : "Paste";
   // Steps feed the DFD, RACI and Activity too; states only the State diagram.
   const elsewhere = !!pending?.clip.items.some((x) => x.list !== "states");
   const pasteDialog = (
@@ -441,16 +448,16 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
       open={!!pending}
       onOpenChange={(open) => { if (!open) setPending(null); }}
       tone="default"
-      title={n === 1 ? "Paste this shape as a new item?" : `Paste these ${n} shapes as new items?`}
+      title={n === 1 ? `${verb} this shape?` : `${verb} these ${n} shapes?`}
       consequence={<>
         {n === 1
-          ? <>It is added to this artifact as a new item marked “Added by you”{elsewhere && ", and shows up in its other diagrams too"}.</>
-          : <>They are added to this artifact as new items marked “Added by you”{elsewhere && ", and show up in its other diagrams too"}. Lines between them come along.</>}
-        {left > 0 && <> {left === 1 ? "1 copied shape is" : `${left} copied shapes are`} left out: this diagram doesn’t draw {left === 1 ? "it" : "them"}.</>}
+          ? <>The copy is a new item marked “Added by you”{elsewhere && ", and shows up in this artifact's other tabs too"}.</>
+          : <>The copies are new items marked “Added by you”{elsewhere && ", and show up in this artifact's other tabs too"}. Lines between them come along.</>}
+        {left > 0 && <> {left === 1 ? "1 copied shape is" : `${left} copied shapes are`} left out: this tab doesn’t draw {left === 1 ? "it" : "them"}.</>}
       </>}
-      confirmLabel={n === 1 ? "Paste as a new item" : "Paste as new items"}
+      confirmLabel={verb}
       cancelLabel="Cancel"
-      doing="paste the shapes"
+      doing={pending?.dup ? "duplicate the shapes" : "paste the shapes"}
       onConfirm={confirmPaste}
     />
   );
@@ -491,8 +498,8 @@ export function SnapGuides({ guides }: { guides: Guide[] }) {
           key={`${g.axis}:${g.at}`} data-edit-control aria-hidden
           className="pointer-events-none absolute bg-primary"
           style={g.axis === "x"
-            ? { left: g.at - t / 2, top: g.from - over, width: t, height: g.to - g.from + over * 2, zIndex: 960 }
-            : { top: g.at - t / 2, left: g.from - over, height: t, width: g.to - g.from + over * 2, zIndex: 960 }}
+            ? { left: g.at - t / 2, top: g.from - over, width: t, height: g.to - g.from + over * 2, zIndex: LAYER.guide }
+            : { top: g.at - t / 2, left: g.from - over, height: t, width: g.to - g.from + over * 2, zIndex: LAYER.guide }}
         />
       ))}
     </>
@@ -509,7 +516,7 @@ export function SelectionOutlines({ ids, rects }: { ids: string[]; rects: Map<st
           <div
             key={id} data-edit-control aria-hidden
             className="pointer-events-none absolute rounded-xl ring-2 ring-primary ring-offset-2 ring-offset-background"
-            style={{ left: r.x - 3, top: r.y - 3, width: r.w + 6, height: r.h + 6, zIndex: 900 }}
+            style={{ left: r.x - 3, top: r.y - 3, width: r.w + 6, height: r.h + 6, zIndex: LAYER.outline }}
           />
         );
       })}
@@ -546,7 +553,7 @@ export function SelectionBar({
       data-edit-control data-no-pan
       className="absolute"
       // Centred above the selection, counter-scaled so it reads the same at any zoom.
-      style={{ left: (x0 + x1) / 2, top: y0 - 10, transform: `translate(-50%, -100%) scale(${1 / zoom})`, transformOrigin: "bottom center", zIndex: 950 }}
+      style={{ left: (x0 + x1) / 2, top: y0 - 10, transform: `translate(-50%, -100%) scale(${1 / zoom})`, transformOrigin: "bottom center", zIndex: LAYER.bar }}
       onPointerDown={(e) => e.stopPropagation()}
       // Pressing a button here leaves keyboard focus where it was, so the
       // selection keys keep working afterwards.

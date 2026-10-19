@@ -8,6 +8,7 @@ import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "./canvas-selection";
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
+import { LAYER } from "./canvas-layers";
 import { ConnectHandles, ConnectorEnds, ConnectorPreview, useConnectorDrag } from "./canvas-connectors";
 import { connectorRoute, type Point } from "@/lib/canvas/connector";
 import { useGrownHeights } from "./use-grown-heights";
@@ -339,7 +340,7 @@ export function DFDView({ model, editing }: Props) {
               )}
               {selected && (
                 <path
-                  d={path} fill="none" stroke="var(--color-primary)" strokeOpacity={0.25} strokeWidth={8}
+                  d={path} fill="none" stroke="var(--color-primary)" strokeOpacity={0.6} strokeWidth={7}
                   strokeLinecap="round" pointerEvents="none" data-edit-control
                 />
               )}
@@ -379,7 +380,7 @@ export function DFDView({ model, editing }: Props) {
           <LineLabel
             key={`lbl-${c.id}`} lineId={c.id} onSelect={() => sel.selectLine(c.id)}
             x={m.x} y={m.y}
-            value={c.label ?? ""} placeholder="label" tone="verified"
+            value={c.label ?? ""} placeholder="Add label" tone="verified"
             fieldLabel="Data flow label"
             onChange={(label) => editing.onUpdateConnection(c.id, { label })}
             onDelete={() => editing.onDeleteConnection(c.id)}
@@ -440,7 +441,7 @@ function DFDNodeView({
 
   // Its own height at least, taller when the text needs it.
   const style: React.CSSProperties = {
-    left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, minHeight: node.baseH, zIndex: 10,
+    left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, minHeight: node.baseH, zIndex: LAYER.shape,
   };
 
   // The grip, the delete X and the connect handle only edit: Present mode
@@ -452,7 +453,7 @@ function DFDNodeView({
         <GripVertical data-no-pan data-edit-control onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
         {node.label && <IdChip id={node.label} tone="primary" />}
       </div>
-      <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${node.kind === "process" ? "process" : node.kind === "store" ? "data store" : "external entity"} ${node.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+      <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete ${node.kind === "process" ? "process" : node.kind === "store" ? "data store" : "external entity"} ${node.text}`} className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
         <X className="size-3" />
       </button>
     </div>
@@ -462,7 +463,7 @@ function DFDNodeView({
   const connectHandle = (
     <ConnectHandles
       rect={{ x: node.cx - node.w / 2, y: node.cy - node.h / 2, w: node.w, h: node.h }}
-      tone="verified" title="Drag to another node to draw a flow" onStart={onStartConnect}
+      tone="verified" title="Drag to another shape to draw a data flow" onStart={onStartConnect}
     />
   );
 
@@ -523,7 +524,7 @@ function Legend() {
   }
   return (
     <>
-      <span className={hint}>Click to select · double-click to edit · drag a node's handle to link</span>
+      <span className={hint}>Click to select · drag to move · double-click to type · drag a side dot to draw a data flow</span>
     </>
   );
 }

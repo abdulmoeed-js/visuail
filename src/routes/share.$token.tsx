@@ -18,7 +18,7 @@ import { getSharedProject, type SharedProject } from "@/lib/session";
 export const Route = createFileRoute("/share/$token")({
   head: () => ({
     meta: [
-      { title: "Shared project — visu" },
+      { title: "Shared project — Visu" },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -51,12 +51,12 @@ function SharePage() {
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border bg-card mb-4">
             <Link2Off className="size-5 text-muted-foreground" />
           </div>
-          <h1 className="font-display text-2xl">This link is no longer active.</h1>
+          <h1 className="font-display text-2xl">This link no longer works</h1>
           <p className="text-sm text-muted-foreground mt-2">
-            It may have been revoked, or never existed.
+            It was turned off or mistyped. Ask the person who sent it for a new link.
           </p>
           <Link to="/" className="inline-flex items-center gap-1 mt-6 text-sm text-primary hover:underline">
-            Go to visu <ArrowRight className="size-3.5" />
+            Go to Visu <ArrowRight className="size-3.5" />
           </Link>
         </div>
       </div>

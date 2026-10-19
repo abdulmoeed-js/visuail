@@ -49,7 +49,7 @@ import { addSummaries, gradeOf, gradedItems, summarizeGrades } from "@/lib/grade
 export const Route = createFileRoute("/project/$id")({
   head: () => ({
     meta: [
-      { title: "Project — visu" },
+      { title: "Project — Visu" },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -102,6 +102,18 @@ function ProjectPage() {
 
 type Frame = { x: number; y: number; w: number; h: number };
 interface CanvasPane { key: string; id: string; name: string; kind: ArtifactKind; viewKind?: ViewKind; initial: ArtifactModel; frame?: Frame; }
+
+/** Which DFD a process pane's DFD tab is: the project's own (an artifact
+ *  that opens on the DFD) or a process map's, with a link to the other. */
+function dfdContextFor(pane: CanvasPane, panes: CanvasPane[], open: (key: string) => void) {
+  if (pane.kind !== "process") return undefined;
+  if (pane.viewKind === "dfd") {
+    const map = panes.find((p) => p.kind === "process" && (!p.viewKind || p.viewKind === "process"));
+    return { own: true, other: map ? { label: `Open ${map.name}`, open: () => open(map.key) } : undefined };
+  }
+  const own = panes.find((p) => p.viewKind === "dfd");
+  return { own: false, other: own ? { label: `Open the project’s ${own.name}`, open: () => open(own.key) } : undefined };
+}
 
 /** Lists the items whose grade is "Source changed" (flagged `drift: true` by
  *  diffModels()), counted the same way as every other certainty surface.
@@ -650,6 +662,7 @@ function ProjectShell({ project }: { project: StoredProject }) {
                   tabId={tabId}
                   open={pane.key === active}
                   onEditorChange={onEditorChange}
+                  dfd={dfdContextFor(pane, panes, openArtifact)}
                 />
               ))}
             </div>
@@ -692,9 +705,10 @@ function peerLabel(peer: Peer, myUserId: string | undefined): string {
 
 function CanvasPaneMount({
   pane, visible, onPublish, registerRef, onModelChange, projectId, commentCounts, onCommentCountChange, focusItemId,
-  tabId, open, onEditorChange,
+  tabId, open, onEditorChange, dfd,
 }: {
   pane: CanvasPane; visible: boolean;
+  dfd?: { own: boolean; other?: { label: string; open: () => void } };
   onPublish: (action: string) => void;
   registerRef: (el: HTMLDivElement | null) => void;
   /** `save` is true only while this tab is the artifact's editor: a viewer's
@@ -765,7 +779,7 @@ function CanvasPaneMount({
         editing={editing} onPublish={onPublish} exportLabel="Download all as PDF"
         projectId={projectId} commentCounts={commentCounts} onCommentCountChange={onCommentCountChange}
         focusItemId={focusItemId} initialTab={tabForViewKind(pane.viewKind)}
-        viewing={viewing}
+        viewing={viewing} dfd={dfd}
       />
     </div>
   );

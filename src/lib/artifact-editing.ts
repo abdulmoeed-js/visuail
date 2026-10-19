@@ -574,7 +574,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
   // (index 1, same source position but a fresh look), then diff the result
   // against the pristine baseline for real -- not a hardcoded set of ids.
   const onSimulateDrift = () => {
-    if (mutate(() => diffModels(pristine, perturb(pristine, 1)), { label: "source change" })) setDrifted(true);
+    if (mutate(() => diffModels(pristine, perturb(pristine, 1)), { label: "simulated source change" })) setDrifted(true);
   };
   const onClearDrift = () => { if (mutate(() => pristine, { label: "source restore" })) setDrifted(false); };
 
@@ -587,17 +587,17 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
       const pasted = pasteShapes(m, clip, nextId, dx, dy);
       out = { ids: pasted.ids, places: pasted.places };
       return SAVE_LAYOUTS ? placeShapes(pasted.model, view, pasted.places, current) : pasted.model;
-    }, { label: "paste" });
+    }, { label: clip.duplicate ? "the duplicate" : "the paste" });
     if (!ok || !out) return null;
     noteLastAdded((out as { ids: string[] }).ids.at(-1) ?? null);
     return out;
   };
 
   const onPlaceShapes = (view: ViewId, moved: Record<string, NodeLayout | null>, current: Record<string, NodeLayout>, mergeKey?: string) =>
-    mutate((m) => placeShapes(m, view, moved, current), { label: "move", mergeKey });
-  const onTidyUp = (view: ViewId) => mutate((m) => clearLayout(m, view), { label: "tidy-up" });
+    mutate((m) => placeShapes(m, view, moved, current), { label: "the move", mergeKey });
+  const onTidyUp = (view: ViewId) => mutate((m) => clearLayout(m, view), { label: "the tidy-up" });
   const onSetBlockHeight = (blockId: string, h: number) =>
-    mutate((m) => (m.kind === "bmc" ? setBlockHeight(m, blockId, h) : m), { label: "resize" });
+    mutate((m) => (m.kind === "bmc" ? setBlockHeight(m, blockId, h) : m), { label: "the resize" });
   const canEdit = () => {
     if (collab && isOutdated()) { onBlockedRef.current?.("outdated"); return false; }
     if (roleRef.current === "viewer") { onBlockedRef.current?.("editing"); return false; }

@@ -16,7 +16,7 @@ const NOUNS: Record<string, string> = {
   decisions: "decision",
   exceptions: "exception",
   systems: "system",
-  connections: "connection",
+  connections: "line",
   branches: "branch",
   nonFunctionalRequirements: "requirement",
   testCases: "test case",
@@ -185,7 +185,7 @@ export function summariseEdit(from: unknown, to: unknown): EditSummary {
 export function historyNotice(direction: "undo" | "redo", s: EditSummary): string {
   const undo = direction === "undo";
   if (s.label)
-    return `${undo ? "Undo" : "Redo"}: ${s.label} ${undo ? "taken back" : "applied again"}`;
+    return `${undo ? "Undo" : "Redo"}: ${s.label} ${undo ? "reversed" : "done again"}`;
   const parts: string[] = [];
   if (s.removed) parts.push(`${s.removed} removed`);
   if (s.added) parts.push(`${s.added} ${undo ? "restored" : "added"}`);

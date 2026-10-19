@@ -8,9 +8,10 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useArtifactFullscreen } from "./artifact-fullscreen";
 import { InlineEdit } from "./InlineEdit";
+import { LAYER } from "./canvas-layers";
 
 export function LineLabel({
-  x, y, value, placeholder, tone, onChange, onDelete, deleteLabel, fieldLabel, quiet, zIndex = 20, children, lineId, onSelect,
+  x, y, value, placeholder, tone, onChange, onDelete, deleteLabel, fieldLabel, quiet, zIndex = LAYER.lineLabel, children, lineId, onSelect,
 }: {
   /** A click on the words, or focus on them, selects the line (they often
    *  cover a short one; and the keys then act on the line). */
@@ -94,7 +95,7 @@ export function LineLabel({
               onClick={(e) => { e.stopPropagation(); onDelete(); }}
               aria-label={deleteLabel}
               title={deleteLabel}
-              className="grid size-4 place-items-center rounded-full border bg-card text-muted-foreground opacity-0 group-hover/line:opacity-100 focus-visible:opacity-100 hover:text-destructive transition"
+              className="relative grid size-4 place-items-center rounded-full border bg-card text-muted-foreground opacity-0 group-hover/line:opacity-100 focus-visible:opacity-100 hover:text-destructive transition before:absolute before:-inset-1 before:content-['']"
             >
               <X className="size-2.5" />
             </button>

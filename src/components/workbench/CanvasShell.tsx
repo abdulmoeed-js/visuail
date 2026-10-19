@@ -2,7 +2,7 @@ import {
   createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type MutableRefObject, type ReactNode,
 } from "react";
-import { Maximize2, ZoomIn, ZoomOut, LocateFixed } from "lucide-react";
+import { Info, Maximize2, ZoomIn, ZoomOut, LocateFixed } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCanvasViewStore } from "./canvas-view-store";
@@ -81,6 +81,9 @@ export function useWorldDrag() {
 }
 /** The transition the canvas content uses while gliding. */
 export const CANVAS_GLIDE_CLASS = "motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out";
+
+/** Where the key's open or closed state is remembered (this browser). */
+const KEY_PREF = "visu:canvas-key-open";
 
 /** A rectangle in canvas-content coordinates -- the unscaled space nodes are laid out in. */
 export interface CanvasRect { x: number; y: number; w: number; h: number }
@@ -222,6 +225,24 @@ export function CanvasShell({
   // Parked with the camera, so a trip to another tab does not forget it.
   const [moved, setMoved] = useState<boolean>(() => saved?.moved ?? false);
   const [vp, setVp] = useState({ w: 0, h: 0 });
+  // The key (bottomLeft) folds away so it never has to cover the diagram:
+  // open by default where there is room, closed on a narrow canvas, and
+  // then as the person last left it (this browser only).
+  const [keyChoice, setKeyChoice] = useState<boolean | null>(null);
+  useEffect(() => {
+    try { const v = localStorage.getItem(KEY_PREF); if (v !== null) setKeyChoice(v === "1"); } catch { /* storage blocked */ }
+  }, []);
+  const keyOpen = keyChoice ?? vp.w >= 640;
+  useLayoutEffect(() => {
+    const l = lifeRef.current;
+    if (!l || !l.ready || l.touched || !lastSize.current) return;
+    setView(openingView(lastSize.current.w, lastSize.current.h));
+  }, [keyOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleKey = () => {
+    const next = !keyOpen;
+    setKeyChoice(next);
+    try { localStorage.setItem(KEY_PREF, next ? "1" : "0"); } catch { /* storage blocked */ }
+  };
   const [gliding, setGliding] = useState(false);
   // Full screen and Present mode belong to the artifact this canvas sits in.
   const afs = useArtifactFullscreen();
@@ -923,7 +944,7 @@ export function CanvasShell({
         </Button>
         <button
           onClick={() => zoomTo(1)}
-          title="Zoom to 100% (Ctrl/Cmd+0 fits the diagram to the view)"
+          title="Zoom to 100% (Shift 0)"
           aria-label={`Zoom is ${Math.round(zoom * 100)} percent. Set to 100 percent`}
           className="w-12 text-center text-[11px] font-mono-tight text-muted-foreground hover:text-foreground self-center"
         >
@@ -941,7 +962,7 @@ export function CanvasShell({
         <Button size="icon" variant="ghost"
           className={cn("h-7 w-7", cutOff && "bg-primary/10 text-primary ring-1 ring-primary/50")}
           onClick={fitView}
-          title={cutOff ? "Part of the diagram is off-screen. Fit to view (Ctrl/Cmd+0)" : "Fit to view (Ctrl/Cmd+0)"}
+          title={cutOff ? "Part of the diagram is off-screen. Fit to screen (Shift 1)" : "Fit to screen (Shift 1)"}
           aria-label={cutOff ? "Part of the diagram is off-screen. Fit to view" : "Fit to view"}>
           <LocateFixed className="size-3.5" />
         </Button>
@@ -998,6 +1019,8 @@ export function CanvasShell({
             )}
             style={{
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              // For handles that keep their size on screen (.counter-zoom).
+              ["--canvas-zoom" as string]: zoom,
               width: contentWidth,
               height: contentHeight,
               visibility: laidOut ? undefined : "hidden",
@@ -1035,7 +1058,14 @@ export function CanvasShell({
           <div ref={slotsRef} className="flex min-w-0 flex-1 flex-wrap items-end gap-2">
             {bottomLeft && (
               <div className="pointer-events-auto flex min-w-0 flex-wrap items-center gap-2" data-no-pan>
-                {bottomLeft}
+                <button
+                  type="button" onClick={toggleKey} aria-expanded={keyOpen}
+                  title={keyOpen ? "Hide the key" : "Show the key: what the shapes and outlines mean"}
+                  className="flex h-7 items-center gap-1.5 rounded border bg-card/95 px-2 text-[10px] font-mono-tight text-muted-foreground backdrop-blur transition hover:text-foreground"
+                >
+                  <Info className="size-3" aria-hidden /> {keyOpen ? "Hide key" : "Key"}
+                </button>
+                {keyOpen && bottomLeft}
               </div>
             )}
             {bottomRight && !presenting && (

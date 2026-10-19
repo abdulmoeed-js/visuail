@@ -7,6 +7,7 @@ import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "./canvas-selection";
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
+import { LAYER } from "./canvas-layers";
 import { ConnectHandles, ConnectorEnds, ConnectorPreview, useConnectorDrag } from "./canvas-connectors";
 import { connectorRoute, type Point } from "@/lib/canvas/connector";
 import { useGrownHeights } from "./use-grown-heights";
@@ -302,7 +303,7 @@ export function StateDiagramView({ model, editing }: Props) {
               )}
               {selected && (
                 <path
-                  d={l.path} fill="none" stroke="var(--color-primary)" strokeOpacity={0.25} strokeWidth={8}
+                  d={l.path} fill="none" stroke="var(--color-primary)" strokeOpacity={0.6} strokeWidth={7}
                   strokeLinecap="round" pointerEvents="none" data-edit-control
                 />
               )}
@@ -343,7 +344,7 @@ export function StateDiagramView({ model, editing }: Props) {
         return (
           <LineLabel
             key={`lbl-${c.id}`} lineId={c.id} x={m.x} y={m.y} onSelect={() => sel.selectLine(c.id)}
-            value={c.label ?? ""} placeholder="event" tone="primary"
+            value={c.label ?? ""} placeholder="Add event" tone="primary"
             fieldLabel="Transition: event [guard] / action"
             onChange={(label) => editing.onUpdateConnection(c.id, { label })}
             onDelete={() => editing.onDeleteConnection(c.id)}
@@ -405,7 +406,7 @@ function StateNodeView({
       className="group absolute rounded-xl border-2 border-primary/60 bg-card shadow-sm flex flex-col gap-1 px-2.5 py-2"
       style={{
         // Its own height at least, taller when the text needs it.
-        left: node.cx - STATE_W / 2, top: node.cy - node.h / 2, width: STATE_W, minHeight: STATE_H, zIndex: 10,
+        left: node.cx - STATE_W / 2, top: node.cy - node.h / 2, width: STATE_W, minHeight: STATE_H, zIndex: LAYER.shape,
         ...(node.ref.isFinal ? { boxShadow: "0 0 0 2px var(--color-card), 0 0 0 4px var(--color-primary)" } : {}),
       }}
     >
@@ -419,7 +420,7 @@ function StateNodeView({
           <GripVertical data-no-pan data-edit-control onPointerDown={onPointerDown} className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0" />
           <IdChip id={node.ref.id} tone="primary" />
         </div>
-        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete state ${node.ref.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
+        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete state ${node.ref.text}`} className="relative before:absolute before:-inset-1 before:content-[''] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition shrink-0">
           <X className="size-3" />
         </button>
       </div>
@@ -427,11 +428,11 @@ function StateNodeView({
         <InlineEdit value={node.ref.text} onChange={onUpdateText} multiline activate="double" />
       </div>
       <div className="mt-auto flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 transition" data-no-pan data-edit-control>
-        <button onClick={onToggleInitial} title="Toggle initial state"
+        <button onClick={onToggleInitial} title={node.ref.isInitial ? "Initial state (click to unmark)" : "Mark as initial state"} aria-pressed={!!node.ref.isInitial} aria-label="Initial state"
           className={node.ref.isInitial ? "text-primary" : "text-muted-foreground hover:text-foreground"}>
           <CircleDot className="size-3" />
         </button>
-        <button onClick={onToggleFinal} title="Toggle final state"
+        <button onClick={onToggleFinal} title={node.ref.isFinal ? "Final state (click to unmark)" : "Mark as final state"} aria-pressed={!!node.ref.isFinal} aria-label="Final state"
           className={"text-[9px] font-mono-tight " + (node.ref.isFinal ? "text-primary" : "text-muted-foreground hover:text-foreground")}>
           final
         </button>
@@ -439,7 +440,7 @@ function StateNodeView({
       <ConnectHandles
         rect={{ x: node.cx - STATE_W / 2, y: node.cy - node.h / 2, w: STATE_W, h: node.h }}
         tone="primary" onStart={onStartConnect}
-        title="Drag to another state to connect (let go on this one for a self-transition)"
+        title="Drag to another state to draw a transition, or let go on this one to loop back"
       />
     </div>
   );
@@ -455,7 +456,7 @@ function Legend() {
       <span className={chip}><span className="h-2.5 w-2.5 rounded-full bg-foreground" /> Initial</span>
       <span className={chip}><span className="h-2.5 w-2.5 rounded-full border-2 border-primary" /> Final (ring)</span>
       {/* How to edit: describes handles Present mode hides, so it goes too. */}
-      <span data-edit-control className={`hidden @min-[640px]:flex ${look}`}>Drag connect-handle to link · drag onto self for a self-transition</span>
+      <span data-edit-control className={`hidden @min-[640px]:flex ${look}`}>Click to select · drag to move · double-click to type · drag a side dot to another state, or back onto this one to loop</span>
     </>
   );
 }

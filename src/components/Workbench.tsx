@@ -44,6 +44,7 @@ import { ProjectView } from "./workbench/ProjectView";
 import { SignupWallModal } from "./SignupWallModal";
 import { useArtifactEditing, type ArtifactEditing } from "@/lib/artifact-editing";
 import { OUTDATED_DETAIL, OUTDATED_SAFE, OUTDATED_TITLE } from "@/lib/model-schema";
+import { SAVE_LAYOUTS } from "@/lib/canvas/layout";
 import { checkRefusal } from "@/lib/refusal";
 import { verifyGrounding } from "@/lib/grounding";
 import type { ViewKind } from "@/lib/session";
@@ -363,9 +364,13 @@ function historyToast(
  */
 export function ArtifactView({
   editing, onPublish, exportLabel = "Download as PDF", canvasRef, extraHeaderRight,
-  projectId, commentCounts, onCommentCountChange, focusItemId, initialTab, demoHints, viewing,
+  projectId, commentCounts, onCommentCountChange, focusItemId, initialTab, demoHints, viewing, dfd,
 }: {
   editing: ArtifactEditing;
+  /** Which DFD this one is, on the project page: a project can have its own
+   *  Data Flow Diagram and, inside each process map, a DFD of that process.
+   *  Names the tab and says so in one line, with a link to the other. */
+  dfd?: { own: boolean; other?: { label: string; open: () => void } };
   /** Share and export actions. Omitted on the public share page, where the
    *  reader has nothing to publish. */
   onPublish?: (action: string) => void;
@@ -408,7 +413,7 @@ export function ArtifactView({
     { value: "artifact", label: model.kind === "process" ? "Process map" : "Canvas" },
     ...(model.kind === "process" ? [{ value: "usecases" as const, label: "Use cases" }] : []),
     ...(model.kind === "process" ? [{ value: "raci" as const, label: "RACI" }] : []),
-    ...(model.kind === "process" ? [{ value: "dfd" as const, label: "DFD" }] : []),
+    ...(model.kind === "process" ? [{ value: "dfd" as const, label: dfd && !dfd.own ? "DFD of this process" : "DFD" }] : []),
     ...(model.kind === "process" ? [{ value: "decisiontree" as const, label: "Decision tree" }] : []),
     ...(model.kind === "process" ? [{ value: "statediagram" as const, label: "State diagram" }] : []),
     ...(model.kind === "process" ? [{ value: "activity" as const, label: "Activity" }] : []),
@@ -730,7 +735,7 @@ export function ArtifactView({
               size="icon" variant="ghost"
               className="relative h-8 w-8 before:absolute before:-inset-x-[3px] before:-inset-y-[6px] before:content-[''] aria-disabled:[&_svg]:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:cursor-default"
               onClick={() => runHistory("undo")} aria-disabled={!editing.canUndo}
-              title="Undo last edit (Ctrl/Cmd+Z). Moving or resizing shapes is not included."
+              title={SAVE_LAYOUTS ? "Undo last edit (Ctrl/⌘ Z)" : "Undo last edit (Ctrl/⌘ Z). Moving or resizing shapes is not included."}
               aria-label="Undo last edit"
             >
               <Undo2 className="size-4" />
@@ -739,7 +744,7 @@ export function ArtifactView({
               size="icon" variant="ghost"
               className="relative h-8 w-8 before:absolute before:-inset-x-[3px] before:-inset-y-[6px] before:content-[''] aria-disabled:[&_svg]:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:cursor-default"
               onClick={() => runHistory("redo")} aria-disabled={!editing.canRedo}
-              title="Redo (Ctrl/Cmd+Shift+Z)" aria-label="Redo"
+              title="Redo (Ctrl/⌘ Shift Z)" aria-label="Redo"
             >
               <Redo2 className="size-4" />
             </Button>
@@ -804,6 +809,18 @@ export function ArtifactView({
 
           {tab === "dfd" && model.kind === "process" && (
             <div className="h-full p-4">
+              {dfd && !fs.active && (
+                <p className="mb-2 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  {dfd.own
+                    ? "This is the project’s own Data Flow Diagram. Each process map also has a DFD tab, drawn from its own steps."
+                    : "Drawn from this process map’s steps. Changes here change the process map too."}
+                  {dfd.other && (
+                    <button type="button" onClick={dfd.other.open} className="text-primary underline underline-offset-4 hover:no-underline">
+                      {dfd.other.label}
+                    </button>
+                  )}
+                </p>
+              )}
               <div className={fs.active ? "h-full" : "h-[640px]"}>
                 <DFDView model={model} editing={editing} />
               </div>

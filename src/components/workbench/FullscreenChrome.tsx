@@ -33,7 +33,7 @@ export function FullscreenHeader({
       {summary && <div className="hidden md:block min-w-[160px] max-w-[300px]">{summary}</div>}
       {outdated && !fs.presenting && (
         <div className="flex items-center gap-2 rounded-lg bg-unresolved/10 px-2.5 py-1 text-xs">
-          <span>Visu was updated</span>
+          <span>Visu was updated. Reload to keep editing; your work is saved.</span>
           <Button size="sm" variant="outline" className="h-7 bg-card" onClick={() => window.location.reload()}>Reload</Button>
         </div>
       )}

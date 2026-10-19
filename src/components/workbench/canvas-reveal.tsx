@@ -6,6 +6,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCanvas, type CanvasApi, type CanvasRect, type RevealTarget } from "./CanvasShell";
+import { LAYER } from "./canvas-layers";
 
 const FLASH_MS = 1800;
 
@@ -100,7 +101,7 @@ export function FlashRing({ rect }: { rect: CanvasRect | null }) {
         top: rect.y - 8,
         width: rect.w + 16,
         height: rect.h + 16,
-        zIndex: 100000,
+        zIndex: LAYER.flash,
         boxShadow: ringShadow(zoom),
       }}
     />

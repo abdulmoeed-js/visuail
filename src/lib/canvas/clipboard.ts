@@ -49,6 +49,8 @@ type AnyItem = BaseItem & Record<string, unknown>;
  *  sat in the diagram it was copied from (top-left corners). */
 export interface ShapeClip {
   view: ViewId;
+  /** Made by Duplicate rather than Copy (for the undo notice's wording). */
+  duplicate?: boolean;
   items: { list: ShapeList; item: AnyItem }[];
   connections: Connection[];
   places: Record<string, { x: number; y: number }>;

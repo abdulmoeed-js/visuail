@@ -11,7 +11,7 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { InlineError } from "@/components/ui/inline-error";
 import { Nav } from "@/components/Nav";
-import { useSession, sessionStore, FREE_LIMIT, type StoredProject, type Tier, type DriftAlert } from "@/lib/session";
+import { useSession, sessionStore, FREE_LIMIT, type StoredProject, type Tier, type DriftAlert, type ViewKind } from "@/lib/session";
 import { allItems } from "@/data/samples";
 import { addSummaries, summarizeGrades } from "@/lib/grade";
 import { friendlyError, type FriendlyError } from "@/lib/friendly-error";
@@ -165,8 +165,8 @@ function NeedsReviewStrip({ projects }: { projects: StoredProject[] }) {
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
-      { title: "Dashboard — visu" },
-      { name: "description", content: "Your visu projects and quotas." },
+      { title: "Dashboard — Visu" },
+      { name: "description", content: "Your Visu projects and quotas." },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -430,7 +430,7 @@ function ContinueCard({ project }: { project: StoredProject }) {
             </p>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <KindChips kinds={project.kinds} fromScratch={project.fromScratch} />
+            <KindChips project={project} />
             <span className="inline-flex items-center gap-1 text-[11px] font-mono-tight text-muted-foreground">
               <Layers className="size-3" aria-hidden /> {st.count} item{st.count === 1 ? "" : "s"}
             </span>
@@ -546,7 +546,7 @@ function ProjectCard({ project }: { project: StoredProject }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <KindChips kinds={project.kinds} fromScratch={project.fromScratch} />
+        <KindChips project={project} />
       </div>
 
       <div className="mt-auto flex items-center justify-between border-t pt-2 text-[11px] text-muted-foreground">
@@ -652,20 +652,27 @@ function RenameProjectDialog({
   );
 }
 
-function KindChips({ kinds, fromScratch }: { kinds: StoredProject["kinds"]; fromScratch?: boolean }) {
+/** Short names for the chips, in the order the project page lists them. */
+const KIND_CHIPS: [ViewKind, string][] = [
+  ["process", "Process map"], ["bmc", "BMC"], ["dfd", "DFD"], ["raci", "RACI"],
+  ["decisiontree", "Decision tree"], ["statediagram", "State diagram"], ["activity", "Activity"],
+];
+
+/** One chip for each kind of artifact the project has (a project made
+ *  before artifacts were listed one by one falls back to its kinds). */
+function KindChips({ project }: { project: StoredProject }) {
+  const have = new Set<ViewKind>(project.canvases.length > 0
+    ? project.canvases.map((c) => c.viewKind ?? c.kind)
+    : project.kinds);
+  const chip = "inline-flex items-center gap-1 rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight";
   return (
     <>
-      {kinds.includes("process") && (
-        <span className="inline-flex items-center gap-1 rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight">
-          <Workflow className="size-3" /> Process map
+      {KIND_CHIPS.filter(([k]) => have.has(k)).map(([k, label]) => (
+        <span key={k} className={chip}>
+          {k === "process" ? <Workflow className="size-3" /> : k === "bmc" ? <LayoutGrid className="size-3" /> : null} {label}
         </span>
-      )}
-      {kinds.includes("bmc") && (
-        <span className="inline-flex items-center gap-1 rounded-md border bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono-tight">
-          <LayoutGrid className="size-3" /> BMC
-        </span>
-      )}
-      {fromScratch && (
+      ))}
+      {project.fromScratch && (
         <span className="inline-flex items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-[10px] font-mono-tight text-muted-foreground">
           empty
         </span>
@@ -812,7 +819,7 @@ function TipsCard({ onNew }: { onNew: () => void }) {
         <li>
           <Link to="/" className="w-full text-left flex items-center gap-2 hover:text-primary transition">
             <Info className="size-3.5 shrink-0 text-muted-foreground" />
-            <span>See what visu does</span>
+            <span>See what Visu does</span>
           </Link>
         </li>
       </ul>
@@ -850,7 +857,7 @@ function EmptyState({ onStart }: { onStart: () => void }) {
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border bg-card mb-4">
         <FolderPlus className="size-5 text-primary" />
       </div>
-      <h2 className="font-display text-2xl">Nothing here yet.</h2>
+      <h2 className="font-display text-2xl">Nothing here yet</h2>
       <p className="text-sm text-muted-foreground max-w-md mx-auto mt-2">
         Start a project from a transcript, a template, or a blank canvas. You don't need a source to begin —
         you can paste one anytime later.

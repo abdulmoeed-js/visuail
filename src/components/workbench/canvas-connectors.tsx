@@ -10,6 +10,7 @@ import type { Rect } from "@/lib/canvas/layout";
 import { anchor, type Point, type Side } from "@/lib/canvas/connector";
 import { cn } from "@/lib/utils";
 import { followPointer, type CanvasApi } from "./CanvasShell";
+import { LAYER } from "./canvas-layers";
 
 /** A line being drawn or re-attached: from a point to the pointer, and the
  *  shape it would land on if let go now. */
@@ -77,12 +78,12 @@ export function ConnectorPreview({ live, rects, color }: { live: LiveConnector |
           data-edit-control aria-hidden
           className="pointer-events-none absolute rounded-xl"
           style={{
-            left: t.x - 3, top: t.y - 3, width: t.w + 6, height: t.h + 6, zIndex: 965,
+            left: t.x - 3, top: t.y - 3, width: t.w + 6, height: t.h + 6, zIndex: LAYER.preview,
             boxShadow: `0 0 0 2px var(--color-background), 0 0 0 4px ${color}`,
           }}
         />
       )}
-      <svg data-edit-control aria-hidden className="pointer-events-none absolute left-0 top-0 overflow-visible" width={1} height={1} style={{ zIndex: 966 }}>
+      <svg data-edit-control aria-hidden className="pointer-events-none absolute left-0 top-0 overflow-visible" width={1} height={1} style={{ zIndex: LAYER.preview + 1 }}>
         <path
           d={`M ${live.from.x} ${live.from.y} L ${live.to.x} ${live.to.y}`}
           fill="none" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeDasharray="4 3" opacity={0.85}
@@ -123,12 +124,17 @@ export function ConnectHandles({
           onPointerDown={(e) => onStart(e, anchor(rect, side))}
           title={title}
           className={cn(
-            "absolute z-10 h-3.5 w-3.5 rounded-full border-2 bg-card shadow-sm opacity-0 transition cursor-crosshair",
+            "group/dot absolute z-10 h-3.5 w-3.5 opacity-0 transition cursor-crosshair",
             "group-hover:opacity-100 focus-within:opacity-100 before:absolute before:-inset-2 before:content-['']",
-            tone === "verified" ? "border-verified hover:bg-verified" : "border-primary hover:bg-primary",
             place,
           )}
-        />
+        >
+          {/* The dot you see keeps its size on screen when zoomed out. */}
+          <span className={cn(
+            "counter-zoom pointer-events-none absolute inset-0 rounded-full border-2 bg-card shadow-sm transition-colors",
+            tone === "verified" ? "border-verified group-hover/dot:bg-verified" : "border-primary group-hover/dot:bg-primary",
+          )} />
+        </div>
       ))}
     </>
   );
@@ -151,8 +157,8 @@ export function ConnectorEnds({
           data-no-pan data-edit-control
           onPointerDown={(e) => onStart(e, end)}
           title={end === "from" ? "Drag to start this line from another shape" : "Drag to end this line at another shape"}
-          className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-card shadow-sm cursor-grab before:absolute before:-inset-2 before:content-['']"
-          style={{ left: p.x, top: p.y, zIndex: 955 }}
+          className="counter-zoom absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-card shadow-sm cursor-grab before:absolute before:-inset-2 before:content-['']"
+          style={{ left: p.x, top: p.y, zIndex: LAYER.handle }}
         />
       ))}
     </>
