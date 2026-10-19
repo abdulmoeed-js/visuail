@@ -816,7 +816,11 @@ export function ProcessCanvas({
     if (typeof id === "string") revealNew(id);
   };
 
+  // Lines drawn by hand (or a DFD's data flows). Where one joins the same
+  // two shapes as a flow arrow, the arrow steps aside for it (below), so the
+  // pair is not drawn twice and the line can still be picked and named.
   const manualConnections = model.connections ?? [];
+  const drawnPairs = new Set(manualConnections.map((c) => `${c.fromId}>${c.toId}`));
 
   const handleDrop = (cx: number, cy: number, e: React.DragEvent) => {
     if (presenting) return;
@@ -1148,9 +1152,7 @@ export function ProcessCanvas({
           // A shape placed by hand is one the person created (see
           // item-origin) WITH an explicit shape: only the palette and the
           // starter flow pass one; the add bar and the lane "+" never do.
-          const inFlow = (s: SpineNode) => s.kind === "decision" || !NON_FLOW_SHAPES.has((s.ref as Step).shape ?? "step");
-          const placedByHand = (s: SpineNode) => isUserCreatedId(s.ref.id) && (s.ref as Step | Decision).shape != null;
-          if (!inFlow(n) || !inFlow(next) || placedByHand(n) || placedByHand(next)) return null;
+          if (!joinsInFlow(n, next)) return null;
           const primaryBranch = n.kind === "decision"
             ? decisionBranches(n.ref as Decision).find((b) => b.targetId === next.ref.id)
             : undefined;
@@ -1176,12 +1178,16 @@ export function ProcessCanvas({
               ? connectorPath([from, { x: midX, y: from.y }, { x: midX, y: to.y }, to])
               : connectorPath([from, { x: from.x, y: midY }, { x: to.x, y: midY }, to]);
           }
+          const byHand = drawnPairs.has(`${n.ref.id}>${next.ref.id}`);
+          if (byHand && !yesLabel) return null;
           return (
             <g key={`spine-${i}`}>
-              <path
-                d={path} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75}
-                strokeLinecap="round" markerEnd="url(#arrow)"
-              />
+              {!byHand && (
+                <path
+                  d={path} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75}
+                  strokeLinecap="round" markerEnd="url(#arrow)"
+                />
+              )}
               {yesLabel && (
                 <text x={from.x + 10} y={midY + 4} fill="var(--color-foreground)" fontSize="11" fontFamily="var(--font-mono)">
                   {yesLabel}
@@ -1902,6 +1908,16 @@ function DragHandle({ handlers }: { handlers: ReturnType<typeof useNodeDrag> }) 
       <GripVertical className="size-3.5" />
     </button>
   );
+}
+
+/** Whether the flow arrow joins two shapes next to each other on the spine:
+ *  never a box that is not a step, nor a shape the person placed by hand
+ *  (one they created WITH an explicit shape: only the palette and the
+ *  starter flow pass one; the add bar and the lane "+" never do). */
+function joinsInFlow(n: SpineNode, next: SpineNode) {
+  const inFlow = (s: SpineNode) => s.kind === "decision" || !NON_FLOW_SHAPES.has((s.ref as Step).shape ?? "step");
+  const placedByHand = (s: SpineNode) => isUserCreatedId(s.ref.id) && (s.ref as Step | Decision).shape != null;
+  return inFlow(n) && inFlow(next) && !placedByHand(n) && !placedByHand(next);
 }
 
 /** A node's box in canvas units (where its connectors start). */

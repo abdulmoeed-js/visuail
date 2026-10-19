@@ -81,6 +81,7 @@ export function BMCCanvas({ model, onAdd, onDelete, onUpdate, onSetBlockHeight, 
       // on a laptop-width canvas it opens whole at around two-thirds size,
       // still readable, rather than at 80% with Customer Segments cut off.
       // Narrower than that it opens cut, and the Fit button is picked out.
+      initialView="whole"
       readableZoom={0.6}
       gridClassName="bp-grid-fine"
     >

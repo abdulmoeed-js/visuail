@@ -9,6 +9,7 @@ import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
 import { LAYER } from "./canvas-layers";
+import { toast } from "sonner";
 import { DeleteX } from "./canvas-controls";
 import { ConnectHandles, ConnectorEnds, ConnectorPreview, LineBar, useConnectorDrag } from "./canvas-connectors";
 import { connectorRoute, type Point } from "@/lib/canvas/connector";
@@ -141,6 +142,18 @@ export function DFDView({ model, editing }: Props) {
     setOverrides((cur) => { const next = { ...cur }; delete next[id]; return next; });
   };
   const tidyUp = () => { if (editing.onTidyUp("dfd")) setOverrides({}); };
+  /** One flow from each process to the next, in the order of the steps.
+   *  Not across a decision: the process map and activity diagram draw these
+   *  lines too, and one there would skip the decision. */
+  const stepPairs = useMemo(() => {
+    const steps = model.steps.filter((s) => byId.has(s.id));
+    const split = new Set(model.decisions.map((d) => d.afterStepId));
+    return steps.slice(0, -1).flatMap((s, i) => (split.has(s.id) ? [] : [[s.id, steps[i + 1].id] as [string, string]]));
+  }, [model.steps, model.decisions, byId]);
+  const drawStepFlows = () => {
+    const added = editing.onAddConnections(stepPairs);
+    if (added) toast(`Added ${added} data flow${added === 1 ? "" : "s"}`, { description: "Name each one on its line. Press Ctrl/⌘ Z to undo." });
+  };
 
   const presenting = !!useArtifactFullscreen()?.presenting;
   // Selecting nodes (click, Shift-click, a box), moving them together, the
@@ -292,6 +305,18 @@ export function DFDView({ model, editing }: Props) {
       onBackgroundPress={sel.onBackgroundPress}
       // Empty: aim at the middle, where the prompt is drawn.
       initialFocus={isEmpty ? { x: width / 2, y: 0, w: 0, h: 0 } : undefined}
+      // No data flows yet: a DFD without them is only a list of boxes, so say
+      // how to draw one, and offer the obvious ones (each step to the next).
+      notice={drawnFlows.length === 0 && nodes.some((n) => n.kind === "process") ? (
+        <div data-edit-control className="flex max-w-md flex-wrap items-center justify-center gap-x-3 gap-y-1.5 rounded-lg border bg-card/95 px-3 py-2 text-center text-xs text-muted-foreground shadow-sm backdrop-blur">
+          <span>No data flows yet. Drag a dot on a shape’s side to another shape to draw one.</span>
+          {stepPairs.length > 0 && (
+            <button type="button" onClick={drawStepFlows} className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 font-medium text-foreground hover:border-primary/60">
+              <Wand2 className="size-3.5 text-primary" aria-hidden /> Draw flows between the steps, in order
+            </button>
+          )}
+        </div>
+      ) : undefined}
       bottomLeft={adding && !presenting ? undefined : <Legend />}
       bottomRight={
         adding ? (

@@ -127,6 +127,10 @@ interface Props {
   bottomLeft?: ReactNode;           // legend etc.
   bottomRight?: ReactNode;          // e.g. Add step
   overlay?: ReactNode;              // extra absolute-positioned UI inside the shell (above viewport)
+  /** A short message about the diagram as a whole (e.g. "No data flows
+   *  yet"), on its own row of the bottom bar: the opening view keeps the
+   *  diagram clear of it, and Present mode leaves it out. */
+  notice?: ReactNode;
   onCanvasDrop?: (canvasX: number, canvasY: number, e: React.DragEvent) => void;
   minimap?: boolean;
   gridClassName?: string;
@@ -137,12 +141,14 @@ interface Props {
    *  When set and a CanvasViewStoreProvider is above, zoom and pan survive the
    *  view unmounting on a tab switch. */
   viewId?: string;
-  /** "readable" (default) never opens below `readableZoom`: a diagram that
-   *  fits at that size or larger opens whole, exactly as before; one that does
-   *  not opens AT that size on its start, instead of being shrunk to fit.
-   *  "fit" always shows everything, however small -- right for an overview
-   *  like the project board. */
-  initialView?: "readable" | "fit";
+  /** "readable" (default) opens every diagram AT `readableZoom`: centred if
+   *  it fits, aimed at its start if not, so switching between an artifact's
+   *  diagram tabs never jumps between sizes. "whole" opens it whole when that
+   *  is at `readableZoom` or larger (up to 100%), else as "readable" -- right
+   *  for a canvas read as one piece, like the business model canvas. "fit"
+   *  always shows everything, however small -- right for an overview like
+   *  the project board. */
+  initialView?: "readable" | "whole" | "fit";
   readableZoom?: number;
   /** Where the diagram starts (e.g. the first node). Used to aim the opening
    *  view when the whole diagram does not fit at a readable size. */
@@ -191,7 +197,7 @@ const RESTORE_CHECK_MS = 200;    // let content measure before judging a restore
 
 export function CanvasShell({
   contentWidth, contentHeight, children,
-  toolbar, bottomLeft, bottomRight, overlay, onCanvasDrop, minimap,
+  toolbar, bottomLeft, bottomRight, overlay, notice, onCanvasDrop, minimap,
   gridClassName = "bp-grid",
   minZoom = 0.2, maxZoom = 3,
   fullscreenLabel = "Diagram canvas",
@@ -286,15 +292,13 @@ export function CanvasShell({
     return { zoom: z, pan: { x: s.l + Math.max(0, (s.w - world.w * z) / 2) - world.x * z, y: s.t - world.y * z } };
   };
 
-  /** Opening view. If the whole diagram fits at a readable size, show all of
-   *  it (unchanged behaviour). Otherwise do NOT shrink it into an illegible
-   *  thumbnail: open at the readable floor, aimed at where the diagram
-   *  starts. One continuous rule -- zoom is the whole-fit zoom, never below
-   *  the floor -- so a diagram one row taller does not open at a visibly
-   *  different size. "Fit to view" still shows everything on demand. */
+  /** Opening view (see `initialView`). Never an illegible thumbnail unless
+   *  asked for ("fit"): a diagram too big for the frame opens at the
+   *  readable size, aimed at where it starts. "Fit to view" still shows
+   *  everything on demand. */
   const openingView = (w: number, h: number): CanvasState => {
     const all = fitAll(w, h);
-    if (initialView === "fit" || all.zoom >= readableZoom) return all;
+    if (initialView === "fit" || (initialView === "whole" && all.zoom >= readableZoom)) return all;
     const s = safeArea(w, h);
     const z = clampZoom(Math.min(1, readableZoom));
     const scaledW = world.w * z;
@@ -902,7 +906,8 @@ export function CanvasShell({
     || pan.x + (drawn.x + drawn.w) * zoom > vp.w + 1 || pan.y + (drawn.y + drawn.h) * zoom > vp.h + 1
   );
   const showMinimap = !!minimap && vp.w >= MINIMAP_MIN_WIDTH;
-  const hasBottomBar = !!bottomLeft || !!bottomRight || showMinimap;
+  const showNotice = !!notice && !presenting;
+  const hasBottomBar = !!bottomLeft || !!bottomRight || showMinimap || showNotice;
   // The grid belongs to the world: it moves and scales with the camera, with
   // lines every GRID_STEP units (the step shapes snap to), spread out when
   // zoomed far out. The fine grid (board, business model canvas) is half that.
@@ -1057,6 +1062,11 @@ export function CanvasShell({
       {hasBottomBar && (
         <div className="@container pointer-events-none absolute inset-x-3 bottom-3 z-20 flex items-end gap-2">
           <div ref={slotsRef} className="flex min-w-0 flex-1 flex-wrap items-end gap-2">
+            {showNotice && (
+              <div className="pointer-events-none flex basis-full justify-center">
+                <div className="pointer-events-auto max-w-full" data-no-pan>{notice}</div>
+              </div>
+            )}
             {bottomLeft && (
               <div className="pointer-events-auto flex min-w-0 flex-wrap items-center gap-2" data-no-pan>
                 <button

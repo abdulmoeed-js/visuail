@@ -93,9 +93,14 @@ const MERGE_WINDOW_MS = 1000;
  *  a number, a flag -- is a deliberate, separate action each time, and two of
  *  them in the same second (add a branch, add another) must stay two undo
  *  steps, so it gets no key. */
+/** Fields set by picking (a person, a system, where a line goes), not by
+ *  typing: each pick is its own undo step, however quickly they follow. */
+const PICKED_FIELDS = new Set(["actorId", "systemId", "fromId", "toId", "afterStepId", "relatedStepId", "shape", "startMarker", "endMarker"]);
+
 function typingKey(prefix: string, patch: object): string | undefined {
   const entries = Object.entries(patch);
   if (entries.length === 0 || !entries.every(([, v]) => typeof v === "string")) return undefined;
+  if (entries.some(([k]) => PICKED_FIELDS.has(k))) return undefined;
   return `${prefix}:${entries.map(([k]) => k).sort().join(",")}`;
 }
 
@@ -126,6 +131,8 @@ export interface ArtifactEditing {
   onAddNFR: (category: NFRCategory, t: string) => string;
   onAddBMC: (b: BMCBlock["id"], t: string) => string;
   onAddConnection: (fromId: string, toId: string, label?: string) => string;
+  /** Adds several lines as one undo step; returns how many were added. */
+  onAddConnections: (pairs: [string, string][]) => number;
   onDeleteConnection: (id: string) => void;
   onUpdateConnection: (id: string, patch: Partial<Connection>) => void;
 
@@ -792,6 +799,12 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     return mutate(m => m.kind === "process"
       ? { ...m, connections: [...(m.connections ?? []), conn] } : m) ? id : "";
   };
+  const onAddConnections = (pairs: [string, string][]) => {
+    const conns: Connection[] = pairs.map(([fromId, toId]) => ({ id: nextId("CN"), fromId, toId, userAdded: true }));
+    if (conns.length === 0) return 0;
+    return mutate(m => m.kind === "process"
+      ? { ...m, connections: [...(m.connections ?? []), ...conns] } : m, { label: `${conns.length} data flow${conns.length === 1 ? "" : "s"}` }) ? conns.length : 0;
+  };
   const onDeleteConnection = (id: string) => mutate(m => m.kind === "process"
     ? { ...m, connections: (m.connections ?? []).filter(c => c.id !== id) } : m);
   const onUpdateConnection = (id: string, patch: Partial<Connection>) => mutate(m => m.kind === "process"
@@ -805,7 +818,7 @@ export function useArtifactEditing(initial: ArtifactModel, collab?: CollabOption
     model, drifted, lastAddedId, reset,
     onSimulateDrift, onClearDrift,
     onAddActor, onAddStep, onAddDecision, onAddException, onAddSystem, onAddBMC, onAddNFR,
-    onAddConnection, onDeleteConnection, onUpdateConnection,
+    onAddConnection, onAddConnections, onDeleteConnection, onUpdateConnection,
     onAddRisk, onAddChangeRequest, onAddCommunicationPlanItem, onAddTestCase, onAddStakeholder,
     onUpdateBusinessCase, onAddBusinessCaseOption, onUpdateRMP,
     onAddDataStore, onAddExternalEntity, onAddRuleNode, onAddState,
