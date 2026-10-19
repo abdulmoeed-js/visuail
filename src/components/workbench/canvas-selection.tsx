@@ -68,8 +68,9 @@ const OPEN_OVERLAY = "[role='dialog'][data-state='open'], [role='alertdialog'][d
 
 /** A control with keys of its own: Enter, Space, Esc or the arrows belong
  *  to it while it has focus. A shape's own text (data-edit-text) is not
- *  one; a line's label is (Delete there must not delete the selected shapes). */
-const CONTROL = "button, a[href], select, summary, [data-line-label], [role='button']:not([data-edit-text]), [role='tab'], [role='checkbox'], [role='switch'], [role='menuitem'], [role='option'], [role='slider']";
+ *  one, nor is a line's label: focusing that selects its line (LineLabel),
+ *  so Delete, Esc and Enter act on the line. */
+const CONTROL = "button, a[href], select, summary, [role='button']:not([data-edit-text]), [role='tab'], [role='checkbox'], [role='switch'], [role='menuitem'], [role='option'], [role='slider']";
 
 /** The diagram the person last pressed in (a mouse or finger down inside
  *  its frame); a press anywhere else lets go of it. Keys pressed with focus
@@ -175,6 +176,10 @@ export interface ShapeSelectionOptions {
   /** Rounds a place while dragging (the Process map snaps to its grid),
    *  where no other shape is close enough to line up with. */
   snap?: (v: number) => number;
+  /** The lines this diagram draws, by id: one can be selected instead of
+   *  shapes (a click on it), and Delete deletes it. */
+  lines?: Set<string>;
+  onDeleteLine?: (id: string) => void;
 }
 
 /** Selection on one diagram: click, Shift-click, a box, dragging the
@@ -195,6 +200,23 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
   });
   // Presenting: nothing is selected.
   useEffect(() => { if (o.presenting) selection.clear(); }, [o.presenting]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A line can be selected instead of shapes: one at a time, and never
+  // together with shapes. It goes when it is deleted, when shapes are
+  // selected and while presenting.
+  const [line, setLine] = useState<string | null>(null);
+  const lineRef = useRef(line);
+  lineRef.current = line;
+  useEffect(() => {
+    if (line && (o.presenting || selection.ids.length > 0 || !o.lines?.has(line))) setLine(null);
+  }, [line, o.presenting, o.lines, selection.ids.length]);
+  const selectLine = (id: string) => { selection.clear(); setLine(id); };
+  /** Starts typing on a line's label (Enter on a selected line, or a
+   *  double-click on the line). */
+  const editLineLabel = (id: string) => {
+    frameRef.current?.querySelector(`[data-line-id="${CSS.escape(id)}"] [data-edit-text]`)?.dispatchEvent(new Event(EDIT_TEXT_EVENT));
+  };
+  const clearAll = () => { selection.clear(); setLine(null); };
 
   // Places already asked for but not drawn yet: two nudges in one frame
   // must add up, not both start from the last drawn place.
@@ -302,7 +324,7 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
     selection.set([...new Set([...boxBase.current, ...hit])]);
     if (done) boxBase.current = null;
   };
-  const onBackgroundPress = () => selection.clear();
+  const onBackgroundPress = clearAll;
 
   // Copy and paste ask first before making new items (the owner's rule:
   // pasted shapes become new requirements).
@@ -376,22 +398,34 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
   };
 
   useSelectionKeys(frameRef, {
-    count: o.presenting ? 0 : selection.ids.length,
-    onDelete: () => remove(selRef.current),
+    count: o.presenting ? 0 : selection.ids.length || (line ? 1 : 0),
+    onDelete: () => {
+      const l = lineRef.current;
+      if (l && selRef.current.length === 0) {
+        if (!latest.current.canEdit()) return;
+        latest.current.onDeleteLine?.(l);
+        setLine(null);
+        return;
+      }
+      remove(selRef.current);
+    },
     onNudge: (dx, dy) => {
-      if (!latest.current.canEdit()) return;
+      if (selRef.current.length === 0 || !latest.current.canEdit()) return;
       const moved = Object.fromEntries(Object.entries(placesOf(selRef.current)).map(([id, p]) => [id, { x: p.x + dx, y: p.y + dy }]));
       Object.assign(ahead.current, moved);
       latest.current.preview(moved);
       latest.current.commit(moved, `nudge:${latest.current.view}`);
     },
     onSelectAll: () => { if (!latest.current.presenting) selection.set([...latest.current.rects.keys()]); },
-    onClear: () => selection.clear(),
+    onClear: clearAll,
     onCopy: () => { copy(selRef.current); },
     onCut: () => { if (copy(selRef.current)) remove(selRef.current); },
     onPaste: () => { if (!latest.current.presenting) paste(); },
     onDuplicate: duplicate,
     onEdit: () => {
+      // A selected line: type its label.
+      const l = lineRef.current;
+      if (l && selRef.current.length === 0) { editLineLabel(l); return; }
       const id = selRef.current[0];
       const el = frameRef.current?.querySelector(`[data-node-id="${CSS.escape(id)}"] [data-edit-text], [data-shape-id="${CSS.escape(id)}"] [data-edit-text]`);
       el?.dispatchEvent(new Event(EDIT_TEXT_EVENT));
@@ -423,6 +457,8 @@ export function useShapeSelection(o: ShapeSelectionOptions) {
 
   return {
     selection, frameRef, pressShape, onSelectBox, onBackgroundPress, pasteDialog,
+    /** The selected line, if a line is selected (not shapes). */
+    line, selectLine, editLineLabel,
     /** For a grip: drag these shapes (with snap guides). */
     dragSelection: dragFrom,
     /** The snap guides to draw (SnapGuides), and for a drag this engine

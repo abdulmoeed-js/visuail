@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProcessModel, Connection, NodeLayout } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
 import { Plus, X, GripVertical, Database, Square, CircleDot, Wand2 } from "lucide-react";
-import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
+import { CanvasShell, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "./canvas-selection";
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
+import { ConnectHandles, ConnectorEnds, ConnectorPreview, useConnectorDrag } from "./canvas-connectors";
+import { connectorRoute, type Point } from "@/lib/canvas/connector";
 import { useGrownHeights } from "./use-grown-heights";
-import { edgePoint, roundedPath } from "@/lib/canvas/geometry";
+import { roundedPath } from "@/lib/canvas/geometry";
 import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
 import { IdChip } from "./atoms";
 import { useArtifactFullscreen } from "./artifact-fullscreen";
@@ -104,7 +106,6 @@ export function DFDView({ model, editing }: Props) {
   // Dragged positions are view state; kept in the artifact's view store so
   // they survive a tab switch (see canvas-view-store.tsx).
   const [overrides, setOverrides] = useCanvasViewState<Pos>("dfd:overrides", {});
-  const [pendingConn, setPendingConn] = useState<null | { fromId: string; fromX: number; fromY: number; toX: number; toY: number }>(null);
   const saved = layoutOf(model, "dfd")?.nodes;
   // Shapes grow with their text; lines and outlines follow (use-grown-heights).
   const grown = useGrownHeights();
@@ -115,7 +116,7 @@ export function DFDView({ model, editing }: Props) {
     return n ? { x: n.cx - n.w / 2, y: n.cy - n.h / 2, w: n.w, h: n.h } : null;
   };
   const { apiRef: shellApi, revealNew, flashId } = useRevealNew(rectFor);
-  const flows = model.connections ?? [];
+  const flows = useMemo(() => model.connections ?? [], [model.connections]);
 
   const noteMove = useNoteLayoutMove();
   const nodesRef = useRef(nodes);
@@ -148,8 +149,12 @@ export function DFDView({ model, editing }: Props) {
     if (n) return { w: n.w, h: n.h };
     return id.startsWith("DS-") ? { w: STORE_W, h: STORE_H } : id.startsWith("EE-") ? { w: ENTITY_W, h: ENTITY_H } : { w: PROC_W, h: PROC_H };
   };
+  // The flows drawn (both ends on this diagram): one can be selected.
+  const drawnFlows = useMemo(() => flows.filter((c) => rectsById.has(c.fromId) && rectsById.has(c.toId)), [flows, rectsById]);
+  const drawnLines = useMemo(() => new Set(drawnFlows.map((c) => c.id)), [drawnFlows]);
   const sel = useShapeSelection({
     view: "dfd", model, rects: rectsById, shellApi, presenting,
+    lines: drawnLines, onDeleteLine: editing.onDeleteConnection,
     canEdit: editing.canEdit,
     preview: (places) => {
       if (!SAVE_LAYOUTS) noteMove(model);
@@ -180,25 +185,23 @@ export function DFDView({ model, editing }: Props) {
     },
   });
 
-  const startConnDrag = (fromId: string, e: React.PointerEvent, contentEl: HTMLElement | null) => {
-    const from = byId.get(fromId);
-    if (!from) return;
-    setPendingConn({ fromId, fromX: from.cx + from.w / 2, fromY: from.cy, toX: from.cx + from.w / 2, toY: from.cy });
-    const move = (ev: PointerEvent) => {
-      if (!contentEl) return;
-      const rect = contentEl.getBoundingClientRect();
-      const scale = contentEl.offsetWidth ? rect.width / contentEl.offsetWidth : 1;
-      setPendingConn((cur) => cur ? { ...cur, toX: (ev.clientX - rect.left) / scale, toY: (ev.clientY - rect.top) / scale } : cur);
-    };
-    const up = (ev: PointerEvent) => {
-      const el = document.elementFromPoint(ev.clientX, ev.clientY);
-      const target = el?.closest("[data-dfd-node]") as HTMLElement | null;
-      const toId = target?.dataset.dfdNode;
-      if (toId && toId !== fromId) editing.onAddConnection(fromId, toId);
-      setPendingConn(null);
-    };
-    // Cancelled (a pinch, the browser): no line is drawn.
-    followPointer(e, { move, up, cancel: () => setPendingConn(null) });
+  // Drawing a flow from a dot on a node's side, or moving one end of the
+  // selected flow to another node (canvas-connectors.tsx).
+  const connect = useConnectorDrag({ shellApi, rects: rectsById, canEdit: editing.canEdit });
+  const startConnDrag = (fromId: string, e: React.PointerEvent, from: Point) =>
+    connect.start(e, from, { exclude: fromId, done: (toId) => editing.onAddConnection(fromId, toId) });
+  const startEndDrag = (c: Connection, end: "from" | "to", e: React.PointerEvent, fixed: Point) =>
+    connect.start(e, fixed, {
+      exclude: end === "from" ? c.toId : c.fromId,
+      done: (id) => {
+        if (id === (end === "from" ? c.fromId : c.toId)) return;
+        editing.onUpdateConnection(c.id, end === "from" ? { fromId: id } : { toId: id });
+      },
+    });
+  /** A flow's route (src/lib/canvas/connector.ts). */
+  const routeOf = (c: Connection) => {
+    const a = rectsById.get(c.fromId), b = rectsById.get(c.toId);
+    return a && b ? connectorRoute(a, b) : null;
   };
 
   const [adding, setAdding] = useState<null | "process" | "store" | "entity">(null);
@@ -317,22 +320,36 @@ export function DFDView({ model, editing }: Props) {
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-verified)" />
           </marker>
         </defs>
-        {flows.map((c) => {
-          const a = byId.get(c.fromId), b = byId.get(c.toId);
-          if (!a || !b) return null;
-          const from = edgePoint(a, b), to = edgePoint(b, a);
-          const midX = (from.x + to.x) / 2;
-          const path = roundedPath([from, { x: midX, y: from.y }, { x: midX, y: to.y }, to]);
+        {drawnFlows.map((c) => {
+          const r = routeOf(c);
+          if (!r) return null;
+          const path = roundedPath(r.points);
+          const selected = sel.line === c.id;
           return (
             <g key={c.id}>
-              <path d={path} fill="none" stroke="var(--color-verified)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#dfd-arrow)" />
+              {/* A wide, invisible stroke to click: selects the flow; a
+               *  double-click types its name. */}
+              {!presenting && (
+                <path
+                  d={path} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke"
+                  data-no-pan data-edit-control className="cursor-pointer"
+                  onPointerDown={(e) => { if (e.button !== 0) return; e.stopPropagation(); sel.selectLine(c.id); }}
+                  onDoubleClick={() => sel.editLineLabel(c.id)}
+                />
+              )}
+              {selected && (
+                <path
+                  d={path} fill="none" stroke="var(--color-primary)" strokeOpacity={0.25} strokeWidth={8}
+                  strokeLinecap="round" pointerEvents="none" data-edit-control
+                />
+              )}
+              <path
+                d={path} fill="none" stroke="var(--color-verified)"
+                strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#dfd-arrow)"
+              />
             </g>
           );
         })}
-        {pendingConn && (
-          <path d={`M ${pendingConn.fromX} ${pendingConn.fromY} L ${pendingConn.toX} ${pendingConn.toY}`}
-            fill="none" stroke="var(--color-verified)" strokeWidth={1.9} strokeLinecap="round" strokeDasharray="4 3" opacity={0.8} />
-        )}
       </svg>
 
       {nodes.map((n) => (
@@ -350,19 +367,18 @@ export function DFDView({ model, editing }: Props) {
           }}
           onDelete={() => editing.onDeleteAny(n.id)}
           onUpdate={(text) => editing.onUpdateItem(n.id, { text })}
-          onStartConnect={(e, contentEl) => startConnDrag(n.id, e, contentEl)}
+          onStartConnect={(e, from) => startConnDrag(n.id, e, from)}
         />
       ))}
 
-      {flows.map((c) => {
-        const a = byId.get(c.fromId), b = byId.get(c.toId);
-        if (!a || !b) return null;
-        // The middle of the line as drawn above (its vertical run).
-        const from = edgePoint(a, b), to = edgePoint(b, a);
+      {drawnFlows.map((c) => {
+        // The middle of the line's middle run, as drawn above.
+        const m = routeOf(c)?.mid;
+        if (!m) return null;
         return (
           <LineLabel
-            key={`lbl-${c.id}`}
-            x={(from.x + to.x) / 2} y={(from.y + to.y) / 2}
+            key={`lbl-${c.id}`} lineId={c.id} onSelect={() => sel.selectLine(c.id)}
+            x={m.x} y={m.y}
             value={c.label ?? ""} placeholder="label" tone="verified"
             fieldLabel="Data flow label"
             onChange={(label) => editing.onUpdateConnection(c.id, { label })}
@@ -371,6 +387,14 @@ export function DFDView({ model, editing }: Props) {
           />
         );
       })}
+      {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-verified)" />}
+      {!presenting && (() => {
+        const c = drawnFlows.find((x) => x.id === sel.line);
+        const r = c && routeOf(c);
+        if (!c || !r) return null;
+        const p0 = r.points[0], p1 = r.points[r.points.length - 1];
+        return <ConnectorEnds from={p0} to={p1} onStart={(e, end) => startEndDrag(c, end, e, end === "from" ? p1 : p0)} />;
+      })()}
     </CanvasShell>
     {sel.pasteDialog}
     </div>
@@ -392,7 +416,8 @@ function DFDNodeView({
   onGrip: (e: React.PointerEvent) => boolean;
   onDelete: () => void;
   onUpdate: (text: string) => void;
-  onStartConnect: (e: React.PointerEvent, contentEl: HTMLElement | null) => void;
+  /** A press on one of the dots on its sides: draw a flow from `from`. */
+  onStartConnect: (e: React.PointerEvent, from: Point) => void;
 }) {
   const worldDrag = useWorldDrag();
   const onPointerDown = (e: React.PointerEvent) => {
@@ -433,13 +458,11 @@ function DFDNodeView({
     </div>
   );
 
+  // A dot on each side: drag one to another node to draw a flow.
   const connectHandle = (
-    <div
-      data-no-pan
-      data-edit-control
-      onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e, (e.currentTarget.closest("[data-canvas-content]") as HTMLElement) ?? null); }}
-      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-verified transition cursor-crosshair before:absolute before:-inset-2 before:content-['']"
-      title="Drag to another node to connect"
+    <ConnectHandles
+      rect={{ x: node.cx - node.w / 2, y: node.cy - node.h / 2, w: node.w, h: node.h }}
+      tone="verified" title="Drag to another node to draw a flow" onStart={onStartConnect}
     />
   );
 

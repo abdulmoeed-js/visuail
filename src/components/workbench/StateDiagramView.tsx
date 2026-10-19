@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProcessModel, Connection, StateItem, NodeLayout } from "@/data/samples";
 import { Plus, X, GripVertical, CircleDot, Wand2 } from "lucide-react";
-import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
+import { CanvasShell, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "./canvas-selection";
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
+import { ConnectHandles, ConnectorEnds, ConnectorPreview, useConnectorDrag } from "./canvas-connectors";
+import { connectorRoute, type Point } from "@/lib/canvas/connector";
 import { useGrownHeights } from "./use-grown-heights";
-import { edgePoint, roundedPath } from "@/lib/canvas/geometry";
+import { roundedPath } from "@/lib/canvas/geometry";
 import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
 import { IdChip } from "./atoms";
 import { useArtifactFullscreen } from "./artifact-fullscreen";
@@ -63,8 +65,6 @@ function layout(states: StateItem[], overrides: Pos, saved: Record<string, NodeL
   return { placed, width, height };
 }
 
-/** Where a transition leaves state `a` towards `b`. */
-const stateEdgePoint = (a: Placed, b: Placed) => edgePoint({ cx: a.cx, cy: a.cy, w: STATE_W, h: a.h }, b);
 
 interface Props {
   model: ProcessModel;
@@ -73,7 +73,6 @@ interface Props {
 
 export function StateDiagramView({ model, editing }: Props) {
   const [overrides, setOverrides] = useCanvasViewState<Pos>("state:overrides", {});
-  const [pendingConn, setPendingConn] = useState<null | { fromId: string; fromX: number; fromY: number; toX: number; toY: number }>(null);
   const states = useMemo(() => model.states ?? [], [model.states]);
   const saved = layoutOf(model, "state")?.nodes;
   // States grow with their text; lines and outlines follow (use-grown-heights).
@@ -85,7 +84,7 @@ export function StateDiagramView({ model, editing }: Props) {
     return p ? { x: p.cx - STATE_W / 2, y: p.cy - p.h / 2, w: STATE_W, h: p.h } : null;
   };
   const { apiRef: shellApi, revealNew, flashId } = useRevealNew(rectFor);
-  const transitions = model.connections ?? [];
+  const transitions = useMemo(() => model.connections ?? [], [model.connections]);
 
   const noteMove = useNoteLayoutMove();
   const placedRef = useRef(placed);
@@ -112,8 +111,12 @@ export function StateDiagramView({ model, editing }: Props) {
   // Selecting states (click, Shift-click, a box), moving them together, the
   // keys, copy and paste (canvas-selection.tsx).
   const rectsById = useMemo(() => new Map(placed.map((p) => [p.ref.id, { x: p.cx - STATE_W / 2, y: p.cy - p.h / 2, w: STATE_W, h: p.h }])), [placed]);
+  // The transitions drawn (both ends on this diagram): one can be selected.
+  const drawnTransitions = useMemo(() => transitions.filter((c) => rectsById.has(c.fromId) && rectsById.has(c.toId)), [transitions, rectsById]);
+  const drawnLines = useMemo(() => new Set(drawnTransitions.map((c) => c.id)), [drawnTransitions]);
   const sel = useShapeSelection({
     view: "state", model, rects: rectsById, shellApi, presenting,
+    lines: drawnLines, onDeleteLine: editing.onDeleteConnection,
     canEdit: editing.canEdit,
     preview: (places) => {
       if (!SAVE_LAYOUTS) noteMove(model);
@@ -142,25 +145,35 @@ export function StateDiagramView({ model, editing }: Props) {
     },
   });
 
-  const startConnDrag = (fromId: string, e: React.PointerEvent, contentEl: HTMLElement | null) => {
-    const from = byId.get(fromId);
-    if (!from) return;
-    setPendingConn({ fromId, fromX: from.cx + STATE_W / 2, fromY: from.cy, toX: from.cx + STATE_W / 2, toY: from.cy });
-    const move = (ev: PointerEvent) => {
-      if (!contentEl) return;
-      const rect = contentEl.getBoundingClientRect();
-      const scale = contentEl.offsetWidth ? rect.width / contentEl.offsetWidth : 1;
-      setPendingConn((cur) => cur ? { ...cur, toX: (ev.clientX - rect.left) / scale, toY: (ev.clientY - rect.top) / scale } : cur);
-    };
-    const up = (ev: PointerEvent) => {
-      const el = document.elementFromPoint(ev.clientX, ev.clientY);
-      const target = el?.closest("[data-state-node]") as HTMLElement | null;
-      const toId = target?.dataset.stateNode;
-      if (toId) editing.onAddConnection(fromId, toId);
-      setPendingConn(null);
-    };
-    // Cancelled (a pinch, the browser): no line is drawn.
-    followPointer(e, { move, up, cancel: () => setPendingConn(null) });
+  // Drawing a transition from a dot on a state's side (let go on the same
+  // state for a self-transition), or moving one end of the selected
+  // transition to another state (canvas-connectors.tsx).
+  const connect = useConnectorDrag({ shellApi, rects: rectsById, canEdit: editing.canEdit });
+  const startConnDrag = (fromId: string, e: React.PointerEvent, from: Point) =>
+    connect.start(e, from, { exclude: fromId, allowSelf: true, done: (toId) => editing.onAddConnection(fromId, toId) });
+  const startEndDrag = (c: Connection, end: "from" | "to", e: React.PointerEvent, fixed: Point) =>
+    connect.start(e, fixed, {
+      allowSelf: true,
+      done: (id) => {
+        if (id === (end === "from" ? c.fromId : c.toId)) return;
+        editing.onUpdateConnection(c.id, end === "from" ? { fromId: id } : { toId: id });
+      },
+    });
+  /** A transition's line: a small loop above a state back to itself,
+   *  otherwise the connector route (src/lib/canvas/connector.ts); its ends,
+   *  and where its event goes. */
+  const lineOf = (c: Connection) => {
+    const a = rectsById.get(c.fromId), b = rectsById.get(c.toId);
+    if (!a || !b) return null;
+    if (c.fromId === c.toId) {
+      const x = a.x + a.w / 2, y = a.y;
+      return {
+        path: `M ${x - 18} ${y} C ${x - 18} ${y - 34}, ${x + 18} ${y - 34}, ${x + 18} ${y}`,
+        from: { x: x - 18, y }, to: { x: x + 18, y }, mid: { x, y: y - 44 },
+      };
+    }
+    const r = connectorRoute(a, b);
+    return { path: roundedPath(r.points), from: r.points[0], to: r.points[r.points.length - 1], mid: r.mid };
   };
 
   const [adding, setAdding] = useState(false);
@@ -271,32 +284,35 @@ export function StateDiagramView({ model, editing }: Props) {
             </g>
           );
         })}
-        {transitions.map((c) => {
-          const a = byId.get(c.fromId), b = byId.get(c.toId);
-          if (!a || !b) return null;
-          if (a === b || c.fromId === c.toId) {
-            // Self-transition: small loop above the state.
-            const x = a.cx, y = a.cy - a.h / 2;
-            const path = `M ${x - 18} ${y} C ${x - 18} ${y - 34}, ${x + 18} ${y - 34}, ${x + 18} ${y}`;
-            return (
-              <g key={c.id}>
-                <path d={path} fill="none" stroke="var(--color-primary)" strokeWidth={1.75} markerEnd="url(#sd-arrow)" />
-              </g>
-            );
-          }
-          const from = stateEdgePoint(a, b), to = stateEdgePoint(b, a);
-          const midX = (from.x + to.x) / 2;
-          const path = roundedPath([from, { x: midX, y: from.y }, { x: midX, y: to.y }, to]);
+        {drawnTransitions.map((c) => {
+          const l = lineOf(c);
+          if (!l) return null;
+          const selected = sel.line === c.id;
           return (
             <g key={c.id}>
-              <path d={path} fill="none" stroke="var(--color-primary)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#sd-arrow)" />
+              {/* A wide, invisible stroke to click: selects the transition;
+               *  a double-click types its event. */}
+              {!presenting && (
+                <path
+                  d={l.path} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke"
+                  data-no-pan data-edit-control className="cursor-pointer"
+                  onPointerDown={(e) => { if (e.button !== 0) return; e.stopPropagation(); sel.selectLine(c.id); }}
+                  onDoubleClick={() => sel.editLineLabel(c.id)}
+                />
+              )}
+              {selected && (
+                <path
+                  d={l.path} fill="none" stroke="var(--color-primary)" strokeOpacity={0.25} strokeWidth={8}
+                  strokeLinecap="round" pointerEvents="none" data-edit-control
+                />
+              )}
+              <path
+                d={l.path} fill="none" stroke="var(--color-primary)" strokeWidth={1.75}
+                strokeLinecap="round" markerEnd="url(#sd-arrow)"
+              />
             </g>
           );
         })}
-        {pendingConn && (
-          <path d={`M ${pendingConn.fromX} ${pendingConn.fromY} L ${pendingConn.toX} ${pendingConn.toY}`}
-            fill="none" stroke="var(--color-primary)" strokeWidth={1.9} strokeLinecap="round" strokeDasharray="4 3" opacity={0.8} />
-        )}
       </svg>
 
       {placed.map((p) => (
@@ -316,21 +332,17 @@ export function StateDiagramView({ model, editing }: Props) {
           onUpdateText={(text) => editing.onUpdateItem(p.ref.id, { text })}
           onToggleInitial={() => editing.onUpdateItem(p.ref.id, { isInitial: !p.ref.isInitial })}
           onToggleFinal={() => editing.onUpdateItem(p.ref.id, { isFinal: !p.ref.isFinal })}
-          onStartConnect={(e, contentEl) => startConnDrag(p.ref.id, e, contentEl)}
+          onStartConnect={(e, from) => startConnDrag(p.ref.id, e, from)}
         />
       ))}
 
-      {transitions.map((c) => {
-        const a = byId.get(c.fromId), b = byId.get(c.toId);
-        if (!a || !b) return null;
+      {drawnTransitions.map((c) => {
         // Above a loop; otherwise the middle of the line as drawn above.
-        const self = a === b || c.fromId === c.toId;
-        const from = self ? null : stateEdgePoint(a, b), to = self ? null : stateEdgePoint(b, a);
-        const x = from && to ? (from.x + to.x) / 2 : a.cx;
-        const y = from && to ? (from.y + to.y) / 2 : a.cy - a.h / 2 - 44;
+        const m = lineOf(c)?.mid;
+        if (!m) return null;
         return (
           <LineLabel
-            key={`lbl-${c.id}`} x={x} y={y}
+            key={`lbl-${c.id}`} lineId={c.id} x={m.x} y={m.y} onSelect={() => sel.selectLine(c.id)}
             value={c.label ?? ""} placeholder="event" tone="primary"
             fieldLabel="Transition: event [guard] / action"
             onChange={(label) => editing.onUpdateConnection(c.id, { label })}
@@ -339,6 +351,13 @@ export function StateDiagramView({ model, editing }: Props) {
           />
         );
       })}
+      {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-primary)" />}
+      {!presenting && (() => {
+        const c = drawnTransitions.find((x) => x.id === sel.line);
+        const l = c && lineOf(c);
+        if (!c || !l) return null;
+        return <ConnectorEnds from={l.from} to={l.to} onStart={(e, end) => startEndDrag(c, end, e, end === "from" ? l.to : l.from)} />;
+      })()}
     </CanvasShell>
     {sel.pasteDialog}
     </div>
@@ -362,7 +381,8 @@ function StateNodeView({
   onUpdateText: (t: string) => void;
   onToggleInitial: () => void;
   onToggleFinal: () => void;
-  onStartConnect: (e: React.PointerEvent, contentEl: HTMLElement | null) => void;
+  /** A press on one of the dots on its sides: draw a transition from `from`. */
+  onStartConnect: (e: React.PointerEvent, from: Point) => void;
 }) {
   const worldDrag = useWorldDrag();
   const onPointerDown = (e: React.PointerEvent) => {
@@ -416,12 +436,10 @@ function StateNodeView({
           final
         </button>
       </div>
-      <div
-        data-no-pan
-        data-edit-control
-        onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e, (e.currentTarget.closest("[data-canvas-content]") as HTMLElement) ?? null); }}
-        className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-primary bg-card opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-primary transition cursor-crosshair before:absolute before:-inset-2 before:content-['']"
-        title="Drag to another state to connect (drag to itself for a self-transition)"
+      <ConnectHandles
+        rect={{ x: node.cx - STATE_W / 2, y: node.cy - node.h / 2, w: STATE_W, h: node.h }}
+        tone="primary" onStart={onStartConnect}
+        title="Drag to another state to connect (let go on this one for a self-transition)"
       />
     </div>
   );

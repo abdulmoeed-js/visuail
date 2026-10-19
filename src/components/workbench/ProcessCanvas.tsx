@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CanvasShell, followPointer, useWorldDrag } from "./CanvasShell";
+import { CanvasShell, useWorldDrag } from "./CanvasShell";
 import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "./canvas-selection";
 import type { ShapeClip } from "@/lib/canvas/clipboard";
@@ -21,6 +21,8 @@ import { isUserCreatedId } from "@/lib/item-origin";
 import { useRevealNew, FlashRing } from "./canvas-reveal";
 import { InlineEdit } from "./InlineEdit";
 import { LineLabel } from "./LineLabel";
+import { ConnectHandles, ConnectorEnds, ConnectorPreview, useConnectorDrag } from "./canvas-connectors";
+import { connectorRoute } from "@/lib/canvas/connector";
 import { edgePoint, roundedPath, type Point } from "@/lib/canvas/geometry";
 import { SAVE_LAYOUTS, layoutOf, placeClear } from "@/lib/canvas/layout";
 import { RefineControl } from "./RefineControl";
@@ -448,9 +450,6 @@ export function ProcessCanvas({
   const [paletteChoice, setPaletteChoice] = useCanvasViewState<boolean | null>("process:palette", null);
   const paletteOpen = paletteChoice ?? false;
   const togglePalette = () => setPaletteChoice(!paletteOpen);
-  const [pendingConn, setPendingConn] = useState<null | {
-    fromId: string; fromX: number; fromY: number; toX: number; toY: number;
-  }>(null);
 
   const reportMeasure = useCallback((id: string, w: number, h: number) => {
     setMeasured((cur) => {
@@ -615,10 +614,17 @@ export function ProcessCanvas({
     [geomById],
   );
 
+  // The connectors drawn (both ends on this diagram): one can be selected.
+  const drawnLines = useMemo(
+    () => new Set((model.connections ?? []).filter((c) => geomById.has(c.fromId) && geomById.has(c.toId)).map((c) => c.id)),
+    [model.connections, geomById],
+  );
+
   // Selecting shapes (click, Shift-click, a box), moving them together, the
   // keys, copy and paste (canvas-selection.tsx).
   const sel = useShapeSelection({
     view: "process", model, rects: rectsById, shellApi, presenting,
+    lines: drawnLines, onDeleteLine: onDeleteConnection,
     canEdit: canEdit ?? alwaysEditable,
     preview: (places) => {
       for (const [id, p] of Object.entries(places)) {
@@ -852,61 +858,28 @@ export function ProcessCanvas({
     if (b && c) onAddConnection?.(b, c);
   };
 
-  const routeBetween = (fromId: string, toId: string) => {
-    const a = geomById.get(fromId);
-    const b = geomById.get(toId);
-    if (!a || !b) return null;
-    const dy = b.cy - a.cy;
-    const dx = b.cx - a.cx;
-    if (Math.abs(dx) < 10 && Math.abs(dy) > 20) {
-      const from = { x: a.cx, y: a.cy + Math.sign(dy) * (a.h / 2) };
-      const to = { x: b.cx, y: b.cy - Math.sign(dy) * (b.h / 2) };
-      return `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
-    }
-    const fromRight = { x: a.cx + a.w / 2, y: a.cy };
-    const toLeft = { x: b.cx - b.w / 2, y: b.cy };
-    const laneX = Math.max(fromRight.x, toLeft.x) + 40;
-    return connectorPath([fromRight, { x: laneX, y: fromRight.y }, { x: laneX, y: toLeft.y }, toLeft]);
+  /** A connector's route (src/lib/canvas/connector.ts): out of one shape
+   *  and into the other across the gap between them, elbowed halfway. */
+  const routeOf = (fromId: string, toId: string) => {
+    const a = rectsById.get(fromId), b = rectsById.get(toId);
+    return a && b ? connectorRoute(a, b) : null;
   };
-
-  /** The middle of a connector as routeBetween draws it, for its label. */
-  const routeMid = (fromId: string, toId: string) => {
-    const a = geomById.get(fromId);
-    const b = geomById.get(toId);
-    if (!a || !b) return null;
-    const dy = b.cy - a.cy;
-    const dx = b.cx - a.cx;
-    if (Math.abs(dx) < 10 && Math.abs(dy) > 20) {
-      const fromY = a.cy + Math.sign(dy) * (a.h / 2), toY = b.cy - Math.sign(dy) * (b.h / 2);
-      return { x: a.cx, y: (fromY + toY) / 2 };
-    }
-    return { x: Math.max(a.cx + a.w / 2, b.cx - b.w / 2) + 40, y: (a.cy + b.cy) / 2 };
+  // Drawing a connector from a dot on a shape's side, or moving one end of
+  // the selected connector to another shape (canvas-connectors.tsx).
+  const connect = useConnectorDrag({ shellApi, rects: rectsById, canEdit: canEdit ?? alwaysEditable });
+  const startConnDrag = (fromId: string, e: React.PointerEvent, from: Point) => {
+    if (!onAddConnection) return;
+    connect.start(e, from, { exclude: fromId, done: (toId) => onAddConnection(fromId, toId) });
   };
-
-  const startConnDrag = (fromId: string, e: React.PointerEvent) => {
-    const g = geomById.get(fromId);
-    if (!g) return;
-    const startX = g.cx + g.w / 2;
-    const startY = g.cy;
-    setPendingConn({ fromId, fromX: startX, fromY: startY, toX: startX, toY: startY });
-    const contentEl = (e.currentTarget as HTMLElement).closest("[data-canvas-content]") as HTMLElement | null;
-    const move = (ev: PointerEvent) => {
-      if (!contentEl) return;
-      const rect = contentEl.getBoundingClientRect();
-      const scaleX = contentEl.offsetWidth ? rect.width / contentEl.offsetWidth : 1;
-      const cx = (ev.clientX - rect.left) / scaleX;
-      const cy = (ev.clientY - rect.top) / scaleX;
-      setPendingConn((cur) => cur ? { ...cur, toX: cx, toY: cy } : cur);
-    };
-    const up = (ev: PointerEvent) => {
-      const el = document.elementFromPoint(ev.clientX, ev.clientY);
-      const node = el?.closest("[data-node-id]") as HTMLElement | null;
-      const toId = node?.dataset.nodeId;
-      if (toId && toId !== fromId) onAddConnection?.(fromId, toId);
-      setPendingConn(null);
-    };
-    // Cancelled (a pinch, the browser): no line is drawn.
-    followPointer(e, { move, up, cancel: () => setPendingConn(null) });
+  const startEndDrag = (c: Connection, end: "from" | "to", e: React.PointerEvent, fixed: Point) => {
+    if (!onUpdateConnection) return;
+    connect.start(e, fixed, {
+      exclude: end === "from" ? c.toId : c.fromId,
+      done: (id) => {
+        if (id === (end === "from" ? c.fromId : c.toId)) return;
+        onUpdateConnection(c.id, end === "from" ? { fromId: id } : { toId: id });
+      },
+    });
   };
 
   // Assemble a single render list sorted by z so overlap ordering is deterministic.
@@ -1205,32 +1178,42 @@ export function ProcessCanvas({
         })}
 
         {manualConnections.map((c) => {
-          const d = routeBetween(c.fromId, c.toId);
-          if (!d) return null;
+          const r = routeOf(c.fromId, c.toId);
+          if (!r) return null;
+          const d = connectorPath(r.points);
           const startMk = markerUrlFor(c.startMarker);
           const endMk = markerUrlFor(c.endMarker) ?? "url(#arrow-verified)";
+          const selected = sel.line === c.id;
           return (
-            <path
-              key={c.id}
-              d={d}
-              fill="none"
-              stroke="var(--color-verified)"
-              strokeWidth={1.9}
-              strokeLinecap="round"
-              markerStart={startMk ?? undefined}
-              markerEnd={endMk}
-            />
+            <g key={c.id}>
+              {/* A wide, invisible stroke to click: selects the connector;
+               *  a double-click types its label. */}
+              {!presenting && (
+                <path
+                  d={d} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke"
+                  data-no-pan data-edit-control className="cursor-pointer"
+                  onPointerDown={(e) => { if (e.button !== 0) return; e.stopPropagation(); sel.selectLine(c.id); }}
+                  onDoubleClick={() => sel.editLineLabel(c.id)}
+                />
+              )}
+              {selected && (
+                <path
+                  d={d} fill="none" stroke="var(--color-primary)" strokeOpacity={0.25} strokeWidth={8}
+                  strokeLinecap="round" pointerEvents="none" data-edit-control
+                />
+              )}
+              <path
+                d={d}
+                fill="none"
+                stroke="var(--color-verified)"
+                strokeWidth={1.9}
+                strokeLinecap="round"
+                markerStart={startMk ?? undefined}
+                markerEnd={endMk}
+              />
+            </g>
           );
         })}
-
-
-        {pendingConn && (
-          <path
-            d={`M ${pendingConn.fromX} ${pendingConn.fromY} L ${pendingConn.toX} ${pendingConn.toY}`}
-            fill="none" stroke="var(--color-verified)" strokeWidth={1.9} strokeLinecap="round"
-            strokeDasharray="4 3" opacity={0.8}
-          />
-        )}
       </svg>
 
       {items.map((it) => {
@@ -1250,7 +1233,7 @@ export function ProcessCanvas({
               onDrag={(delta, done) => gripDrag(s.id, delta, done)}
               onResize={(w, h, done) => place(s.id, { w: snap(w), ...(h !== undefined ? { h: snap(h) } : {}) }, done)}
               onRefine={handleRefine}
-              onStartConnect={onAddConnection ? (e) => startConnDrag(s.id, e) : undefined}
+              onStartConnect={onAddConnection ? (e, from) => startConnDrag(s.id, e, from) : undefined}
               onSelect={(ev) => { selectNode(s.id); if (ev) sel.pressShape(s.id, ev); }}
               onBringToFront={() => bringToFront(s.id)}
               onSendToBack={() => sendToBack(s.id)}
@@ -1274,7 +1257,7 @@ export function ProcessCanvas({
               onDrag={(delta, done) => gripDrag(d.id, delta, done)}
               onResize={(w, h, done) => place(d.id, { w: snap(w), ...(h !== undefined ? { h: snap(h) } : {}) }, done)}
               onRefine={handleRefine}
-              onStartConnect={onAddConnection ? (e) => startConnDrag(d.id, e) : undefined}
+              onStartConnect={onAddConnection ? (e, from) => startConnDrag(d.id, e, from) : undefined}
               onSelect={(ev) => { selectNode(d.id); if (ev) sel.pressShape(d.id, ev); }}
               onBringToFront={() => bringToFront(d.id)}
               onSendToBack={() => sendToBack(d.id)}
@@ -1296,7 +1279,7 @@ export function ProcessCanvas({
             onDrag={(delta, done) => gripDrag(e.id, delta, done)}
             onResize={(w, h, done) => place(e.id, { w: snap(w), ...(h !== undefined ? { h: snap(h) } : {}) }, done)}
             onRefine={handleRefine}
-            onStartConnect={onAddConnection ? (ev) => startConnDrag(e.id, ev) : undefined}
+            onStartConnect={onAddConnection ? (ev, from) => startConnDrag(e.id, ev, from) : undefined}
             onSelect={(ev) => { selectNode(e.id); if (ev) sel.pressShape(e.id, ev); }}
             onBringToFront={() => bringToFront(e.id)}
             onSendToBack={() => sendToBack(e.id)}
@@ -1307,6 +1290,7 @@ export function ProcessCanvas({
 
       {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
       {!presenting && <SnapGuides guides={sel.guides} />}
+      {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-verified)" />}
       {!presenting && <SelectionBar ids={sel.selection.ids} rects={rectsById} actions={sel.actions} />}
 
       <FlashRing key={flashId ?? "idle"} rect={flashGeom ? {
@@ -1314,12 +1298,12 @@ export function ProcessCanvas({
       } : null} />
 
       {manualConnections.map((c) => {
-        const m = routeMid(c.fromId, c.toId);
+        const m = routeOf(c.fromId, c.toId)?.mid;
         if (!m) return null;
         // The label is typed on the line; the ends and Delete are under "...".
         return (
           <LineLabel
-            key={`ctl-${c.id}`} x={m.x} y={m.y} zIndex={40}
+            key={`ctl-${c.id}`} x={m.x} y={m.y} zIndex={40} lineId={c.id} onSelect={() => sel.selectLine(c.id)}
             value={c.label ?? ""} placeholder="label" tone="verified" quiet
             fieldLabel="Connector label"
             onChange={onUpdateConnection ? (label) => onUpdateConnection(c.id, { label }) : undefined}
@@ -1332,6 +1316,13 @@ export function ProcessCanvas({
           </LineLabel>
         );
       })}
+      {!presenting && onUpdateConnection && (() => {
+        const c = manualConnections.find((x) => x.id === sel.line);
+        const r = c && routeOf(c.fromId, c.toId);
+        if (!c || !r) return null;
+        const p0 = r.points[0], p1 = r.points[r.points.length - 1];
+        return <ConnectorEnds from={p0} to={p1} onStart={(e, end) => startEndDrag(c, end, e, end === "from" ? p1 : p0)} />;
+      })()}
     </CanvasShell>
     {sel.pasteDialog}
     </div>
@@ -1845,16 +1836,9 @@ function DragHandle({ handlers }: { handlers: ReturnType<typeof useNodeDrag> }) 
   );
 }
 
-function ConnectHandle({ onStartConnect }: { onStartConnect: (e: React.PointerEvent) => void }) {
-  return (
-    <div
-      data-no-pan
-      data-edit-control
-      onPointerDown={(e) => { e.stopPropagation(); onStartConnect(e); }}
-      className="absolute -right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full border-2 border-verified bg-card shadow-sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 hover:bg-verified transition cursor-crosshair z-10"
-      title="Drag to another node to connect"
-    />
-  );
+/** A node's box in canvas units (where its connectors start). */
+function rectOfNode(node: { cx: number; cy: number; w: number; h: number }) {
+  return { x: node.cx - node.w / 2, y: node.cy - node.h / 2, w: node.w, h: node.h };
 }
 
 function ZOrderButtons({ onFront, onBack }: { onFront: () => void; onBack: () => void }) {
@@ -2021,7 +2005,7 @@ function StepNode({
   onDrag: (d: DragDelta, done?: boolean) => void;
   onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
-  onStartConnect?: (e: React.PointerEvent) => void;
+  onStartConnect?: (e: React.PointerEvent, from: Point) => void;
   /** A press on the body (with the event) or the grip (without). */
   onSelect: (e?: React.PointerEvent) => void;
   onBringToFront: () => void;
@@ -2103,7 +2087,7 @@ function StepNode({
         </div>
         <div className="flex-1 w-px border-l-2 border-dashed border-primary/50" style={{ minHeight: 120 }} />
         <div className="text-[9px] font-mono-tight text-muted-foreground pt-1">Lifeline</div>
-        {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
+        {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
         <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
       </div>
     );
@@ -2230,7 +2214,7 @@ function StepNode({
       ) : (
         contentInner
       )}
-      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
+      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
@@ -2250,7 +2234,7 @@ function SectionedNode({
   onDrag: (d: DragDelta, done?: boolean) => void;
   onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
-  onStartConnect?: (e: React.PointerEvent) => void;
+  onStartConnect?: (e: React.PointerEvent, from: Point) => void;
   /** A press on the body (with the event) or the grip (without). */
   onSelect: (e?: React.PointerEvent) => void;
   onBringToFront: () => void;
@@ -2344,7 +2328,7 @@ function SectionedNode({
           topBorder
         />
       )}
-      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
+      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
@@ -2458,7 +2442,7 @@ function DecisionNode({
   onDrag: (delta: DragDelta, done?: boolean) => void;
   onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
-  onStartConnect?: (e: React.PointerEvent) => void;
+  onStartConnect?: (e: React.PointerEvent, from: Point) => void;
   /** A press on the body (with the event) or the grip (without). */
   onSelect: (e?: React.PointerEvent) => void;
   onBringToFront: () => void;
@@ -2610,7 +2594,7 @@ function DecisionNode({
           </Popover>
         )}
       </div>
-      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
+      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
@@ -2632,7 +2616,7 @@ function ExceptionNode({
   onDrag: (d: DragDelta, done?: boolean) => void;
   onResize: (w: number, h: number | undefined, done?: boolean) => void;
   onRefine: (p: Proposal) => void;
-  onStartConnect?: (ev: React.PointerEvent) => void;
+  onStartConnect?: (ev: React.PointerEvent, from: Point) => void;
   /** A press on the body (with the event) or the grip (without). */
   onSelect: (e?: React.PointerEvent) => void;
   onBringToFront: () => void;
@@ -2691,7 +2675,7 @@ function ExceptionNode({
       <div className="text-[11px] leading-snug break-words">
         <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" />
       </div>
-      {onStartConnect && <ConnectHandle onStartConnect={onStartConnect} />}
+      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );

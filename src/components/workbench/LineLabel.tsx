@@ -10,8 +10,14 @@ import { useArtifactFullscreen } from "./artifact-fullscreen";
 import { InlineEdit } from "./InlineEdit";
 
 export function LineLabel({
-  x, y, value, placeholder, tone, onChange, onDelete, deleteLabel, fieldLabel, quiet, zIndex = 20, children,
+  x, y, value, placeholder, tone, onChange, onDelete, deleteLabel, fieldLabel, quiet, zIndex = 20, children, lineId, onSelect,
 }: {
+  /** A click on the words, or focus on them, selects the line (they often
+   *  cover a short one; and the keys then act on the line). */
+  onSelect?: () => void;
+  /** The line's id: Enter on a selected line, or a double-click on it,
+   *  types its label (canvas-selection). */
+  lineId?: string;
   /** The middle of the line, in canvas units. */
   x: number;
   y: number;
@@ -50,7 +56,12 @@ export function LineLabel({
     );
   }
   return (
-    <div data-no-pan data-line-label className="group/line absolute -translate-x-1/2 -translate-y-1/2" style={at}>
+    <div
+      data-no-pan data-line-label data-line-id={lineId}
+      className="group/line absolute -translate-x-1/2 -translate-y-1/2" style={at}
+      onPointerDown={(e) => { if (e.button !== 0 || !onSelect) return; e.stopPropagation(); onSelect(); }}
+      onFocus={onSelect}
+    >
       {onChange ? (
         <div
           // An unnamed line's placeholder is an editing aid: Present mode and
