@@ -1,13 +1,23 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ProcessModel, Step, Decision } from "@/data/samples";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ProcessModel, Step, Decision, Connection, NodeLayout } from "@/data/samples";
 import { decisionBranches } from "@/data/samples";
 import type { ArtifactEditing } from "@/lib/artifact-editing";
-import { Plus, X, GripVertical } from "lucide-react";
+import { Plus, X, GripVertical, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { CanvasShell, useCanvas, CANVAS_TOP_INSET, CANVAS_GLIDE_CLASS, type RevealTarget } from "./CanvasShell";
+import { useCanvasViewState, useNoteLayoutMove } from "./canvas-view-store";
 import { useRevealNew, FlashRing, FlashOutline } from "./canvas-reveal";
+import { SelectionBar, SelectionOutlines, SnapGuides, useShapeSelection } from "./canvas-selection";
+import { ConnectHandles, ConnectorEnds, ConnectorPreview, LineBar, useConnectorDrag } from "./canvas-connectors";
+import { LineLabel } from "./LineLabel";
+import { LAYER } from "./canvas-layers";
+import { DeleteX } from "./canvas-controls";
+import { useGrownHeights } from "./use-grown-heights";
 import { InlineEdit } from "./InlineEdit";
 import { roundedPath } from "@/lib/canvas/geometry";
+import { connectorRoute, type Point } from "@/lib/canvas/connector";
+import { SAVE_LAYOUTS, layoutOf } from "@/lib/canvas/layout";
 import { isTypingTarget, useArtifactFullscreen } from "./artifact-fullscreen";
 import { IdChip, ConfidenceBadge } from "./atoms";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -54,9 +64,16 @@ function buildSequence(model: ProcessModel): SeqItem[] {
   return seq;
 }
 
-interface Placed extends SeqItem { cx: number; cy: number; w: number; h: number; }
+/** A shape where it is drawn. `baseH` is its own height; `h` is taller
+ *  when its text needs it. */
+interface Placed extends SeqItem { cx: number; cy: number; w: number; h: number; baseH: number; isBar: boolean; }
+/** Where shapes were moved to; a step handed to another lane keeps only
+ *  its row (cy) and goes where its lane is, so Undo puts it back too. */
+type Pos = Record<string, { cx?: number; cy?: number }>;
 
-function layout(model: ProcessModel) {
+/** Lane by actor and row by sequence until the person moves a shape; then
+ *  where they put it (a drag in progress, else the saved arrangement). */
+function layout(model: ProcessModel, overrides: Pos, saved: Record<string, NodeLayout> | undefined, grown: Record<string, number>) {
   const seq = buildSequence(model);
   const lanes = model.actors;
   const laneX = (actorId: string) => {
@@ -66,20 +83,24 @@ function layout(model: ProcessModel) {
   const placed: Placed[] = seq.map((it) => {
     const isBar = it.kind === "decision" && (it.ref as Decision).shape === "gateway-parallel";
     const w = it.kind === "decision" ? (isBar ? BAR_W : DEC_W) : NODE_W;
-    const h = it.kind === "decision" ? (isBar ? BAR_H : DEC_H) : NODE_H;
-    return { ...it, cx: laneX(it.laneActorId) + LANE_W / 2, cy: TOP_PAD + it.row * ROW_H + ROW_H / 2, w, h };
+    const baseH = it.kind === "decision" ? (isBar ? BAR_H : DEC_H) : NODE_H;
+    const h = isBar ? baseH : Math.max(baseH, grown[it.ref.id] ?? 0);
+    const o = overrides[it.ref.id], sv = saved?.[it.ref.id];
+    const cx = o?.cx ?? (sv ? sv.x + w / 2 : laneX(it.laneActorId) + LANE_W / 2);
+    const cy = o?.cy ?? (sv ? sv.y + h / 2 : TOP_PAD + it.row * ROW_H + ROW_H / 2);
+    return { ...it, cx, cy, w, h, baseH, isBar };
   });
-  const width = Math.max(900, LEFT_PAD + Math.max(1, lanes.length) * LANE_W + 40);
-  const height = Math.max(560, TOP_PAD + seq.length * ROW_H + 60);
-  return { placed, lanes, laneX, width, height };
+  const width = Math.max(900, LEFT_PAD + Math.max(1, lanes.length) * LANE_W + 40, ...placed.map((p) => p.cx + p.w / 2 + 40));
+  const height = Math.max(560, TOP_PAD + seq.length * ROW_H + 60, ...placed.map((p) => p.cy + p.h / 2 + 60));
+  return { placed, lanes, width, height };
 }
 
-// Bottom-center to top-center, whether the two nodes share a lane (a
-// straight vertical line) or not (the caller bends the path horizontally at
-// a midpoint Y between these two points -- same technique DFD's cross-node
-// routing already uses).
-function edge(a: Placed, b: Placed) {
-  return { from: { x: a.cx, y: a.cy + a.h / 2 }, to: { x: b.cx, y: b.cy - b.h / 2 } };
+const rectOf = (p: Placed) => ({ x: p.cx - p.w / 2, y: p.cy - p.h / 2, w: p.w, h: p.h });
+/** The smallest rectangle around all of these. */
+function unionOf(rs: { x: number; y: number; w: number; h: number }[]) {
+  const x0 = Math.min(...rs.map((r) => r.x)), y0 = Math.min(...rs.map((r) => r.y));
+  const x1 = Math.max(...rs.map((r) => r.x + r.w)), y1 = Math.max(...rs.map((r) => r.y + r.h));
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
 interface Props {
@@ -111,10 +132,10 @@ function LaneHeader({ maxOffset, flash, children }: { maxOffset: number; flash?:
       // moved instantly it would jump ahead and wait for the diagram. (Exact
       // because only pan-only moves glide -- see glide() in CanvasShell.)
       className={cn(
-        "relative z-30 flex items-center justify-between gap-1 border-b bg-muted px-2",
+        "relative flex items-center justify-between gap-1 border-b bg-muted px-2",
         gliding && CANVAS_GLIDE_CLASS,
       )}
-      style={{ height: LANE_HEADER_H, transform: `translateY(${offset}px)` }}
+      style={{ height: LANE_HEADER_H, transform: `translateY(${offset}px)`, zIndex: LAYER.pinned }}
     >
       {/* While pinned, the header sits one toolbar-row below the top of the
        *  canvas, and step cards scrolling up behind it used to reappear in
@@ -134,15 +155,25 @@ function LaneHeader({ maxOffset, flash, children }: { maxOffset: number; flash?:
 }
 
 export function ActivityDiagramView({ model, editing }: Props) {
-  const { placed, lanes, width, height } = useMemo(() => layout(model), [model]);
+  // Moved shapes are view state until saving is on (see SAVE_LAYOUTS); kept
+  // in the artifact's view store so they survive a tab switch.
+  const [overrides, setOverrides] = useCanvasViewState<Pos>("activity:overrides", {});
+  const saved = layoutOf(model, "activity")?.nodes;
+  // Shapes grow with their text; lines and outlines follow.
+  const grown = useGrownHeights();
+  const { placed, lanes, width, height } = useMemo(
+    () => layout(model, overrides, saved, grown.heights), [model, overrides, saved, grown.heights]);
   const byId = useMemo(() => new Map(placed.map((p) => [p.ref.id, p])), [placed]);
+  const placedRef = useRef(placed);
+  placedRef.current = placed;
+  const presenting = !!useArtifactFullscreen()?.presenting;
 
   // A step added from a lane header joins the END of the sequence, which is
   // the bottom of the diagram; a new lane lands at the far right. Either can
   // be well out of view, so both are revealed.
   const rectFor = (id: string): RevealTarget | null => {
     const p = byId.get(id);
-    if (p) return { x: p.cx - p.w / 2, y: p.cy - p.h / 2, w: p.w, h: p.h };
+    if (p) return rectOf(p);
     const lane = lanes.findIndex((a) => a.id === id);
     // A lane's header is pinned to the top of the view wherever the camera
     // is, so showing a new lane only ever means moving sideways. Asking for
@@ -151,6 +182,149 @@ export function ActivityDiagramView({ model, editing }: Props) {
     return lane >= 0 ? { x: LEFT_PAD + lane * LANE_W, y: 0, w: LANE_W, h: LANE_HEADER_H, axis: "x" } : null;
   };
   const { apiRef: shellApi, revealNew, flashId } = useRevealNew(rectFor);
+
+  // ---- Moving, selecting, keys, copy and paste (canvas-selection.tsx) ----
+  const noteMove = useNoteLayoutMove();
+  const rectsById = useMemo(() => new Map(placed.map((p) => [p.ref.id, rectOf(p)])), [placed]);
+  const currentPlaces = () => Object.fromEntries(placedRef.current.map((p) => [p.ref.id, { x: p.cx - p.w / 2, y: p.cy - p.h / 2 }]));
+  const sizeOf = (id: string) => {
+    const p = placedRef.current.find((x) => x.ref.id === id);
+    if (p) return { w: p.w, h: p.h };
+    return id.startsWith("DC-") ? { w: DEC_W, h: DEC_H } : { w: NODE_W, h: NODE_H };
+  };
+  /** The lane a point is in (by x), if any. */
+  const laneAt = (x: number) => {
+    const i = Math.floor((x - LEFT_PAD) / LANE_W);
+    return i >= 0 && i < lanes.length ? lanes[i] : undefined;
+  };
+  // A step let go in another lane is handed over to that lane's actor: in a
+  // swimlane diagram, where a step sits says who does it. Only a step moved
+  // on its own (moving a whole selection reassigns nobody), and only when
+  // it lands in a lane other than the one it is drawn in.
+  const handOver = (places: Record<string, { x: number; y: number }>, opts: { quiet?: boolean } = {}) => {
+    const handed: { id: string; text: string; lane: { id: string; text: string } }[] = [];
+    for (const [id, p] of Object.entries(places)) {
+      const step = model.steps.find((s) => s.id === id);
+      if (!step) continue;
+      const lane = laneAt(p.x + sizeOf(id).w / 2);
+      const drawnIn = Math.max(0, lanes.findIndex((a) => a.id === step.actorId));
+      if (!lane || lanes.indexOf(lane) === drawnIn) continue;
+      handed.push({ id, text: step.text, lane });
+    }
+    if (handed.length === 0) return;
+    // A decision drawn after a handed-over step stays where it is.
+    const frozen: Pos = {};
+    for (const h of handed) {
+      for (const d of model.decisions.filter((x) => x.afterStepId === h.id)) {
+        const at = placedRef.current.find((x) => x.ref.id === d.id);
+        if (at) frozen[d.id] = { cx: at.cx, cy: at.cy };
+      }
+    }
+    // The step's x follows its lane from now on (and back, on Undo).
+    setOverrides((cur) => {
+      const next = { ...cur, ...frozen };
+      for (const h of handed) if (next[h.id]) next[h.id] = { cy: next[h.id].cy };
+      return next;
+    });
+    for (const h of handed) editing.onUpdateItem(h.id, { actorId: h.lane.id });
+    if (!opts.quiet && handed.length === 1) {
+      toast(`“${handed[0].text}” is now done by ${handed[0].lane.text}`, { description: "Press Ctrl/⌘ Z to undo." });
+    }
+  };
+  const lines = useMemo(() => model.connections ?? [], [model.connections]);
+  const drawnLines = useMemo(() => lines.filter((c) => rectsById.has(c.fromId) && rectsById.has(c.toId)), [lines, rectsById]);
+  const drawnLineIds = useMemo(() => new Set(drawnLines.map((c) => c.id)), [drawnLines]);
+  // What each shape and line is called: for screen readers, and the lists
+  // in the selection bar and the line bar.
+  const shapeName = (id: string) => {
+    const s = model.steps.find((x) => x.id === id); if (s) return `Step “${s.text}”`;
+    const d = model.decisions.find((x) => x.id === id);
+    if (d) return d.shape === "gateway-parallel" ? `Fork / join ${d.id}` : `Decision “${d.text}”`;
+    return id;
+  };
+  const lineName = (id: string) => {
+    const c = lines.find((x) => x.id === id);
+    return c ? `Line from ${shapeName(c.fromId)} to ${shapeName(c.toId)}` : "Line";
+  };
+  const shapeList = [...rectsById.keys()].map((id) => ({ id, name: shapeName(id) }));
+  const sel = useShapeSelection({
+    view: "activity", model, rects: rectsById, shellApi, presenting,
+    lines: drawnLineIds, onDeleteLine: editing.onDeleteConnection,
+    nameOf: shapeName, lineNameOf: lineName,
+    canEdit: editing.canEdit,
+    preview: (places) => {
+      if (!SAVE_LAYOUTS) noteMove(model);
+      setOverrides((cur) => {
+        const next = { ...cur };
+        for (const [id, p] of Object.entries(places)) { const z = sizeOf(id); next[id] = { cx: p.x + z.w / 2, cy: p.y + z.h / 2 }; }
+        return next;
+      });
+    },
+    commit: (places, mergeKey) => {
+      if (Object.keys(places).length === 1) handOver(places);
+      if (!SAVE_LAYOUTS) return;
+      editing.onPlaceShapes("activity", places, currentPlaces(), mergeKey);
+      setOverrides((cur) => { const next = { ...cur }; for (const id of Object.keys(places)) delete next[id]; return next; });
+    },
+    onDeleteMany: editing.onDeleteMany,
+    onPaste: (clip, dx, dy) => {
+      const made = editing.onPasteShapes("activity", clip, dx, dy, currentPlaces());
+      if (made && !SAVE_LAYOUTS) {
+        setOverrides((cur) => {
+          const next = { ...cur };
+          for (const id of made.ids) { const p = made.places[id]; if (p) { const z = sizeOf(id); next[id] = { cx: p.x + z.w / 2, cy: p.y + z.h / 2 }; } }
+          return next;
+        });
+      }
+      // Copies are done by whoever's lane they land in.
+      if (made) handOver(made.places, { quiet: true });
+      return made;
+    },
+  });
+  const arranged = !!saved || Object.keys(overrides).length > 0;
+  const tidyUp = () => {
+    if (saved && !editing.onTidyUp("activity")) return;
+    setOverrides({});
+  };
+
+  // ---- Lines drawn by hand (canvas-connectors.tsx) ----
+  const connect = useConnectorDrag({ shellApi, rects: rectsById, canEdit: editing.canEdit });
+  const startConnDrag = (fromId: string, e: React.PointerEvent, from: Point) =>
+    connect.start(e, from, { exclude: fromId, done: (toId) => editing.onAddConnection(fromId, toId) });
+  const startEndDrag = (c: Connection, end: "from" | "to", e: React.PointerEvent, fixed: Point) =>
+    connect.start(e, fixed, {
+      exclude: end === "from" ? c.toId : c.fromId,
+      done: (id) => {
+        if (id === (end === "from" ? c.fromId : c.toId)) return;
+        editing.onUpdateConnection(c.id, end === "from" ? { fromId: id } : { toId: id });
+      },
+    });
+  const routeOf = (fromId: string, toId: string) => {
+    const a = rectsById.get(fromId), b = rectsById.get(toId);
+    return a && b ? connectorRoute(a, b) : null;
+  };
+
+  // The selection bar and the line bar sit right after their shape or line
+  // in the page, so Tab goes shape, its bar, the next shape.
+  const barAfter = (id: string) => presenting || sel.selection.ids[0] !== id ? null : (
+    <SelectionBar
+      ids={sel.selection.ids} rects={rectsById} actions={sel.actions}
+      connect={{
+        what: "line", targets: shapeList.filter((t) => t.id !== sel.selection.ids[0]),
+        onPick: (to) => editing.onAddConnection(sel.selection.ids[0], to),
+      }}
+    />
+  );
+  const lineBarAfter = (c: Connection) => {
+    const r = presenting || sel.line !== c.id ? null : routeOf(c.fromId, c.toId);
+    return r ? (
+      <LineBar
+        lineId={c.id} at={r.mid} fromId={c.fromId} toId={c.toId} shapes={shapeList} what="line"
+        onChange={(end, id) => editing.onUpdateConnection(c.id, end === "from" ? { fromId: id } : { toId: id })}
+        onDelete={() => editing.onDeleteConnection(c.id)}
+      />
+    ) : null;
+  };
 
   // Closing an add form removes the field that had focus. Hand focus back to
   // the button that opened it, or a keyboard user is dropped at the top of
@@ -187,7 +361,6 @@ export function ActivityDiagramView({ model, editing }: Props) {
   // Present mode ends, and its field would grab focus as it mounted again, so
   // it is shut instead. Focus is not handed back: the buttons it would go to
   // are hidden while presenting.
-  const presenting = !!useArtifactFullscreen()?.presenting;
   useEffect(() => {
     if (!presenting) return;
     setDraft(""); setAddingLane(null);
@@ -203,25 +376,30 @@ export function ActivityDiagramView({ model, editing }: Props) {
     close();
   };
 
+  const lastRow = placed.length ? Math.max(...placed.map((p) => p.row)) : -1;
   return (
+    // The frame the selection keys answer for (canvas-selection.tsx).
+    <div ref={(el) => { sel.frameRef.current = el; grown.rootRef.current = el; }} className="h-full w-full">
     <CanvasShell
       contentWidth={width}
       contentHeight={height}
       minimap
-      fullscreenLabel="Activity diagram — fullscreen"
+      fullscreenLabel="Activity diagram"
       viewId="activity"
       apiRef={shellApi}
+      onSelectBox={sel.onSelectBox}
+      onBackgroundPress={sel.onBackgroundPress}
       // The lanes and the rows in them, not the padded sheet (min 900x560).
       // Steps are drawn even when there are no actors yet (a from-scratch
       // flow), in the space the first lane would take.
-      drawnBounds={lanes.length === 0 && placed.length === 0 ? null : {
-        x: LEFT_PAD, y: 0, w: Math.max(1, lanes.length) * LANE_W,
-        h: placed.length ? TOP_PAD + (Math.max(...placed.map((p) => p.row)) + 1) * ROW_H : LANE_HEADER_H,
-      }}
-      shapes={placed.map((p) => ({ x: p.cx - p.w / 2, y: p.cy - p.h / 2, w: p.w, h: p.h }))}
+      drawnBounds={lanes.length === 0 && placed.length === 0 ? null : unionOf([
+        { x: LEFT_PAD, y: 0, w: Math.max(1, lanes.length) * LANE_W, h: placed.length ? TOP_PAD + (lastRow + 1) * ROW_H : LANE_HEADER_H },
+        ...placed.map(rectOf),
+      ])}
+      shapes={placed.map(rectOf)}
       bottomLeft={
-        <span className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-2xs font-mono-tight text-muted-foreground">
-          One lane per actor · sequence flows top-to-bottom, lane shows who
+        <span data-edit-control className="hidden @min-[640px]:flex items-center gap-1.5 rounded bg-card/95 backdrop-blur px-2 py-1 border text-2xs font-mono-tight text-muted-foreground">
+          One lane per actor · drag a step into another lane to hand it over · double-click to type · drag a side dot to draw a line
         </span>
       }
       bottomRight={
@@ -238,9 +416,18 @@ export function ActivityDiagramView({ model, editing }: Props) {
             <button onClick={closeActor} title="Cancel" aria-label="Cancel" className="h-8 w-8 flex items-center justify-center rounded hover:bg-muted"><X className="size-4" /></button>
           </div>
         ) : (
-          <button ref={addLaneButton} onClick={() => setAddingActor(true)} data-no-pan className="h-8 px-2.5 rounded-md border border-separator-strong bg-card text-xs flex items-center gap-1.5 hover:border-primary/60">
-            <Plus className="size-3.5 text-primary" /> Add lane
-          </button>
+          <div className="flex items-center gap-1.5">
+            {/* Only once shapes were moved by hand. */}
+            {arranged && (
+              <button onClick={tidyUp} data-no-pan className="h-8 px-2.5 rounded-md bg-card/95 text-xs flex items-center gap-1.5 hover:bg-muted"
+                title="Put every shape back in its lane and row">
+                <Wand2 className="size-3.5" /> Tidy up
+              </button>
+            )}
+            <button ref={addLaneButton} onClick={() => setAddingActor(true)} data-no-pan className="h-8 px-2.5 rounded-md border border-separator-strong bg-card text-xs flex items-center gap-1.5 hover:border-primary/60">
+              <Plus className="size-3.5 text-primary" /> Add lane
+            </button>
+          </div>
         )
       }
     >
@@ -267,6 +454,8 @@ export function ActivityDiagramView({ model, editing }: Props) {
 
       {/* Nodes only: a lane's ring is drawn inside its pinned header. */}
       <FlashRing key={flashId ?? "idle"} rect={flashId && byId.has(flashId) ? rectFor(flashId) : null} />
+      {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
+      {!presenting && <SnapGuides guides={sel.guides} />}
 
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
@@ -274,80 +463,162 @@ export function ActivityDiagramView({ model, editing }: Props) {
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />
           </marker>
         </defs>
+        {/* The flow: each step into whatever follows it in sequence (a
+         *  decision's branches route on from there). */}
         {placed.map((p, i) => {
           if (p.kind === "decision") return null;
           const next = placed[i + 1];
-          if (!next) return null;
-          // A step's implicit "next" edge only applies going into another
-          // step directly beneath it in sequence -- if a decision follows,
-          // its branches (below) own the routing instead.
-          const { from, to } = edge(p, next);
-          const midY = (from.y + to.y) / 2;
-          const path = Math.abs(from.x - to.x) < 4
-            ? `M ${from.x} ${from.y} L ${to.x} ${to.y}`
-            : roundedPath([from, { x: from.x, y: midY }, { x: to.x, y: midY }, to]);
-          return <path key={`seq-${p.ref.id}`} d={path} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#ad-arrow)" />;
+          if (next && lines.some((c) => c.fromId === p.ref.id && c.toId === next.ref.id)) return null;
+          const r = next ? connectorRoute(rectOf(p), rectOf(next)) : null;
+          return r ? <path key={`seq-${p.ref.id}`} d={roundedPath(r.points)} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#ad-arrow)" /> : null;
         })}
         {placed.filter((p) => p.kind === "decision").map((p) => {
           const d = p.ref as Decision;
           return decisionBranches(d).map((b) => {
             const target = byId.get(b.targetId);
             if (!target) return null;
-            const { from, to } = edge(p, target);
-            const midY = (from.y + to.y) / 2;
-            const path = Math.abs(from.x - to.x) < 4
-              ? `M ${from.x} ${from.y} L ${to.x} ${to.y}`
-              : roundedPath([from, { x: from.x, y: midY }, { x: to.x, y: midY }, to]);
+            const r = connectorRoute(rectOf(p), rectOf(target));
             return (
               <g key={`${d.id}-${b.id}`}>
-                <path d={path} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#ad-arrow)" />
-                <text x={from.x + 8} y={from.y + 14} fill="var(--color-foreground)" fontSize="10" fontFamily="var(--font-mono)">{b.label}</text>
+                <path d={roundedPath(r.points)} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#ad-arrow)" />
+                <text x={r.mid.x + 6} y={r.mid.y - 6} fill="var(--color-foreground)" fontSize="10" fontFamily="var(--font-mono)">{b.label}</text>
               </g>
             );
           });
         })}
+        {/* Lines drawn by hand: click to select, double-click to type. */}
+        {drawnLines.map((c) => {
+          const r = routeOf(c.fromId, c.toId);
+          if (!r) return null;
+          const path = roundedPath(r.points);
+          const selected = sel.line === c.id;
+          return (
+            <g key={c.id}>
+              {!presenting && (
+                <path
+                  d={path} fill="none" stroke="transparent" strokeWidth={14} pointerEvents="stroke"
+                  data-no-pan data-edit-control className="cursor-pointer"
+                  onPointerDown={(e) => { if (e.button !== 0) return; e.stopPropagation(); sel.selectLine(c.id); }}
+                  onDoubleClick={() => sel.editLineLabel(c.id)}
+                />
+              )}
+              {selected && (
+                <path
+                  d={path} fill="none" stroke="var(--color-primary)" strokeOpacity={0.6} strokeWidth={7}
+                  strokeLinecap="round" pointerEvents="none" data-edit-control
+                />
+              )}
+              <path d={path} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#ad-arrow)" />
+            </g>
+          );
+        })}
       </svg>
 
-      {placed.map((p) =>
-        p.kind === "step" ? (
-          <ActivityStepNode key={p.ref.id} node={p} step={p.ref as Step} onDelete={() => editing.onDeleteAny(p.ref.id)}
-            onUpdate={(text) => editing.onUpdateItem(p.ref.id, { text })} />
-        ) : (
-          <ActivityDecisionNode key={p.ref.id} node={p} d={p.ref as Decision} onDelete={() => editing.onDeleteAny(p.ref.id)}
-            onUpdate={(text) => editing.onUpdateItem(p.ref.id, { text })}
-            onAddBranch={() => {
-              const branches = decisionBranches(p.ref as Decision);
-              const id = `${p.ref.id}-b${branches.length}-${Math.random().toString(36).slice(2, 6)}`;
-              editing.onUpdateItem(p.ref.id, { branches: [...branches, { id, label: `Option ${branches.length + 1}`, targetId: "—" }] });
-            }}
-            onUpdateBranch={(bid, patch) => {
-              const branches = decisionBranches(p.ref as Decision);
-              editing.onUpdateItem(p.ref.id, { branches: branches.map((b) => (b.id === bid ? { ...b, ...patch } : b)) });
-            }}
-            onRemoveBranch={(bid) => {
-              const branches = decisionBranches(p.ref as Decision);
-              editing.onUpdateItem(p.ref.id, { branches: branches.filter((b) => b.id !== bid) });
-            }} />
-        ),
-      )}
+      {placed.map((p) => {
+        const id = p.ref.id;
+        const common = {
+          node: p,
+          onPress: (e: React.PointerEvent) => sel.pressShape(id, e),
+          onGrip: (e: React.PointerEvent) => {
+            // A grip on one of several selected shapes moves them all; on
+            // any other, just that shape. Either way with snap guides.
+            const ids = sel.selection.ids;
+            sel.dragSelection(e, ids.length > 1 && ids.includes(id) ? ids : [id]);
+          },
+          onDelete: () => editing.onDeleteAny(id),
+          onStartConnect: (e: React.PointerEvent, from: Point) => startConnDrag(id, e, from),
+        };
+        return (
+          <Fragment key={id}>
+            {p.kind === "step" ? (
+              <ActivityStepNode {...common} step={p.ref as Step} onUpdate={(text) => editing.onUpdateItem(id, { text })} />
+            ) : (
+              <ActivityDecisionNode {...common} d={p.ref as Decision}
+                onUpdate={(text) => editing.onUpdateItem(id, { text })}
+                onAddBranch={() => {
+                  const branches = decisionBranches(p.ref as Decision);
+                  const bid = `${id}-b${branches.length}-${Math.random().toString(36).slice(2, 6)}`;
+                  editing.onUpdateItem(id, { branches: [...branches, { id: bid, label: `Option ${branches.length + 1}`, targetId: "—" }] });
+                }}
+                onUpdateBranch={(bid, patch) => {
+                  const branches = decisionBranches(p.ref as Decision);
+                  editing.onUpdateItem(id, { branches: branches.map((b) => (b.id === bid ? { ...b, ...patch } : b)) });
+                }}
+                onRemoveBranch={(bid) => {
+                  const branches = decisionBranches(p.ref as Decision);
+                  editing.onUpdateItem(id, { branches: branches.filter((b) => b.id !== bid) });
+                }} />
+            )}
+            {barAfter(id)}
+          </Fragment>
+        );
+      })}
+
+      {drawnLines.map((c) => {
+        const m = routeOf(c.fromId, c.toId)?.mid;
+        if (!m) return null;
+        return (
+          <Fragment key={`lbl-${c.id}`}>
+            <LineLabel
+              lineId={c.id} x={m.x} y={m.y} onSelect={() => sel.selectLine(c.id)} name={lineName(c.id)}
+              value={c.label ?? ""} placeholder="Add label" quiet
+              fieldLabel="Line label"
+              onChange={(label) => editing.onUpdateConnection(c.id, { label })}
+              onDelete={() => editing.onDeleteConnection(c.id)}
+              deleteLabel={`Delete line${c.label ? ` ${c.label}` : ""}`}
+            />
+            {lineBarAfter(c)}
+          </Fragment>
+        );
+      })}
+      {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-primary)" />}
+      {!presenting && (() => {
+        const c = drawnLines.find((x) => x.id === sel.line);
+        const r = c && routeOf(c.fromId, c.toId);
+        if (!c || !r) return null;
+        const p0 = r.points[0], p1 = r.points[r.points.length - 1];
+        return <ConnectorEnds from={p0} to={p1} onStart={(e, end) => startEndDrag(c, end, e, end === "from" ? p1 : p0)} />;
+      })()}
     </CanvasShell>
+    {sel.liveRegion}
+    {sel.pasteDialog}
+    </div>
+  );
+}
+
+/** What every Activity shape takes from the view: where it is, presses on
+ *  its body and grip, delete, and the dots that draw a line. */
+interface NodeCommon {
+  node: Placed;
+  /** A press on the body: select, and drag the selection. */
+  onPress: (e: React.PointerEvent) => void;
+  /** A press on the grip: drag this shape (or the selection it is in). */
+  onGrip: (e: React.PointerEvent) => void;
+  onDelete: () => void;
+  onStartConnect: (e: React.PointerEvent, from: Point) => void;
+}
+
+function Grip({ onGrip }: { onGrip: (e: React.PointerEvent) => void }) {
+  return (
+    <GripVertical
+      data-no-pan data-edit-control aria-hidden
+      onPointerDown={(e) => { if (e.button !== 0) return; e.stopPropagation(); onGrip(e); }}
+      className="size-3.5 text-muted-foreground/70 hover:text-foreground cursor-grab active:cursor-grabbing shrink-0"
+    />
   );
 }
 
 function ActivityStepNode({
-  node, step, onDelete, onUpdate,
-}: {
-  node: Placed; step: Step;
-  onDelete: () => void;
-  onUpdate: (t: string) => void;
-}) {
+  node, step, onPress, onGrip, onDelete, onUpdate, onStartConnect,
+}: NodeCommon & { step: Step; onUpdate: (t: string) => void }) {
   // The frame says how sure, with the chip's word beside it: red when the
   // source changed or the sources disagree, dashed amber when unclear, teal
   // when a person made or changed it.
   const g = gradeOf(step);
   return (
     <div
-      data-node
+      data-node data-shape-id={step.id}
+      onPointerDown={onPress}
       className={cn(
         "group absolute rounded-xl border-2 bg-card shadow-sm flex flex-col gap-1 px-2.5 py-2",
         g.grade === "changed" || g.grade === "disagree" ? "border-drift"
@@ -355,38 +626,36 @@ function ActivityStepNode({
         : g.provenance ? "border-verified"
         : "border-primary/60",
       )}
-      style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: 10 }}
+      // Its own height at least, taller when the text needs it.
+      style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, minHeight: node.baseH, zIndex: LAYER.shape }}
     >
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1 min-w-0">
-          <GripVertical data-edit-control className="size-3.5 text-muted-foreground/70 shrink-0" />
+          <Grip onGrip={onGrip} />
           <IdChip id={step.id} tone="primary" />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <ConfidenceBadge item={step} compact />
-          <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete step ${step.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
-            <X className="size-3" />
-          </button>
+          <DeleteX label={`Delete step “${step.text}”`} onClick={onDelete} />
         </div>
       </div>
       <div className="text-xs font-medium leading-snug break-words">
-        <InlineEdit value={step.text} onChange={onUpdate} multiline />
+        <InlineEdit value={step.text} onChange={onUpdate} multiline activate="double" label="Step" />
       </div>
+      <ConnectHandles rect={rectOf(node)} onStart={onStartConnect} />
     </div>
   );
 }
 
 function ActivityDecisionNode({
-  node, d, onDelete, onUpdate, onAddBranch, onUpdateBranch, onRemoveBranch,
-}: {
-  node: Placed; d: Decision;
-  onDelete: () => void;
+  node, d, onPress, onGrip, onDelete, onUpdate, onStartConnect, onAddBranch, onUpdateBranch, onRemoveBranch,
+}: NodeCommon & {
+  d: Decision;
   onUpdate: (t: string) => void;
   onAddBranch: () => void;
   onUpdateBranch: (branchId: string, patch: { label?: string; targetId?: string }) => void;
   onRemoveBranch: (branchId: string) => void;
 }) {
-  const isBar = d.shape === "gateway-parallel";
   const branches = decisionBranches(d);
   // The branch editor is editing. Present mode hides its trigger, and one
   // left open when Present mode starts is shut (it would otherwise float,
@@ -395,17 +664,16 @@ function ActivityDecisionNode({
   const [branchesOpen, setBranchesOpen] = useState(false);
   if (presenting && branchesOpen) setBranchesOpen(false);
 
-  if (isBar) {
+  if (node.isBar) {
     return (
       <div
-        data-node
-        className="group absolute rounded-[3px] bg-foreground shadow-sm flex items-center justify-center"
-        style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: 10 }}
+        data-node data-shape-id={d.id}
+        onPointerDown={onPress}
+        className="group absolute rounded-[3px] bg-foreground shadow-sm flex items-center justify-center cursor-default before:absolute before:-inset-y-2 before:inset-x-0 before:content-['']"
+        style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: LAYER.shape }}
         title="Fork / join"
       >
-        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete fork / join ${d.id}`} className="absolute -top-4 right-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
-          <X className="size-3" />
-        </button>
+        <div className="absolute -top-5 right-0"><DeleteX label={`Delete fork / join ${d.id}`} onClick={onDelete} /></div>
         <IdChip id={d.id} />
       </div>
     );
@@ -413,18 +681,21 @@ function ActivityDecisionNode({
 
   return (
     <div
-      data-node
+      data-node data-shape-id={d.id}
+      onPointerDown={onPress}
       className="group absolute rounded-xl border-2 border-primary/60 bg-card shadow-sm flex flex-col gap-1 px-2.5 py-2"
-      style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: 10 }}
+      // Its own height at least, taller when the text needs it.
+      style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, minHeight: node.baseH, zIndex: LAYER.shape }}
     >
       <div className="flex items-center justify-between gap-1">
-        <IdChip id={d.id} />
-        <button onClick={onDelete} data-no-pan data-edit-control aria-label={`Delete decision ${d.text}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-within:opacity-100 text-muted-foreground hover:text-destructive transition">
-          <X className="size-3" />
-        </button>
+        <div className="flex items-center gap-1 min-w-0">
+          <Grip onGrip={onGrip} />
+          <IdChip id={d.id} />
+        </div>
+        <DeleteX label={`Delete decision “${d.text}”`} onClick={onDelete} />
       </div>
       <div className="text-[11px] font-medium leading-snug break-words">
-        <InlineEdit value={d.text} onChange={onUpdate} multiline />
+        <InlineEdit value={d.text} onChange={onUpdate} multiline activate="double" label="Decision" />
       </div>
       <Popover open={branchesOpen && !presenting} onOpenChange={setBranchesOpen}>
         <PopoverTrigger asChild>
@@ -457,6 +728,7 @@ function ActivityDecisionNode({
           </button>
         </PopoverContent>
       </Popover>
+      <ConnectHandles rect={rectOf(node)} onStart={onStartConnect} />
     </div>
   );
 }

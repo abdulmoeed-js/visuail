@@ -21,6 +21,7 @@ export const VIEW_LISTS: Partial<Record<ViewId, readonly ShapeList[]>> = {
   process: ["steps", "decisions", "exceptions"],
   dfd: ["steps", "dataStores", "externalEntities"],
   state: ["states"],
+  activity: ["steps", "decisions"],
 };
 
 /** The part of a clip a diagram can show, lines between those included;

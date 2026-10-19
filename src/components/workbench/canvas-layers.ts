@@ -11,6 +11,8 @@ export const LAYER = {
   guide: 910,
   handle: 920,
   preview: 930,
+  /** Headers pinned to the view as it scrolls (Activity's lane names). */
+  pinned: 940,
   bar: 950,
   /** The ring that points at a shape just added or found. */
   flash: 990,
