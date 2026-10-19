@@ -1106,28 +1106,28 @@ export function ProcessCanvas({
             <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />
           </marker>
           <marker id="arrow-dashed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="var(--color-unresolved)" />
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />
           </marker>
           <marker id="arrow-verified" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="var(--color-verified)" />
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />
           </marker>
           {/* Crow's-foot markers. refX at the outer edge so the glyph sits at the end. */}
           <marker id="crow-one" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="14" markerHeight="14" orient="auto-start-reverse">
-            <path d="M6 1 V11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+            <path d="M6 1 V11" stroke="var(--color-muted-foreground)" strokeWidth="1.4" fill="none" />
           </marker>
           <marker id="crow-many" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="14" markerHeight="14" orient="auto-start-reverse">
-            <path d="M11 1 L1 6 L11 11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+            <path d="M11 1 L1 6 L11 11" stroke="var(--color-muted-foreground)" strokeWidth="1.4" fill="none" />
           </marker>
           <marker id="crow-one-many" viewBox="0 0 14 12" refX="13" refY="6" markerWidth="16" markerHeight="14" orient="auto-start-reverse">
-            <path d="M8 1 V11 M13 1 L3 6 L13 11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
+            <path d="M8 1 V11 M13 1 L3 6 L13 11" stroke="var(--color-muted-foreground)" strokeWidth="1.4" fill="none" />
           </marker>
           <marker id="crow-zero-one" viewBox="0 0 14 12" refX="13" refY="6" markerWidth="16" markerHeight="14" orient="auto-start-reverse">
-            <path d="M8 1 V11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
-            <circle cx="4" cy="6" r="2.2" stroke="var(--color-verified)" strokeWidth="1.2" fill="var(--color-background)" />
+            <path d="M8 1 V11" stroke="var(--color-muted-foreground)" strokeWidth="1.4" fill="none" />
+            <circle cx="4" cy="6" r="2.2" stroke="var(--color-muted-foreground)" strokeWidth="1.2" fill="var(--color-background)" />
           </marker>
           <marker id="crow-zero-many" viewBox="0 0 16 12" refX="15" refY="6" markerWidth="18" markerHeight="14" orient="auto-start-reverse">
-            <path d="M15 1 L5 6 L15 11" stroke="var(--color-verified)" strokeWidth="1.4" fill="none" />
-            <circle cx="2" cy="6" r="2.2" stroke="var(--color-verified)" strokeWidth="1.2" fill="var(--color-background)" />
+            <path d="M15 1 L5 6 L15 11" stroke="var(--color-muted-foreground)" strokeWidth="1.4" fill="none" />
+            <circle cx="2" cy="6" r="2.2" stroke="var(--color-muted-foreground)" strokeWidth="1.2" fill="var(--color-background)" />
           </marker>
         </defs>
 
@@ -1182,7 +1182,7 @@ export function ProcessCanvas({
                 strokeLinecap="round" markerEnd="url(#arrow)"
               />
               {yesLabel && (
-                <text x={from.x + 10} y={midY + 4} fill="var(--color-confident-ink)" fontSize="11" fontFamily="var(--font-mono)">
+                <text x={from.x + 10} y={midY + 4} fill="var(--color-foreground)" fontSize="11" fontFamily="var(--font-mono)">
                   {yesLabel}
                 </text>
               )}
@@ -1192,9 +1192,11 @@ export function ProcessCanvas({
 
         {routes.map((r) => {
           const isException = r.kind === "exception";
-          const stroke = isException ? "var(--color-unresolved)" : "var(--color-drift)";
+          // Lines are neutral: an exception route is told apart by its dash
+          // and its words, not by a trust colour.
+          const stroke = "var(--color-muted-foreground)";
           // The label is text, so it takes the darker ink of the same colour.
-          const labelFill = isException ? "var(--color-unresolved-ink)" : "var(--color-drift-ink)";
+          const labelFill = "var(--color-foreground)";
           const dash = isException ? "4 3" : undefined;
           const marker = isException ? "url(#arrow-dashed)" : "url(#arrow)";
           // Out to a lane and into the target from the side it is entered
@@ -1253,7 +1255,7 @@ export function ProcessCanvas({
               <path
                 d={d}
                 fill="none"
-                stroke="var(--color-verified)"
+                stroke="var(--color-muted-foreground)"
                 strokeWidth={1.9}
                 strokeLinecap="round"
                 markerStart={startMk ?? undefined}
@@ -1343,7 +1345,7 @@ export function ProcessCanvas({
 
       {!presenting && <SelectionOutlines ids={sel.selection.ids} rects={rectsById} />}
       {!presenting && <SnapGuides guides={sel.guides} />}
-      {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-verified)" />}
+      {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-primary)" />}
 
       <FlashRing key={flashId ?? "idle"} rect={flashGeom ? {
         x: flashGeom.cx - flashGeom.w / 2, y: flashGeom.cy - flashGeom.h / 2, w: flashGeom.w, h: flashGeom.h,
@@ -1357,7 +1359,7 @@ export function ProcessCanvas({
           <Fragment key={`ctl-${c.id}`}>
           <LineLabel
             x={m.x} y={m.y} lineId={c.id} onSelect={() => sel.selectLine(c.id)} name={lineName(c.id)}
-            value={c.label ?? ""} placeholder="Add label" tone="verified" quiet
+            value={c.label ?? ""} placeholder="Add label" quiet
             fieldLabel="Connector label"
             onChange={onUpdateConnection ? (label) => onUpdateConnection(c.id, { label }) : undefined}
           >
@@ -1672,7 +1674,7 @@ function ShapeGlyph({ kind, shape }: { kind: PaletteItem["kind"]; shape?: string
   // Tiny preview so the palette isn't a wall of identical icons.
   const stroke = "currentColor";
   if (kind === "exception") {
-    return <AlertTriangle className="size-4 text-unresolved shrink-0" />;
+    return <AlertTriangle className="size-4 text-primary shrink-0" />;
   }
   if (kind === "decision") {
     if (shape === "gateway-parallel") {
@@ -1764,6 +1766,9 @@ function Legend() {
        *  outline, and the node's chip says which it is. */}
       <span className={chip}><span className="h-2 w-3 border border-dashed border-unresolved rounded-[2px]" /> Unclear</span>
       <span className={chip}><span className="h-2 w-3 border border-drift rounded-[2px] bg-drift/20" /> Source changed or sources disagree</span>
+      <span className={chip}><span className="h-2 w-3 border-2 border-verified rounded-[2px]" /> Added or edited by you</span>
+      {/* Lines are neutral; a dashed one is a route to an exception. */}
+      <span className={chip}><span className="w-4 border-t border-dashed border-muted-foreground" /> Exception route</span>
       {/* How-to, not legend: shown only where the bar has the room for it
        *  (the bottom bar is a container-query container). The same words
        *  live in the shape palette for narrower canvases. Editing help, so
@@ -2127,7 +2132,7 @@ function StepNode({
         </div>
         <div className="flex-1 w-px border-l-2 border-dashed border-primary/50" style={{ minHeight: 120 }} />
         <div className="text-[9px] font-mono-tight text-muted-foreground pt-1">Lifeline</div>
-        {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
+        {onStartConnect && <ConnectHandles rect={rectOfNode(node)} onStart={onStartConnect} />}
         <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
       </div>
     );
@@ -2253,7 +2258,7 @@ function StepNode({
       ) : (
         contentInner
       )}
-      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
+      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} onStart={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
@@ -2319,8 +2324,7 @@ function SectionedNode({
         frame === "drift" && "border-drift",
         frame === "unclear" && "border-dashed border-unresolved",
         frame === "provenance" && "border-verified",
-        // An entity's plain outline has always been teal, as a type colour.
-        frame === "plain" && (isEntity ? "border-verified/70" : "border-primary/50"),
+        frame === "plain" && "border-primary/50",
       )}
       style={{
         left: node.cx - node.w / 2,
@@ -2366,7 +2370,7 @@ function SectionedNode({
           topBorder
         />
       )}
-      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
+      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} onStart={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
@@ -2443,7 +2447,7 @@ function MetaSelect({
   return (
     // The select itself is invisible, so its keyboard focus ring is drawn on
     // this wrapper instead.
-    <span className="relative inline-flex items-center rounded px-1 -mx-1 hover:bg-verified/10 hover:ring-1 hover:ring-verified/30 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring transition" data-no-pan>
+    <span className="relative inline-flex items-center rounded px-1 -mx-1 hover:bg-primary/10 hover:ring-1 hover:ring-primary/30 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring transition" data-no-pan>
       <span className="pointer-events-none">{current}</span>
       <select
         data-edit-control
@@ -2631,7 +2635,7 @@ function DecisionNode({
           </Popover>
         )}
       </div>
-      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
+      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} onStart={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );
@@ -2711,7 +2715,7 @@ function ExceptionNode({
       <div className="text-[11px] leading-snug break-words">
         <InlineEdit value={e.text} onChange={(v) => onUpdate({ text: v })} multiline activate="double" label="Exception" />
       </div>
-      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} tone="verified" onStart={onStartConnect} />}
+      {onStartConnect && <ConnectHandles rect={rectOfNode(node)} onStart={onStartConnect} />}
       <ResizeHandle w={node.w} h={node.h} onResize={onResize} />
     </div>
   );

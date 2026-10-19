@@ -109,7 +109,7 @@ export function DecisionTreeView({ model, editing }: Props) {
           return (
             <g key={f.id}>
               <path d={path} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#dt-arrow)" />
-              <text x={(from.x + to.x) / 2 + 6} y={midY - 6} fill="var(--color-primary)" fontSize="10" fontFamily="var(--font-mono)">{f.label}</text>
+              <text x={(from.x + to.x) / 2 + 6} y={midY - 6} fill="var(--color-foreground)" fontSize="10" fontFamily="var(--font-mono)">{f.label}</text>
             </g>
           );
         })}
@@ -168,7 +168,7 @@ function RuleNodeView({
       onPointerDown={presenting ? undefined : (e) => e.stopPropagation()}
       className={
         isLeaf
-          ? "group absolute rounded-full border-2 border-verified/60 bg-card shadow-sm flex flex-col items-center justify-center gap-0.5 text-center px-3"
+          ? "group absolute rounded-full border-2 border-primary/60 bg-card shadow-sm flex flex-col items-center justify-center gap-0.5 text-center px-3"
           : "group absolute rounded-xl border-2 border-primary/60 bg-card shadow-sm flex flex-col gap-1 px-2.5 py-2"
       }
       style={{ left: node.cx - NODE_W / 2, top: node.cy - NODE_H / 2, width: NODE_W, height: NODE_H, zIndex: isRoot ? 11 : 10 }}
@@ -176,7 +176,7 @@ function RuleNodeView({
       {node.detached && (
         // Above the node, so it doesn't crowd the text. Kept in Present mode:
         // it says something true about the tree.
-        <span className="absolute -top-5 left-0 rounded bg-unresolved/15 px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+        <span className="absolute -top-5 left-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
           Not connected to the main tree
         </span>
       )}

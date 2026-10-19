@@ -109,12 +109,11 @@ const SIDES: { side: Side; place: string }[] = [
  * Present mode and exports leave them out (data-edit-control).
  */
 export function ConnectHandles({
-  rect, onStart, tone, title = "Drag to another shape to connect",
+  rect, onStart, title = "Drag to another shape to connect",
 }: {
   /** The shape, in canvas units (where its lines start). */
   rect: Rect;
   onStart: (e: React.PointerEvent, from: Point) => void;
-  tone: "verified" | "primary";
   title?: string;
 }) {
   return (
@@ -134,7 +133,7 @@ export function ConnectHandles({
           {/* The dot you see keeps its size on screen when zoomed out. */}
           <span className={cn(
             "counter-zoom pointer-events-none absolute inset-0 rounded-full border-2 bg-card shadow-sm transition-colors",
-            tone === "verified" ? "border-verified group-hover/dot:bg-verified" : "border-primary group-hover/dot:bg-primary",
+            "border-primary group-hover/dot:bg-primary",
           )} />
         </div>
       ))}

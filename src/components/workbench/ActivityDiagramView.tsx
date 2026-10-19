@@ -300,8 +300,8 @@ export function ActivityDiagramView({ model, editing }: Props) {
               : roundedPath([from, { x: from.x, y: midY }, { x: to.x, y: midY }, to]);
             return (
               <g key={`${d.id}-${b.id}`}>
-                <path d={path} fill="none" stroke="var(--color-drift)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#ad-arrow)" />
-                <text x={from.x + 8} y={from.y + 14} fill="var(--color-drift-ink)" fontSize="10" fontFamily="var(--font-mono)">{b.label}</text>
+                <path d={path} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#ad-arrow)" />
+                <text x={from.x + 8} y={from.y + 14} fill="var(--color-foreground)" fontSize="10" fontFamily="var(--font-mono)">{b.label}</text>
               </g>
             );
           });
@@ -414,7 +414,7 @@ function ActivityDecisionNode({
   return (
     <div
       data-node
-      className="group absolute rounded-xl border-2 border-drift/60 bg-card shadow-sm flex flex-col gap-1 px-2.5 py-2"
+      className="group absolute rounded-xl border-2 border-primary/60 bg-card shadow-sm flex flex-col gap-1 px-2.5 py-2"
       style={{ left: node.cx - node.w / 2, top: node.cy - node.h / 2, width: node.w, height: node.h, zIndex: 10 }}
     >
       <div className="flex items-center justify-between gap-1">

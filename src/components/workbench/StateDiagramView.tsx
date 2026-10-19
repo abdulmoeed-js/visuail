@@ -307,7 +307,7 @@ export function StateDiagramView({ model, editing }: Props) {
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <marker id="sd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="var(--color-primary)" />
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />
           </marker>
         </defs>
         {placed.filter((p) => p.ref.isInitial).map((p) => {
@@ -342,7 +342,7 @@ export function StateDiagramView({ model, editing }: Props) {
                 />
               )}
               <path
-                d={l.path} fill="none" stroke="var(--color-primary)" strokeWidth={1.75}
+                d={l.path} fill="none" stroke="var(--color-muted-foreground)" strokeWidth={1.75}
                 strokeLinecap="round" markerEnd="url(#sd-arrow)"
               />
             </g>
@@ -381,7 +381,7 @@ export function StateDiagramView({ model, editing }: Props) {
           <Fragment key={`lbl-${c.id}`}>
           <LineLabel
             lineId={c.id} x={m.x} y={m.y} onSelect={() => sel.selectLine(c.id)} name={lineName(c.id)}
-            value={c.label ?? ""} placeholder="Add event" tone="primary"
+            value={c.label ?? ""} placeholder="Add event"
             fieldLabel="Transition: event [guard] / action"
             onChange={(label) => editing.onUpdateConnection(c.id, { label })}
             onDelete={() => editing.onDeleteConnection(c.id)}
@@ -479,7 +479,7 @@ function StateNodeView({
       </div>
       <ConnectHandles
         rect={{ x: node.cx - STATE_W / 2, y: node.cy - node.h / 2, w: STATE_W, h: node.h }}
-        tone="primary" onStart={onStartConnect}
+        onStart={onStartConnect}
         title="Drag to another state to draw a transition, or let go on this one to loop back"
       />
     </div>

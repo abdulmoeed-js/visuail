@@ -101,7 +101,7 @@ export function InlineEdit({
       "aria-label": label,
       placeholder,
       className: cn(
-        "w-full bg-background/90 outline-none ring-2 ring-verified rounded px-1 py-0.5",
+        "w-full bg-background/90 outline-none ring-2 ring-primary rounded px-1 py-0.5",
         multiline ? "resize-none overflow-hidden block" : "",
         className,
       ),
@@ -138,7 +138,7 @@ export function InlineEdit({
       onPointerDown={onShape ? undefined : stop}
       className={cn(
         "rounded px-1 -mx-1 transition",
-        onShape ? "cursor-default" : "cursor-text hover:bg-verified/10 hover:ring-1 hover:ring-verified/30",
+        onShape ? "cursor-default" : "cursor-text hover:bg-primary/10 hover:ring-1 hover:ring-primary/30",
         !value && "text-muted-foreground italic",
         className,
       )}

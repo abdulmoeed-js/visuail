@@ -352,7 +352,7 @@ export function DFDView({ model, editing }: Props) {
       <svg width={width} height={height} className="absolute inset-0" style={{ pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <marker id="dfd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="var(--color-verified)" />
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--color-muted-foreground)" />
           </marker>
         </defs>
         {drawnFlows.map((c) => {
@@ -379,7 +379,7 @@ export function DFDView({ model, editing }: Props) {
                 />
               )}
               <path
-                d={path} fill="none" stroke="var(--color-verified)"
+                d={path} fill="none" stroke="var(--color-muted-foreground)"
                 strokeWidth={1.75} strokeLinecap="round" markerEnd="url(#dfd-arrow)"
               />
             </g>
@@ -417,7 +417,7 @@ export function DFDView({ model, editing }: Props) {
           <LineLabel
             lineId={c.id} onSelect={() => sel.selectLine(c.id)} name={lineName(c.id)}
             x={m.x} y={m.y}
-            value={c.label ?? ""} placeholder="Add label" tone="verified"
+            value={c.label ?? ""} placeholder="Add label"
             fieldLabel="Data flow label"
             onChange={(label) => editing.onUpdateConnection(c.id, { label })}
             onDelete={() => editing.onDeleteConnection(c.id)}
@@ -427,7 +427,7 @@ export function DFDView({ model, editing }: Props) {
           </Fragment>
         );
       })}
-      {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-verified)" />}
+      {!presenting && <ConnectorPreview live={connect.live} rects={rectsById} color="var(--color-primary)" />}
       {!presenting && (() => {
         const c = drawnFlows.find((x) => x.id === sel.line);
         const r = c && routeOf(c);
@@ -503,7 +503,7 @@ function DFDNodeView({
   const connectHandle = (
     <ConnectHandles
       rect={{ x: node.cx - node.w / 2, y: node.cy - node.h / 2, w: node.w, h: node.h }}
-      tone="verified" title="Drag to another shape to draw a data flow" onStart={onStartConnect}
+      title="Drag to another shape to draw a data flow" onStart={onStartConnect}
     />
   );
 

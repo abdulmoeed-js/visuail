@@ -12,7 +12,7 @@ import { LAYER } from "./canvas-layers";
 import { focusCameFromTab } from "./canvas-selection";
 
 export function LineLabel({
-  x, y, value, placeholder, tone, onChange, onDelete, deleteLabel, fieldLabel, quiet, zIndex = LAYER.lineLabel, children, lineId, onSelect, name,
+  x, y, value, placeholder, onChange, onDelete, deleteLabel, fieldLabel, quiet, zIndex = LAYER.lineLabel, children, lineId, onSelect, name,
 }: {
   /** What the line joins ("Data flow from … to …"), for screen readers. */
   name?: string;
@@ -28,7 +28,6 @@ export function LineLabel({
   value: string;
   /** Shown while there are no words yet: "label", "event". */
   placeholder: string;
-  tone: "primary" | "verified";
   /** Without it the words are shown, not edited. */
   onChange?: (v: string) => void;
   /** A small X beside the words deletes the line. */
@@ -44,10 +43,8 @@ export function LineLabel({
   children?: ReactNode;
 }) {
   const presenting = !!useArtifactFullscreen()?.presenting;
-  const chip = cn(
-    "rounded border bg-card px-1.5 py-0.5 text-[10px] font-mono-tight whitespace-nowrap",
-    tone === "verified" ? "border-verified/60 text-verified-ink" : "border-primary/60 text-primary",
-  );
+  // Neutral, like the line it names: the trust colours mean trust only.
+  const chip = "rounded border border-border bg-card px-1.5 py-0.5 text-[10px] font-mono-tight whitespace-nowrap text-foreground";
   const at = { left: x, top: y, zIndex };
   // Presenting: the words stay, as plain text; an unnamed line's
   // placeholder is only an invitation to type, so it goes.
